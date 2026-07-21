@@ -1,54 +1,38 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Platform,
-} from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useTheme } from "../theme";
+import { useTheme } from "../design/ThemeProvider";
+import {
+  useActivityTones,
+  ACTIVITY_LABEL,
+  DIAPER_META,
+  SIDE_EMOJI,
+  type ActivityKey,
+} from "../design/activity";
+import { space, radius } from "../design/tokens";
+import { useUnits } from "../context/SettingsContext";
 import { createLog } from "../api/logs";
 import { isInstantLog } from "../lib/activities";
+import { Text, Emoji, Button, Input, Field, Sheet, Chip, ChipWrap } from "./ui";
 import { useToast } from "./Toast";
-import { useUnits } from "../context/SettingsContext";
 
-type ActivityType =
-  | "pump"
-  | "feed"
-  | "sleep"
-  | "diaper"
-  | "shower"
-  | "vitamin"
-  | "nailcut";
+type ManualType = Extract<
+  ActivityKey,
+  "feed" | "pump" | "sleep" | "diaper" | "shower" | "vitamin" | "nailcut"
+>;
 
-const ACTIVITY_OPTIONS: { value: ActivityType; icon: string; label: string }[] =
-  [
-    { value: "feed", icon: "🤱", label: "Feed" },
-    { value: "pump", icon: "🍼", label: "Pump" },
-    { value: "sleep", icon: "😴", label: "Sleep" },
-    { value: "diaper", icon: "🩲", label: "Diaper" },
-    { value: "shower", icon: "🚿", label: "Shower" },
-    { value: "vitamin", icon: "💊", label: "Vitamin" },
-    { value: "nailcut", icon: "💅", label: "Nail Cut" },
-  ];
-
-const DIAPER_OPTIONS = [
-  { value: "empty", icon: "✅", label: "Empty" },
-  { value: "wet", icon: "💧", label: "Wet" },
-  { value: "dirty", icon: "💩", label: "Dirty" },
-  { value: "wet_and_dirty", icon: "💧💩", label: "Wet & Dirty" },
+const TYPES: ManualType[] = [
+  "feed",
+  "pump",
+  "sleep",
+  "diaper",
+  "shower",
+  "vitamin",
+  "nailcut",
 ];
 
 function formatTimeDisplay(d: Date): string {
-  return d.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 function formatDateDisplay(d: Date): string {
@@ -64,6 +48,11 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * "Add something that already happened" — the catch-all for entries made after
+ * the fact. Same rules as live tracking: a feed or pump is either a timed side
+ * session or a measured amount; moments save with a single time.
+ */
 export default function ManualEntryModal({
   visible,
   babyId,
@@ -72,12 +61,14 @@ export default function ManualEntryModal({
   onSaved,
   onClose,
 }: Props) {
-  const theme = useTheme();
-  const toast = useToast();
+  const t = useTheme();
+  const tones = useActivityTones();
   const units = useUnits();
-  const [activityType, setActivityType] = useState<ActivityType | null>(null);
+  const toast = useToast();
+
+  const [activityType, setActivityType] = useState<ManualType | null>(null);
   const [side, setSide] = useState<"left" | "right" | null>(null);
-  const [amountMl, setAmountMl] = useState("");
+  const [amount, setAmount] = useState("");
   const [diaperStatus, setDiaperStatus] = useState<string | null>(null);
   const [date, setDate] = useState(new Date());
   const [startTime, setStartTime] = useState(new Date());
@@ -85,51 +76,55 @@ export default function ManualEntryModal({
   const [comments, setComments] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Picker visibility states
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
-  // A feed or pump can be a nursing/pumping session (a side, with a duration)
-  // or a bottle / measured amount (ml, logged instantly).
   const takesMl = activityType === "feed" || activityType === "pump";
   const isDiaper = activityType === "diaper";
 
-  // Typed in the caregiver's unit, stored as ml.
-  const amountMlValue = takesMl ? units.parseVolume(amountMl) : NaN;
-  const amountMlValid = !isNaN(amountMlValue) && amountMlValue > 0;
+  const amountValue = takesMl ? units.parseVolume(amount) : NaN;
+  const amountValid = !isNaN(amountValue) && amountValue > 0;
 
-  // Diaper, shower, vitamin and nail cut are moments; so is an ml-only feed or
-  // pump. Only a sleep or a sided feed/pump is entered as a start/end range.
   const isInstant =
     !!activityType &&
     isInstantLog(activityType, {
       side,
-      amountMl: amountMlValid ? amountMlValue : null,
+      amountMl: amountValid ? amountValue : null,
     });
 
   // A feed or pump needs either a side or a valid amount; one is enough.
-  const sidedValid = !takesMl || !!side || amountMlValid;
+  const sidedValid = !takesMl || !!side || amountValid;
+  const canSave = !!activityType && sidedValid && (!isDiaper || !!diaperStatus);
 
-  const canSave =
-    !!activityType && sidedValid && (!isDiaper || !!diaperStatus);
-
-  const combineDateAndTime = (d: Date, t: Date): Date => {
+  const combine = (d: Date, tm: Date): Date => {
     const result = new Date(d);
-    result.setHours(t.getHours(), t.getMinutes(), 0, 0);
+    result.setHours(tm.getHours(), tm.getMinutes(), 0, 0);
     return result;
+  };
+
+  const handleClose = () => {
+    setActivityType(null);
+    setSide(null);
+    setAmount("");
+    setDiaperStatus(null);
+    setDate(new Date());
+    setStartTime(new Date());
+    setEndTime(new Date());
+    setComments("");
+    setShowDatePicker(false);
+    setShowStartPicker(false);
+    setShowEndPicker(false);
+    onClose();
   };
 
   const handleSave = async () => {
     if (!canSave || !activityType) return;
     setSaving(true);
 
-    const start = combineDateAndTime(date, startTime);
-    let end = isInstant ? start : combineDateAndTime(date, endTime);
-    // Only a time-of-day is captured for the end, on the start's date. If that
-    // lands before the start (an overnight sleep 10pm → 6am), the end really
-    // belongs to the next day — roll it forward rather than saving a negative
-    // range.
+    const start = combine(date, startTime);
+    let end = isInstant ? start : combine(date, endTime);
+    // An end before the start means it crossed midnight — roll it forward.
     if (!isInstant && end.getTime() < start.getTime()) {
       end = new Date(end);
       end.setDate(end.getDate() + 1);
@@ -140,7 +135,7 @@ export default function ManualEntryModal({
         babyId,
         type: activityType,
         side: takesMl ? side : null,
-        amountMl: takesMl && amountMlValid ? amountMlValue : null,
+        amountMl: takesMl && amountValid ? amountValue : null,
         diaperStatus: isDiaper ? diaperStatus : null,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
@@ -157,389 +152,253 @@ export default function ManualEntryModal({
     }
   };
 
-  const handleClose = () => {
-    setActivityType(null);
-    setSide(null);
-    setAmountMl("");
-    setDiaperStatus(null);
-    setDate(new Date());
-    setStartTime(new Date());
-    setEndTime(new Date());
-    setComments("");
-    setShowDatePicker(false);
-    setShowStartPicker(false);
-    setShowEndPicker(false);
-    onClose();
-  };
+  const pickerField = (label: string, value: string, onPress: () => void) => (
+    <Field label={label} style={styles.flex}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${value}`}
+        style={({ pressed }) => [
+          styles.pickerBtn,
+          {
+            backgroundColor: t.accentSofter,
+            borderColor: t.borderStrong,
+            opacity: pressed ? 0.7 : 1,
+          },
+        ]}
+      >
+        <Text variant="body">{value}</Text>
+      </Pressable>
+    </Field>
+  );
 
   return (
-    <Modal
+    <Sheet
       visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={handleClose}
+      onClose={handleClose}
+      title="Manual entry"
+      subtitle={`Logging for ${babyName}`}
+      footer={
+        <View style={styles.actions}>
+          <Button label="Cancel" variant="ghost" onPress={handleClose} style={styles.flex} />
+          <Button
+            label="Save entry"
+            variant="primary"
+            loading={saving}
+            disabled={!canSave}
+            onPress={handleSave}
+            style={styles.flex}
+          />
+        </View>
+      }
     >
-      <View style={styles.overlay}>
-        <View style={styles.sheet}>
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Header */}
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalEmoji}>📝</Text>
-              <Text style={styles.modalTitle}>Manual Entry</Text>
-              <Text style={[styles.forBaby, { color: theme.primary }]}>
-                Logging for: {babyName}
-              </Text>
-            </View>
+      <Field label="Activity">
+        <ChipWrap>
+          {TYPES.map((type) => (
+            <Chip
+              key={type}
+              label={ACTIVITY_LABEL[type]}
+              emoji={tones[type].emoji}
+              selected={activityType === type}
+              onPress={() => {
+                setActivityType(type);
+                if (type !== "feed" && type !== "pump") {
+                  setSide(null);
+                  setAmount("");
+                }
+                if (type !== "diaper") setDiaperStatus(null);
+              }}
+            />
+          ))}
+        </ChipWrap>
+      </Field>
 
-            {/* Activity type */}
-            <Text style={styles.sectionLabel}>ACTIVITY</Text>
-            <View style={styles.pillsRow}>
-              {ACTIVITY_OPTIONS.map((opt) => (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[
-                    styles.actPill,
-                    activityType === opt.value && {
-                      backgroundColor: theme.primary,
-                    },
-                    activityType !== opt.value && {
-                      backgroundColor: theme.primaryLighter,
-                    },
-                  ]}
-                  onPress={() => {
-                    setActivityType(opt.value);
-                    if (opt.value !== "pump" && opt.value !== "feed") {
-                      setSide(null);
-                      setAmountMl("");
-                    }
-                    if (opt.value !== "diaper") setDiaperStatus(null);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.actPillText,
+      {takesMl && (
+        <>
+          <Field
+            label="Side (timed session)"
+            helper="Pick a side, or enter an amount below instead."
+          >
+            <View style={styles.sideRow}>
+              {(["left", "right"] as const).map((s) => {
+                const selected = side === s;
+                return (
+                  <Pressable
+                    key={s}
+                    onPress={() => {
+                      const next = selected ? null : s;
+                      setSide(next);
+                      if (next) setAmount("");
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${s} side`}
+                    accessibilityState={{ selected }}
+                    style={({ pressed }) => [
+                      styles.sideBtn,
                       {
-                        color:
-                          activityType === opt.value ? "#fff" : theme.pillText,
+                        backgroundColor: selected ? t.accent : t.accentSofter,
+                        borderColor: selected ? t.accent : t.borderStrong,
+                        opacity: pressed ? 0.7 : 1,
                       },
                     ]}
                   >
-                    {opt.icon} {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Feed / pump: a side OR an amount. Either one is enough. */}
-            {takesMl && (
-              <>
-                <Text style={styles.sectionLabel}>SIDE</Text>
-                <View style={styles.sideRow}>
-                  {(["left", "right"] as const).map((s) => (
-                    <TouchableOpacity
-                      key={s}
-                      style={[
-                        styles.sideBtn,
-                        side === s
-                          ? { backgroundColor: theme.primary, borderColor: theme.primary }
-                          : { borderColor: theme.primaryLight, backgroundColor: theme.primaryLighter },
-                      ]}
-                      onPress={() => {
-                        // Picking a side switches to a timed session: clear any
-                        // amount so the two modes don't mix.
-                        const next = side === s ? null : s;
-                        setSide(next);
-                        if (next) setAmountMl("");
-                      }}
-                      activeOpacity={0.7}
+                    <Emoji size={20}>{SIDE_EMOJI[s]}</Emoji>
+                    <Text
+                      variant="subheadStrong"
+                      style={{ color: selected ? t.onAccent : t.accentText }}
                     >
-                      <Text style={[styles.sideBtnText, { color: side === s ? "#fff" : theme.pillText }]}>
-                        {s === "left" ? "🫲 L" : "🫱 R"}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                      {s === "left" ? "L" : "R"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Field>
 
-                <Text style={styles.sectionLabel}>
-                  {activityType === "feed" ? "BOTTLE AMOUNT" : "AMOUNT"} (
-                  {units.volume.toUpperCase()})
-                </Text>
-                <TextInput
-                  style={[
-                    styles.notesInput,
-                    { borderColor: theme.primaryLight, backgroundColor: theme.primaryLighter },
+          <Input
+            label={activityType === "feed" ? "Bottle amount" : "Amount"}
+            suffix={units.volume}
+            value={amount}
+            onChangeText={(v) => {
+              setAmount(v);
+              // Entering an amount switches to an instant, measured log.
+              if (v) setSide(null);
+            }}
+            keyboardType="decimal-pad"
+            placeholder={units.system === "metric" ? "120" : "4"}
+          />
+        </>
+      )}
+
+      {isDiaper && (
+        <Field label="Status">
+          <View style={styles.tileGrid}>
+            {Object.entries(DIAPER_META).map(([value, meta]) => {
+              const selected = diaperStatus === value;
+              return (
+                <Pressable
+                  key={value}
+                  onPress={() => setDiaperStatus(value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={meta.label}
+                  accessibilityState={{ selected }}
+                  style={({ pressed }) => [
+                    styles.tile,
+                    {
+                      backgroundColor: selected ? t.accent : t.accentSofter,
+                      borderColor: selected ? t.accent : t.borderStrong,
+                      opacity: pressed ? 0.7 : 1,
+                    },
                   ]}
-                  value={amountMl}
-                  onChangeText={(v) => {
-                    setAmountMl(v);
-                    // Entering an amount switches to an instant, measured log.
-                    if (v) setSide(null);
-                  }}
-                  placeholder={units.system === "metric" ? "e.g. 120" : "e.g. 4"}
-                  placeholderTextColor="#ccc"
-                  keyboardType="decimal-pad"
-                />
-              </>
-            )}
-
-            {/* Diaper status */}
-            {isDiaper && (
-              <>
-                <Text style={styles.sectionLabel}>STATUS</Text>
-                <View style={styles.diaperGrid}>
-                  {DIAPER_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.value}
-                      style={[
-                        styles.diaperOption,
-                        diaperStatus === opt.value
-                          ? { backgroundColor: theme.primary, borderColor: theme.primary }
-                          : { borderColor: theme.primaryLight, backgroundColor: theme.primaryLighter },
-                      ]}
-                      onPress={() => setDiaperStatus(opt.value)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.diaperEmoji}>{opt.icon}</Text>
-                      <Text
-                        style={[
-                          styles.diaperLabel,
-                          { color: diaperStatus === opt.value ? "#fff" : theme.pillText },
-                        ]}
-                      >
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {/* Date */}
-            <Text style={styles.sectionLabel}>DATE</Text>
-            <TouchableOpacity
-              style={[styles.pickerBtn, { borderColor: theme.primaryLight }]}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Text style={styles.pickerBtnText}>{formatDateDisplay(date)}</Text>
-            </TouchableOpacity>
-            {showDatePicker && (
-              <DateTimePicker
-                value={date}
-                mode="date"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                onChange={(_, d) => {
-                  setShowDatePicker(Platform.OS === "ios");
-                  if (d) setDate(d);
-                }}
-              />
-            )}
-
-            {/* An instant activity is a moment: one time, no range. */}
-            {isInstant ? (
-              <>
-                <Text style={styles.sectionLabel}>TIME</Text>
-                <TouchableOpacity
-                  style={[styles.pickerBtn, { borderColor: theme.primaryLight }]}
-                  onPress={() => setShowStartPicker(true)}
                 >
-                  <Text style={styles.pickerBtnText}>{formatTimeDisplay(startTime)}</Text>
-                </TouchableOpacity>
-                {showStartPicker && (
-                  <DateTimePicker
-                    value={startTime}
-                    mode="time"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onChange={(_, t) => {
-                      setShowStartPicker(Platform.OS === "ios");
-                      if (t) {
-                        setStartTime(t);
-                        setEndTime(t);
-                      }
-                    }}
-                  />
-                )}
-              </>
-            ) : (
-              <View style={styles.timeRow}>
-                <View style={styles.timeCell}>
-                  <Text style={styles.sectionLabel}>START TIME</Text>
-                  <TouchableOpacity
-                    style={[styles.pickerBtn, { borderColor: theme.primaryLight }]}
-                    onPress={() => setShowStartPicker(true)}
+                  <Emoji size={18}>{meta.emoji}</Emoji>
+                  <Text
+                    variant="subheadStrong"
+                    style={{ color: selected ? t.onAccent : t.accentText }}
                   >
-                    <Text style={styles.pickerBtnText}>{formatTimeDisplay(startTime)}</Text>
-                  </TouchableOpacity>
-                  {showStartPicker && (
-                    <DateTimePicker
-                      value={startTime}
-                      mode="time"
-                      display={Platform.OS === "ios" ? "spinner" : "default"}
-                      onChange={(_, t) => {
-                        setShowStartPicker(Platform.OS === "ios");
-                        if (t) setStartTime(t);
-                      }}
-                    />
-                  )}
-                </View>
-                <View style={styles.timeCell}>
-                  <Text style={styles.sectionLabel}>END TIME</Text>
-                  <TouchableOpacity
-                    style={[styles.pickerBtn, { borderColor: theme.primaryLight }]}
-                    onPress={() => setShowEndPicker(true)}
-                  >
-                    <Text style={styles.pickerBtnText}>{formatTimeDisplay(endTime)}</Text>
-                  </TouchableOpacity>
-                  {showEndPicker && (
-                    <DateTimePicker
-                      value={endTime}
-                      mode="time"
-                      display={Platform.OS === "ios" ? "spinner" : "default"}
-                      onChange={(_, t) => {
-                        setShowEndPicker(Platform.OS === "ios");
-                        if (t) setEndTime(t);
-                      }}
-                    />
-                  )}
-                </View>
-              </View>
-            )}
+                    {meta.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Field>
+      )}
 
-            {/* Notes */}
-            <Text style={styles.sectionLabel}>NOTES</Text>
-            <TextInput
-              style={[styles.notesInput, { borderColor: theme.primaryLight, backgroundColor: theme.primaryLighter }]}
-              value={comments}
-              onChangeText={setComments}
-              placeholder="Optional"
-              placeholderTextColor="#ccc"
-            />
+      {pickerField("Date", formatDateDisplay(date), () => setShowDatePicker(true))}
+      {showDatePicker && (
+        <DateTimePicker
+          value={date}
+          mode="date"
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={(_, d) => {
+            setShowDatePicker(Platform.OS === "ios");
+            if (d) setDate(d);
+          }}
+        />
+      )}
 
-            {/* Actions */}
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={handleClose} activeOpacity={0.8}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.saveBtn,
-                  { backgroundColor: theme.primary },
-                  (!canSave || saving) && { opacity: 0.4 },
-                ]}
-                onPress={handleSave}
-                disabled={!canSave || saving}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.saveText}>{saving ? "Saving..." : "Save Entry"}</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
+      {isInstant ? (
+        pickerField("Time", formatTimeDisplay(startTime), () =>
+          setShowStartPicker(true)
+        )
+      ) : (
+        <View style={styles.rowGap}>
+          {pickerField("Start time", formatTimeDisplay(startTime), () =>
+            setShowStartPicker(true)
+          )}
+          {pickerField("End time", formatTimeDisplay(endTime), () =>
+            setShowEndPicker(true)
+          )}
         </View>
-      </View>
-    </Modal>
+      )}
+      {showStartPicker && (
+        <DateTimePicker
+          value={startTime}
+          mode="time"
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={(_, tm) => {
+            setShowStartPicker(Platform.OS === "ios");
+            if (tm) {
+              setStartTime(tm);
+              if (isInstant) setEndTime(tm);
+            }
+          }}
+        />
+      )}
+      {showEndPicker && (
+        <DateTimePicker
+          value={endTime}
+          mode="time"
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={(_, tm) => {
+            setShowEndPicker(Platform.OS === "ios");
+            if (tm) setEndTime(tm);
+          }}
+        />
+      )}
+
+      <Input
+        label="Notes"
+        value={comments}
+        onChangeText={setComments}
+        placeholder="Optional"
+      />
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
+  flex: { flex: 1 },
+  actions: { flexDirection: "row", gap: space.sm },
+  rowGap: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
+  pickerBtn: {
+    borderRadius: radius.md,
+    borderWidth: 2,
+    paddingHorizontal: space.md,
+    minHeight: 48,
+    justifyContent: "center",
   },
-  sheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
-    maxHeight: "92%",
-  },
-  modalHeader: { alignItems: "center", marginBottom: 20 },
-  modalEmoji: { fontSize: 36, marginBottom: 6 },
-  modalTitle: { fontSize: 20, fontWeight: "700", color: "#333" },
-  forBaby: { fontSize: 12, fontWeight: "600", marginTop: 4 },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#aaa",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 8,
-    marginTop: 4,
-  },
-  pillsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
-  },
-  actPill: {
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  actPillText: { fontSize: 13, fontWeight: "700" },
-  sideRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
+  sideRow: { flexDirection: "row", gap: space.sm },
   sideBtn: {
     flex: 1,
-    borderWidth: 2,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  sideBtnText: { fontSize: 15, fontWeight: "700" },
-  diaperGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
+    height: 52,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.sm,
   },
-  diaperOption: {
+  tileGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  tile: {
+    flexGrow: 1,
     width: "47%",
+    height: 64,
+    borderRadius: radius.lg,
     borderWidth: 2,
-    borderRadius: 14,
-    paddingVertical: 12,
     alignItems: "center",
-    gap: 4,
+    justifyContent: "center",
+    gap: space.xxs,
   },
-  diaperEmoji: { fontSize: 22 },
-  diaperLabel: { fontSize: 12, fontWeight: "700" },
-  pickerBtn: {
-    borderWidth: 2,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    marginBottom: 16,
-  },
-  pickerBtnText: { fontSize: 14, color: "#333" },
-  timeRow: { flexDirection: "row", gap: 12 },
-  timeCell: { flex: 1 },
-  notesInput: {
-    borderWidth: 2,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 14,
-    color: "#333",
-    marginBottom: 20,
-  },
-  actionRow: { flexDirection: "row", gap: 10, marginBottom: 8 },
-  cancelBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#e5e5e5",
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  cancelText: { fontSize: 14, fontWeight: "600", color: "#aaa" },
-  saveBtn: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  saveText: { fontSize: 14, fontWeight: "700", color: "#fff" },
 });

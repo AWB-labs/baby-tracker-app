@@ -1,15 +1,32 @@
 import React, { useMemo, useCallback, useState } from "react";
 import {
-  View,
-  Text,
-  ScrollView,
+  Pressable,
   StyleSheet,
-  RefreshControl,
-  ActivityIndicator,
-  TouchableOpacity,
+  View,
+  type DimensionValue,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useTheme } from "../theme";
+import { useTheme } from "../design/ThemeProvider";
+import { space, radius, PRESSED_OPACITY } from "../design/tokens";
+import { Icon, type IconName } from "../design/icons";
+import {
+  useActivityTones,
+  ACTIVITY_LABEL,
+  DIAPER_META,
+  MEASURE_EMOJI,
+  type ActivityKey,
+  type ActivityTone,
+} from "../design/activity";
+import {
+  Screen,
+  ScreenHeader,
+  SectionHeader,
+  Card,
+  Divider,
+  Text,
+  Emoji,
+  SkeletonList,
+  FadeInUp,
+} from "../components/ui";
 import { useLogs } from "../hooks/useLogs";
 import { useBaby } from "../context/BabyContext";
 import BabySwitcher from "../components/BabySwitcher";
@@ -19,13 +36,6 @@ import { formatTime } from "../utils/formatTime";
 import { overlapMinutes } from "../lib/dayMath";
 import { useUnits } from "../context/SettingsContext";
 import type { LogEntry } from "../api/logs";
-
-const DIAPER_STATUS_META: Record<string, { icon: string; label: string }> = {
-  empty: { icon: "✅", label: "Empty" },
-  wet: { icon: "💧", label: "Wet" },
-  dirty: { icon: "💩", label: "Dirty" },
-  wet_and_dirty: { icon: "💧💩", label: "Wet & Dirty" },
-};
 
 interface DayStats {
   dateKey: string;
@@ -63,6 +73,18 @@ const EMPTY_DAY = {
   healthCount: 0,
   totalLogs: 0,
 };
+
+/** Activity counts that make up a day's mix bar, in a stable visual order. */
+const MIX_COUNTS: { type: ActivityKey; of: (d: DayStats) => number }[] = [
+  { type: "feed", of: (d) => d.feedCount },
+  { type: "pump", of: (d) => d.pumpCount },
+  { type: "sleep", of: (d) => d.sleepCount },
+  { type: "diaper", of: (d) => d.diaperCount },
+  { type: "shower", of: (d) => d.showerCount },
+  { type: "vitamin", of: (d) => d.vitaminCount },
+  { type: "nailcut", of: (d) => d.nailcutCount },
+  { type: "health", of: (d) => d.healthCount },
+];
 
 function getDayKey(iso: string): string {
   return new Date(iso).toDateString();
@@ -140,7 +162,7 @@ function computeAllDayStats(logs: LogEntry[]): DayStats[] {
 }
 
 export default function AnalyticsScreen() {
-  const theme = useTheme();
+  const tones = useActivityTones();
   const units = useUnits();
   const { activeBaby } = useBaby();
   const { logs, loading, refresh } = useLogs("all");
@@ -201,33 +223,25 @@ export default function AnalyticsScreen() {
   }, [logs]);
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
-        }
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Analytics</Text>
-            <Text style={styles.subtitle}>
-              {dayCount} day{dayCount !== 1 ? "s" : ""} tracked ·{" "}
-              {totalStats.totalLogs} logs
-              {activeBaby ? ` · ${activeBaby.name}` : ""}
-            </Text>
-          </View>
-          <BabySwitcher />
-        </View>
+    <Screen refreshing={refreshing} onRefresh={onRefresh}>
+      <ScreenHeader
+        title="Trends"
+        subtitle={`${dayCount} day${dayCount !== 1 ? "s" : ""} tracked · ${
+          totalStats.totalLogs
+        } logs${activeBaby ? ` · ${activeBaby.name}` : ""}`}
+        actions={<BabySwitcher />}
+      />
 
-        {loading ? (
-          <ActivityIndicator color={theme.primary} style={{ marginTop: 40 }} />
-        ) : (
-          <>
+      {loading ? (
+        <SkeletonList rows={4} />
+      ) : (
+        <>
+          <View style={styles.section}>
+            <SectionHeader title="Per activity" />
             <View style={styles.cards}>
               <StatCard
-                icon="🤱"
+                icon={tones.feed.emoji}
+                type="feed"
                 label="Feeding"
                 today={formatMinutes(todayStats.feedTime)}
                 avg={formatMinutes(Math.round(avgStats.feedTime))}
@@ -235,7 +249,8 @@ export default function AnalyticsScreen() {
                 totalCount={totalStats.feedCount}
               />
               <StatCard
-                icon="🍼"
+                icon={tones.pump.emoji}
+                type="pump"
                 label="Pumping"
                 today={units.formatVolume(todayStats.pumpMl)}
                 avg={units.formatVolume(avgStats.pumpMl)}
@@ -243,7 +258,8 @@ export default function AnalyticsScreen() {
                 totalCount={totalStats.pumpCount}
               />
               <StatCard
-                icon="😴"
+                icon={tones.sleep.emoji}
+                type="sleep"
                 label="Sleep"
                 today={formatMinutes(todayStats.sleepTime)}
                 avg={formatMinutes(Math.round(avgStats.sleepTime))}
@@ -251,276 +267,399 @@ export default function AnalyticsScreen() {
                 totalCount={totalStats.sleepCount}
               />
               <StatCard
-                icon="🩲"
+                icon={tones.diaper.emoji}
+                type="diaper"
                 label="Diapers"
                 today={String(todayStats.diaperCount)}
                 avg={avgStats.diaperCount.toFixed(1)}
                 total={String(totalStats.diaperCount)}
               />
               <StatCard
-                icon="🚿"
+                icon={tones.shower.emoji}
+                type="shower"
                 label="Showers"
                 today={String(todayStats.showerCount)}
                 avg={avgStats.showerCount.toFixed(1)}
                 total={String(totalStats.showerCount)}
               />
               <StatCard
-                icon="💊"
+                icon={tones.vitamin.emoji}
+                type="vitamin"
                 label="Vitamins"
                 today={String(todayStats.vitaminCount)}
                 avg={avgStats.vitaminCount.toFixed(1)}
                 total={String(totalStats.vitaminCount)}
               />
               <StatCard
-                icon="💅"
+                icon={tones.nailcut.emoji}
+                type="nailcut"
                 label="Nail Cut"
                 today={String(todayStats.nailcutCount)}
                 avg={avgStats.nailcutCount.toFixed(1)}
                 total={String(totalStats.nailcutCount)}
               />
               <StatCard
-                icon="🩺"
+                icon={tones.health.emoji}
+                type="health"
                 label="Health"
                 today={String(todayStats.healthCount)}
                 avg={avgStats.healthCount.toFixed(1)}
                 total={String(totalStats.healthCount)}
               />
             </View>
+          </View>
 
-            {/* Daily breakdown */}
-            {dayStats.length > 1 && (
-              <View style={styles.tableSection}>
-                <Text style={[styles.tableTitle, { color: theme.primary }]}>
-                  DAILY BREAKDOWN
-                </Text>
-                <View style={styles.dayList}>
-                  {dayStats.map((day) => {
-                    const expanded = expandedDays.has(day.dateKey);
-                    const chips = [
-                      { key: "feed", icon: "🤱", value: formatMinutes(day.feedTime), show: day.feedTime > 0 },
-                      { key: "pumpMl", icon: "🍼", value: units.formatVolume(day.pumpMl), show: day.pumpMl > 0 },
-                      { key: "pumpTime", icon: "⏱", value: formatMinutes(day.pumpTime), show: day.pumpTime > 0 },
-                      { key: "sleep", icon: "😴", value: formatMinutes(day.sleepTime), show: day.sleepTime > 0 },
-                      { key: "diaper", icon: "🩲", value: `${day.diaperCount}×`, show: day.diaperCount > 0 },
-                      { key: "shower", icon: "🚿", value: `${day.showerCount}×`, show: day.showerCount > 0 },
-                      { key: "vitamin", icon: "💊", value: `${day.vitaminCount}×`, show: day.vitaminCount > 0 },
-                      { key: "nailcut", icon: "💅", value: `${day.nailcutCount}×`, show: day.nailcutCount > 0 },
-                      { key: "health", icon: "🩺", value: `${day.healthCount}×`, show: day.healthCount > 0 },
-                    ].filter((c) => c.show);
-                    const hasDetail =
-                      day.diaperLogs.length > 0 ||
-                      day.feedLogs.length > 0 ||
-                      day.pumpLogs.length > 0;
-
-                    return (
-                      <View key={day.dateKey} style={styles.dayCard}>
-                        <TouchableOpacity
-                          onPress={() => hasDetail && toggleDay(day.dateKey)}
-                          activeOpacity={hasDetail ? 0.7 : 1}
-                        >
-                          <View style={styles.dayHeader}>
-                            <Text style={styles.dayLabel}>{day.dateLabel}</Text>
-                            {hasDetail && (
-                              <Text style={styles.chevron}>{expanded ? "▲" : "▼"}</Text>
-                            )}
-                          </View>
-                          <View style={styles.chipRow}>
-                            {chips.map((c) => (
-                              <View
-                                key={c.key}
-                                style={[styles.chip, { backgroundColor: theme.primaryLighter }]}
-                              >
-                                <Text style={styles.chipText}>
-                                  {c.icon} {c.value}
-                                </Text>
-                              </View>
-                            ))}
-                          </View>
-                        </TouchableOpacity>
-
-                        {expanded && (
-                          <View style={styles.detail}>
-                            {day.diaperLogs.length > 0 && (
-                              <View style={styles.detailBlock}>
-                                <Text style={styles.detailTitle}>🩲 Diapers</Text>
-                                {day.diaperLogs.map((log) => {
-                                  const m =
-                                    log.diaperStatus && DIAPER_STATUS_META[log.diaperStatus];
-                                  return (
-                                    <View key={log.id} style={styles.detailRow}>
-                                      <Text style={styles.detailTime}>
-                                        {formatTime(log.startTime)}
-                                      </Text>
-                                      <Text style={styles.detailValue}>
-                                        {m ? `${m.icon} ${m.label}` : "—"}
-                                      </Text>
-                                    </View>
-                                  );
-                                })}
-                              </View>
-                            )}
-
-                            {day.feedLogs.length > 0 && (
-                              <View style={styles.detailBlock}>
-                                <Text style={styles.detailTitle}>🤱 Feeds</Text>
-                                {day.feedLogs.map((log) => {
-                                  const side = sideLabel(log.side);
-                                  return (
-                                    <View key={log.id} style={styles.detailRow}>
-                                      <Text style={styles.detailTime}>
-                                        {formatTime(log.startTime)}
-                                      </Text>
-                                      {side ? (
-                                        <View
-                                          style={[
-                                            styles.detailPill,
-                                            { backgroundColor: theme.primaryLight },
-                                          ]}
-                                        >
-                                          <Text
-                                            style={[
-                                              styles.detailPillText,
-                                              { color: theme.pillText },
-                                            ]}
-                                          >
-                                            {side}
-                                          </Text>
-                                        </View>
-                                      ) : null}
-                                      {log.amountMl !== null && (
-                                        <View style={[styles.detailPill, styles.mlPill]}>
-                                          <Text style={styles.mlPillText}>
-                                            🍼 {units.formatVolume(log.amountMl)}
-                                          </Text>
-                                        </View>
-                                      )}
-                                      {log.durationMinutes ? (
-                                        <Text style={styles.detailValue}>
-                                          {formatDuration(log.durationMinutes)}
-                                        </Text>
-                                      ) : null}
-                                    </View>
-                                  );
-                                })}
-                              </View>
-                            )}
-
-                            {day.pumpLogs.length > 0 && (
-                              <View style={styles.detailBlock}>
-                                <Text style={styles.detailTitle}>🍼 Pumps</Text>
-                                {day.pumpLogs.map((log) => {
-                                  const side = sideLabel(log.side);
-                                  return (
-                                    <View key={log.id} style={styles.detailRow}>
-                                      <Text style={styles.detailTime}>
-                                        {formatTime(log.startTime)}
-                                      </Text>
-                                      {side ? (
-                                        <View
-                                          style={[
-                                            styles.detailPill,
-                                            { backgroundColor: theme.primaryLight },
-                                          ]}
-                                        >
-                                          <Text
-                                            style={[
-                                              styles.detailPillText,
-                                              { color: theme.pillText },
-                                            ]}
-                                          >
-                                            {side}
-                                          </Text>
-                                        </View>
-                                      ) : null}
-                                      {log.amountMl !== null && (
-                                        <View style={[styles.detailPill, styles.mlPill]}>
-                                          <Text style={styles.mlPillText}>
-                                            {units.formatVolume(log.amountMl)}
-                                          </Text>
-                                        </View>
-                                      )}
-                                      {log.durationMinutes ? (
-                                        <Text style={styles.detailValue}>
-                                          {formatDuration(log.durationMinutes)}
-                                        </Text>
-                                      ) : null}
-                                    </View>
-                                  );
-                                })}
-                              </View>
-                            )}
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
+          {dayStats.length > 1 && (
+            <View style={styles.section}>
+              <SectionHeader
+                title="Daily breakdown"
+                action={
+                  <Text variant="caption" tone="subtle">
+                    Tap a day for detail
+                  </Text>
+                }
+              />
+              <View style={styles.dayList}>
+                {dayStats.map((day, index) => (
+                  <FadeInUp key={day.dateKey} index={index}>
+                    <DayCard
+                      day={day}
+                      expanded={expandedDays.has(day.dateKey)}
+                      onToggle={() => toggleDay(day.dateKey)}
+                    />
+                  </FadeInUp>
+                ))}
               </View>
-            )}
-          </>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+            </View>
+          )}
+        </>
+      )}
+    </Screen>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* One day                                                                     */
+/* -------------------------------------------------------------------------- */
+
+interface DayChip {
+  key: string;
+  type: ActivityKey;
+  value: string;
+  show: boolean;
+  /** Replaces the activity emoji when two chips share one activity. */
+  icon?: IconName;
+}
+
+function DayCard({
+  day,
+  expanded,
+  onToggle,
+}: {
+  day: DayStats;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const t = useTheme();
+  const tones = useActivityTones();
+  const units = useUnits();
+
+  const chips = ([
+    { key: "feed", type: "feed", value: formatMinutes(day.feedTime), show: day.feedTime > 0 },
+    { key: "pumpMl", type: "pump", value: units.formatVolume(day.pumpMl), show: day.pumpMl > 0 },
+    { key: "pumpTime", type: "pump", icon: "clock", value: formatMinutes(day.pumpTime), show: day.pumpTime > 0 },
+    { key: "sleep", type: "sleep", value: formatMinutes(day.sleepTime), show: day.sleepTime > 0 },
+    { key: "diaper", type: "diaper", value: `${day.diaperCount}×`, show: day.diaperCount > 0 },
+    { key: "shower", type: "shower", value: `${day.showerCount}×`, show: day.showerCount > 0 },
+    { key: "vitamin", type: "vitamin", value: `${day.vitaminCount}×`, show: day.vitaminCount > 0 },
+    { key: "nailcut", type: "nailcut", value: `${day.nailcutCount}×`, show: day.nailcutCount > 0 },
+    { key: "health", type: "health", value: `${day.healthCount}×`, show: day.healthCount > 0 },
+  ] satisfies DayChip[]).filter((c) => c.show);
+
+  const hasDetail =
+    day.diaperLogs.length > 0 ||
+    day.feedLogs.length > 0 ||
+    day.pumpLogs.length > 0;
+
+  // Pressable is one accessibility element, so an explicit label REPLACES the
+  // chips' text rather than adding to it. The label therefore has to restate
+  // the day's figures — and it names each activity, which the silenced emoji
+  // and the colour-only chip tints otherwise leave unsaid.
+  const a11yLabel = [
+    day.dateLabel,
+    ...chips.map((c) => `${ACTIVITY_LABEL[c.type]} ${c.value}`),
+  ].join(", ");
+
+  return (
+    <Card padded={false}>
+      <Pressable
+        onPress={onToggle}
+        disabled={!hasDetail}
+        accessibilityRole={hasDetail ? "button" : undefined}
+        accessibilityLabel={a11yLabel}
+        accessibilityHint={
+          hasDetail ? "Shows every feed, pump and diaper for this day" : undefined
+        }
+        accessibilityState={hasDetail ? { expanded } : undefined}
+        style={({ pressed }) => [
+          styles.dayHead,
+          { opacity: pressed && hasDetail ? PRESSED_OPACITY : 1 },
+        ]}
+      >
+        <View style={styles.dayTitleRow}>
+          <Text variant="subheadStrong">{day.dateLabel}</Text>
+          {hasDetail && (
+            <Icon
+              name={expanded ? "chevronUp" : "chevronDown"}
+              size="sm"
+              color={t.textSubtle}
+            />
+          )}
+        </View>
+
+        <MixBar day={day} />
+
+        <View style={styles.chipRow}>
+          {chips.map((c) => (
+            <ToneChip
+              key={c.key}
+              tone={tones[c.type]}
+              icon={c.icon}
+              value={c.value}
+            />
+          ))}
+        </View>
+      </Pressable>
+
+      {expanded && (
+        <View style={styles.detail}>
+          <Divider />
+
+          {day.diaperLogs.length > 0 && (
+            <View style={styles.detailBlock}>
+              <DetailHeading emoji={tones.diaper.emoji} title="Diapers" />
+              {day.diaperLogs.map((log) => {
+                const meta = log.diaperStatus && DIAPER_META[log.diaperStatus];
+                return (
+                  <View key={log.id} style={styles.detailRow}>
+                    <Text variant="footnote" tone="subtle" tabular>
+                      {formatTime(log.startTime)}
+                    </Text>
+                    {meta ? (
+                      <Pill
+                        emoji={meta.emoji}
+                        bg={tones.diaper.soft}
+                        fg={tones.diaper.text}
+                      >
+                        {meta.label}
+                      </Pill>
+                    ) : (
+                      <Text variant="footnote" tone="muted">
+                        —
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {day.feedLogs.length > 0 && (
+            <View style={styles.detailBlock}>
+              <DetailHeading emoji={tones.feed.emoji} title="Feeds" />
+              {day.feedLogs.map((log) => (
+                <TimedRow key={log.id} log={log} tone={tones.feed} />
+              ))}
+            </View>
+          )}
+
+          {day.pumpLogs.length > 0 && (
+            <View style={styles.detailBlock}>
+              <DetailHeading emoji={tones.pump.emoji} title="Pumps" />
+              {day.pumpLogs.map((log) => (
+                <TimedRow key={log.id} log={log} tone={tones.pump} />
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The day's mix of activities as one continuous bar.
+ *
+ * It carries no figure the chips above don't already state — it exists so a long
+ * list of days can be skimmed for shape rather than read — so it is decoration
+ * as far as a screen reader is concerned.
+ */
+function MixBar({ day }: { day: DayStats }) {
+  const t = useTheme();
+  const tones = useActivityTones();
+
+  const parts = MIX_COUNTS.map((m) => ({ type: m.type, count: m.of(day) })).filter(
+    (p) => p.count > 0
+  );
+  const total = parts.reduce((sum, p) => sum + p.count, 0);
+  if (total === 0) return null;
+
+  return (
+    <View
+      style={[styles.bar, { backgroundColor: t.surfaceSunken }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {parts.map((p) => (
+        <View
+          key={p.type}
+          style={{
+            width: `${(p.count / total) * 100}%` as DimensionValue,
+            backgroundColor: tones[p.type].main,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+/** A day summary chip, tinted with its activity's pastel pair. */
+function ToneChip({
+  tone,
+  icon,
+  value,
+}: {
+  tone: ActivityTone;
+  icon?: IconName;
+  value: string;
+}) {
+  return (
+    <View style={[styles.chip, { backgroundColor: tone.soft }]}>
+      {icon ? (
+        <Icon name={icon} size="xs" color={tone.text} />
+      ) : (
+        <Emoji size={12}>{tone.emoji}</Emoji>
+      )}
+      <Text variant="caption" tabular style={{ color: tone.text }}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function DetailHeading({ emoji, title }: { emoji: string; title: string }) {
+  return (
+    <View style={styles.detailHeading}>
+      <Emoji size={12}>{emoji}</Emoji>
+      <Text variant="overline" tone="subtle" accessibilityRole="header">
+        {title}
+      </Text>
+    </View>
+  );
+}
+
+/** Shared by feeds and pumps — same shape, different tone. */
+function TimedRow({ log, tone }: { log: LogEntry; tone: ActivityTone }) {
+  const t = useTheme();
+  const units = useUnits();
+  const side = sideLabel(log.side);
+
+  return (
+    <View style={styles.detailRow}>
+      <Text variant="footnote" tone="subtle" tabular>
+        {formatTime(log.startTime)}
+      </Text>
+      {side ? (
+        <Pill bg={tone.soft} fg={tone.text}>
+          {side}
+        </Pill>
+      ) : null}
+      {log.amountMl !== null && (
+        <Pill emoji={MEASURE_EMOJI.volume} bg={t.infoSoft} fg={t.info}>
+          {units.formatVolume(log.amountMl)}
+        </Pill>
+      )}
+      {log.durationMinutes ? (
+        <Text variant="footnote" tone="muted">
+          {formatDuration(log.durationMinutes)}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** The website's badge pill: pastel fill, small bold text, tiny emoji. */
+function Pill({
+  emoji,
+  children,
+  bg,
+  fg,
+}: {
+  emoji?: string;
+  children: React.ReactNode;
+  bg: string;
+  fg: string;
+}) {
+  return (
+    <View style={[styles.pill, { backgroundColor: bg }]}>
+      {emoji ? <Emoji size={11}>{emoji}</Emoji> : null}
+      <Text variant="caption" style={{ color: fg }}>
+        {children}
+      </Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  content: { padding: 16, paddingBottom: 32 },
-  header: {
+  section: { gap: space.sm },
+  cards: { gap: space.md },
+  dayList: { gap: space.sm },
+  dayHead: { padding: space.lg, gap: space.sm },
+  dayTitleRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 20,
-  },
-  title: { fontSize: 24, fontWeight: "800", color: "#1a1a1a" },
-  subtitle: { fontSize: 13, color: "#aaa", marginTop: 2 },
-  cards: { gap: 12, marginBottom: 24 },
-  tableSection: { marginTop: 8 },
-  tableTitle: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textAlign: "center",
-    textTransform: "uppercase",
-    marginBottom: 12,
-  },
-  dayList: { gap: 10 },
-  dayCard: {
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  dayHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    justifyContent: "space-between",
+    gap: space.sm,
   },
-  dayLabel: { fontSize: 14, fontWeight: "700", color: "#333" },
-  chevron: { fontSize: 11, color: "#bbb" },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  chip: { borderRadius: 20, paddingHorizontal: 9, paddingVertical: 4 },
-  chipText: { fontSize: 11, fontWeight: "700", color: "#555" },
-  detail: { marginTop: 12, gap: 12 },
-  detailBlock: { gap: 4 },
-  detailTitle: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#aaa",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+  bar: {
+    flexDirection: "row",
+    height: space.sm,
+    borderRadius: radius.pill,
+    overflow: "hidden",
   },
-  detailRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  detailTime: { fontSize: 12, color: "#888", fontVariant: ["tabular-nums"] },
-  detailValue: { fontSize: 12, color: "#666" },
-  detailPill: { borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2 },
-  detailPillText: { fontSize: 10, fontWeight: "700" },
-  mlPill: { backgroundColor: "#eff6ff" },
-  mlPillText: { fontSize: 10, fontWeight: "700", color: "#3b82f6" },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xs,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xxs,
+    borderRadius: radius.pill,
+  },
+  detail: {
+    paddingHorizontal: space.lg,
+    paddingBottom: space.lg,
+    gap: space.lg,
+  },
+  detailBlock: { gap: space.xs },
+  detailHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xs,
+    marginBottom: space.xxs,
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: space.sm,
+  },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xs,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xxs,
+    borderRadius: radius.pill,
+  },
 });

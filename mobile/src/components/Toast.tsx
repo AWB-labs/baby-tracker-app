@@ -7,15 +7,20 @@ import React, {
   useState,
 } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
+  AccessibilityInfo,
   Animated,
-  TouchableOpacity,
   Platform,
+  Pressable,
+  StyleSheet,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme, useReduceMotion } from "../design/ThemeProvider";
+import { space, radius, motion, elevation } from "../design/tokens";
+import { Icon, type IconName } from "../design/icons";
+import { Text } from "./ui/primitives";
 import { getErrorMessage } from "../lib/errors";
+import { useAuth } from "../context/AuthContext";
 
 export type ToastKind = "success" | "error" | "info";
 
@@ -36,50 +41,43 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-const KIND_STYLE: Record<
-  ToastKind,
-  { background: string; border: string; text: string; icon: string }
-> = {
-  success: { background: "#f0fdf4", border: "#86efac", text: "#15803d", icon: "✓" },
-  error: { background: "#fef2f2", border: "#fca5a5", text: "#b91c1c", icon: "!" },
-  info: { background: "#eff6ff", border: "#93c5fd", text: "#1d4ed8", icon: "i" },
+const ICON: Record<ToastKind, IconName> = {
+  success: "checkCircle",
+  error: "alert",
+  info: "info",
 };
 
-// Errors linger a little longer: they usually ask the reader to do something.
+// Errors linger: they usually ask the reader to do something about it.
 const DURATION: Record<ToastKind, number> = {
   success: 2600,
   info: 3000,
-  error: 4200,
+  error: 4400,
 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<ToastState | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(-16)).current;
+  const translateY = useRef(new Animated.Value(-12)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextId = useRef(0);
   const insets = useSafeAreaInsets();
+  const t = useTheme();
+  const reduceMotion = useReduceMotion();
 
   const dismiss = useCallback(() => {
     if (hideTimer.current) {
       clearTimeout(hideTimer.current);
       hideTimer.current = null;
     }
+    // Exits run shorter than entrances so dismissal feels immediate.
+    const duration = reduceMotion ? 0 : motion.base * motion.exitRatio;
     Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: -16,
-        duration: 180,
-        useNativeDriver: true,
-      }),
+      Animated.timing(opacity, { toValue: 0, duration, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: -12, duration, useNativeDriver: true }),
     ]).start(({ finished }) => {
       if (finished) setToast(null);
     });
-  }, [opacity, translateY]);
+  }, [opacity, translateY, reduceMotion]);
 
   const show = useCallback(
     (message: string, kind: ToastKind = "info") => {
@@ -92,24 +90,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       setToast({ id: nextId.current, message, kind });
 
       opacity.setValue(0);
-      translateY.setValue(-16);
+      translateY.setValue(-12);
       Animated.parallel([
         Animated.timing(opacity, {
           toValue: 1,
-          duration: 220,
+          duration: reduceMotion ? 0 : motion.base,
           useNativeDriver: true,
         }),
         Animated.spring(translateY, {
           toValue: 0,
-          friction: 8,
-          tension: 80,
           useNativeDriver: true,
+          ...motion.springSoft,
         }),
       ]).start();
 
       hideTimer.current = setTimeout(dismiss, DURATION[kind]);
     },
-    [opacity, translateY, dismiss]
+    [opacity, translateY, dismiss, reduceMotion]
   );
 
   useEffect(
@@ -130,45 +127,65 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     ),
   };
 
-  const palette = toast ? KIND_STYLE[toast.kind] : KIND_STYLE.info;
+  const tone = toast
+    ? {
+        success: { bg: t.successSoft, border: t.successBorder, fg: t.success },
+        error: { bg: t.dangerSoft, border: t.dangerBorder, fg: t.danger },
+        info: { bg: t.infoSoft, border: t.infoBorder, fg: t.info },
+      }[toast.kind]
+    : null;
 
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {toast && (
+      <SessionExpiryWatcher />
+      {toast && tone && (
         <Animated.View
           pointerEvents="box-none"
           style={[
             styles.wrap,
-            { top: insets.top + 8, opacity, transform: [{ translateY }] },
+            { top: insets.top + space.sm, opacity, transform: [{ translateY }] },
           ]}
         >
-          <TouchableOpacity
-            activeOpacity={0.9}
+          <Pressable
             onPress={dismiss}
+            // Announced without stealing focus from whatever the user is doing.
+            accessibilityLiveRegion="polite"
             accessibilityRole="alert"
             accessibilityLabel={toast.message}
+            accessibilityHint="Tap to dismiss"
             style={[
               styles.toast,
-              {
-                backgroundColor: palette.background,
-                borderColor: palette.border,
-              },
+              { backgroundColor: tone.bg, borderColor: tone.border },
+              elevation(3, t.scheme === "dark"),
             ]}
           >
-            <View style={[styles.badge, { backgroundColor: palette.border }]}>
-              <Text style={[styles.badgeText, { color: palette.text }]}>
-                {palette.icon}
-              </Text>
-            </View>
-            <Text style={[styles.message, { color: palette.text }]}>
+            <Icon name={ICON[toast.kind]} size="md" color={tone.fg} />
+            <Text variant="subheadStrong" style={{ color: tone.fg, flex: 1 }}>
               {toast.message}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </Animated.View>
       )}
     </ToastContext.Provider>
   );
+}
+
+/**
+ * Reports an expired session. Lives here because auth deliberately can't reach
+ * the toast layer directly — see the note on AuthContext.sessionExpiredAt.
+ */
+function SessionExpiryWatcher() {
+  const { sessionExpiredAt, acknowledgeSessionExpiry } = useAuth();
+  const toast = useToast();
+
+  useEffect(() => {
+    if (!sessionExpiredAt) return;
+    toast.error("Your session has expired. Please sign in again.");
+    acknowledgeSessionExpiry();
+  }, [sessionExpiredAt, toast, acknowledgeSessionExpiry]);
+
+  return null;
 }
 
 export function useToast(): ToastContextValue {
@@ -183,37 +200,19 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: space.lg,
     zIndex: 1000,
     elevation: 1000,
   },
   toast: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: space.md,
     maxWidth: 480,
     width: "100%",
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.12,
-        shadowRadius: 12,
-      },
-      android: { elevation: 6 },
-    }),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
   },
-  badge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeText: { fontSize: 13, fontWeight: "900" },
-  message: { flex: 1, fontSize: 13, fontWeight: "600", lineHeight: 18 },
 });

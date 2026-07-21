@@ -1,22 +1,35 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
 import { useBaby } from "../../context/BabyContext";
 import { useToast } from "../../components/Toast";
+import { useTheme } from "../../design/ThemeProvider";
+import { space, radius } from "../../design/tokens";
+import { useActivityTone } from "../../design/activity";
+import {
+  Screen,
+  Text,
+  Emoji,
+  Input,
+  Field,
+  Segmented,
+  Button,
+} from "../../components/ui";
+
+type Gender = "girl" | "boy";
+
+const GENDER_OPTIONS: { value: Gender; label: string }[] = [
+  { value: "girl", label: "Girl" },
+  { value: "boy", label: "Boy" },
+];
 
 export default function SetupBabyScreen() {
   const toast = useToast();
+  const t = useTheme();
+  // Same mark as the sign-in screens — this is still onboarding, not the app.
+  const mark = useActivityTone("pump").emoji;
   const { addBaby, setActiveBaby, refreshBabies } = useBaby();
   const [babyName, setBabyName] = useState("");
-  const [gender, setGender] = useState<"girl" | "boy">("girl");
+  const [gender, setGender] = useState<Gender>("girl");
   const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
@@ -41,126 +54,69 @@ export default function SetupBabyScreen() {
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.emoji}>👶</Text>
-        <Text style={styles.title}>Add Your Baby</Text>
-        <Text style={styles.subtitle}>Set up your first baby profile</Text>
+      {/* Onboarding sits outside the tab navigator, so the content is centred
+          and the tab-bar clearance Screen normally reserves is dropped. */}
+      <Screen scroll contentStyle={styles.content}>
+        <View style={styles.hero}>
+          <View style={[styles.mark, { backgroundColor: t.accentSoft }]}>
+            <Emoji size={44}>{mark}</Emoji>
+          </View>
+          <Text variant="display" center accessibilityRole="header">
+            Add your baby
+          </Text>
+          <Text variant="body" tone="muted" center>
+            One profile to start with — you can add more any time.
+          </Text>
+        </View>
 
         <View style={styles.form}>
-          <Text style={styles.label}>BABY&apos;S NAME</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            label="Baby's name"
             value={babyName}
             onChangeText={setBabyName}
             placeholder="e.g. Touti"
-            placeholderTextColor="#ccc"
             autoFocus
+            returnKeyType="done"
           />
 
-          <Text style={styles.label}>GENDER</Text>
-          <View style={styles.genderRow}>
-            {(["girl", "boy"] as const).map((g) => (
-              <TouchableOpacity
-                key={g}
-                style={[
-                  styles.genderBtn,
-                  gender === g && {
-                    backgroundColor: g === "girl" ? "#ff6b95" : "#4e9eff",
-                    borderColor: g === "girl" ? "#ff6b95" : "#4e9eff",
-                  },
-                ]}
-                onPress={() => setGender(g)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.genderEmoji}>
-                  {g === "girl" ? "👧" : "👦"}
-                </Text>
-                <Text
-                  style={[
-                    styles.genderLabel,
-                    gender === g && { color: "#fff" },
-                  ]}
-                >
-                  {g === "girl" ? "Girl" : "Boy"}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <Field label="Gender">
+            <Segmented
+              options={GENDER_OPTIONS}
+              value={gender}
+              onChange={setGender}
+            />
+          </Field>
 
-          <TouchableOpacity
-            style={[
-              styles.button,
-              loading && styles.buttonDisabled,
-              { backgroundColor: gender === "girl" ? "#ff6b95" : "#4e9eff" },
-            ]}
+          <Button
+            label="Start tracking"
+            variant="primary"
+            size="lg"
+            fullWidth
+            loading={loading}
             onPress={handleSave}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? "Setting up..." : "Let's Go! 🎉"}
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
-      </ScrollView>
+      </Screen>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#fff5f7" },
-  container: {
+  flex: { flex: 1 },
+  content: {
     flexGrow: 1,
     justifyContent: "center",
+    paddingBottom: space.xxxl,
+    gap: space.xxl,
+  },
+  hero: { alignItems: "center", gap: space.xs },
+  mark: {
+    width: 88,
+    height: 88,
+    borderRadius: radius.pill,
     alignItems: "center",
-    paddingHorizontal: 28,
-    paddingVertical: 40,
+    justifyContent: "center",
+    marginBottom: space.sm,
   },
-  emoji: { fontSize: 52, marginBottom: 12 },
-  title: { fontSize: 28, fontWeight: "700", color: "#333", marginBottom: 4 },
-  subtitle: { fontSize: 14, color: "#999", marginBottom: 32 },
-  form: { width: "100%" },
-  label: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#aaa",
-    letterSpacing: 1,
-    marginBottom: 6,
-    textTransform: "uppercase",
-  },
-  input: {
-    borderWidth: 2,
-    borderColor: "#ffe0e8",
-    borderRadius: 14,
-    backgroundColor: "#fff5f7",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: "#333",
-    marginBottom: 16,
-  },
-  button: {
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
-    elevation: 4,
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  genderRow: { flexDirection: "row", gap: 12, marginBottom: 24 },
-  genderBtn: {
-    flex: 1,
-    borderWidth: 2,
-    borderColor: "#ffe0e8",
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
-    backgroundColor: "#fff5f7",
-  },
-  genderEmoji: { fontSize: 28, marginBottom: 4 },
-  genderLabel: { fontSize: 14, fontWeight: "700", color: "#aaa" },
+  form: { gap: space.lg },
 });

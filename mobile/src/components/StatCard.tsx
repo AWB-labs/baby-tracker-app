@@ -1,6 +1,9 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { useTheme } from "../theme";
+import { StyleSheet, View } from "react-native";
+import { useTheme } from "../design/ThemeProvider";
+import { space, radius } from "../design/tokens";
+import { useActivityTone, ACTIVITY_LABEL } from "../design/activity";
+import { Card, Text, Emoji } from "./ui";
 
 interface Props {
   icon: string;
@@ -10,6 +13,11 @@ interface Props {
   total: string;
   /** How many times the activity happened all-time, shown under the total. */
   totalCount?: number;
+  /**
+   * Activity key used for the card's tint. Callers that track something without
+   * an activity of its own can omit it and keep the brand accent.
+   */
+  type?: string;
 }
 
 export default function StatCard({
@@ -19,55 +27,81 @@ export default function StatCard({
   avg,
   total,
   totalCount,
+  type,
 }: Props) {
-  const theme = useTheme();
+  const t = useTheme();
+  const tone = useActivityTone(type ?? "");
+  // The neutral tone is a grey placeholder, which would drain a card that has
+  // no activity behind it; those keep the accent they had before.
+  const known = type != null && type in ACTIVITY_LABEL;
+  const hue = known ? tone.text : t.accentText;
+  const soft = known ? tone.soft : t.accentSoft;
+
   return (
-    <View style={styles.card}>
+    <Card>
       <View style={styles.headerRow}>
-        <Text style={styles.icon}>{icon}</Text>
-        <Text style={styles.label}>{label}</Text>
+        <View style={[styles.iconChip, { backgroundColor: soft }]}>
+          <Emoji size={18}>{icon}</Emoji>
+        </View>
+        <Text variant="subheadStrong">{label}</Text>
       </View>
+
       <View style={styles.statsRow}>
-        <View style={styles.statCell}>
-          <Text style={[styles.statValue, { color: theme.primary }]}>{today}</Text>
-          <Text style={styles.statLabel}>TODAY</Text>
-        </View>
-        <View style={styles.statCell}>
-          <Text style={styles.statValueGray}>{avg}</Text>
-          <Text style={styles.statLabel}>DAILY AVG</Text>
-        </View>
-        <View style={styles.statCell}>
-          <Text style={[styles.statValueGray, { color: "#aaa" }]}>{total}</Text>
-          <Text style={styles.statLabel}>ALL TIME</Text>
+        {/* Today is the figure you came for, so it carries the activity's hue;
+            the other two recede rather than compete with it. */}
+        <Stat value={today} caption="Today" color={hue} />
+        <Stat value={avg} caption="Daily avg" color={t.textMuted} />
+        <Stat value={total} caption="All time" color={t.textSubtle}>
           {totalCount !== undefined && totalCount > 0 && (
-            <Text style={[styles.statCount, { color: theme.primary }]}>
+            <Text variant="caption" style={{ color: hue }} tabular>
               {totalCount} time{totalCount !== 1 ? "s" : ""}
             </Text>
           )}
-        </View>
+        </Stat>
       </View>
+    </Card>
+  );
+}
+
+/** One figure and its caption. Tabular digits keep the three columns aligned. */
+function Stat({
+  value,
+  caption,
+  color,
+  children,
+}: {
+  value: string;
+  caption: string;
+  color: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <View style={styles.statCell}>
+      <Text variant="title3" tabular center style={{ color }}>
+        {value}
+      </Text>
+      <Text variant="overline" tone="subtle" center>
+        {caption}
+      </Text>
+      {children}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    marginBottom: space.md,
   },
-  headerRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
-  icon: { fontSize: 20 },
-  label: { fontSize: 13, fontWeight: "700", color: "#555" },
-  statsRow: { flexDirection: "row" },
-  statCell: { flex: 1, alignItems: "center" },
-  statValue: { fontSize: 20, fontWeight: "700" },
-  statValueGray: { fontSize: 20, fontWeight: "700", color: "#555" },
-  statLabel: { fontSize: 9, fontWeight: "700", color: "#bbb", letterSpacing: 0.5, marginTop: 2 },
-  statCount: { fontSize: 9, fontWeight: "700", marginTop: 2 },
+  iconChip: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statsRow: { flexDirection: "row", gap: space.xs },
+  statCell: { flex: 1, alignItems: "center", gap: space.xxs },
 });

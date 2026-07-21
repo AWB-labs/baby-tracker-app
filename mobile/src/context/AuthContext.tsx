@@ -8,7 +8,6 @@ import React, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signup, login, AccountInfo } from "../api/auth";
 import { setUnauthorizedHandler } from "../api/client";
-import { useToast } from "../components/Toast";
 
 interface AuthState {
   token: string | null;
@@ -22,12 +21,20 @@ interface AuthContextValue extends AuthState {
   signOut: () => Promise<void>;
   /** Replace the cached account after settings change. */
   setAccount: (account: AccountInfo) => void;
+  /**
+   * Timestamp of the last rejected token, or null. Auth can't raise a toast
+   * itself — the toast layer is themed, and the theme depends on settings which
+   * depend on auth. So it publishes the event and a component inside the toast
+   * layer reports it.
+   */
+  sessionExpiredAt: number | null;
+  acknowledgeSessionExpiry: () => void;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const toast = useToast();
+  const [sessionExpiredAt, setSessionExpiredAt] = useState<number | null>(null);
   const [state, setState] = useState<AuthState>({
     token: null,
     account: null,
@@ -104,16 +111,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           "babytracker_activeBabyId",
           "babytracker_settings",
         ]).catch(() => {});
-        toast.error("Your session has expired. Please sign in again.");
+        setSessionExpiredAt(Date.now());
         return { token: null, account: null, loading: false };
       });
     });
     return () => setUnauthorizedHandler(null);
-  }, [toast]);
+  }, []);
+
+  const acknowledgeSessionExpiry = useCallback(() => setSessionExpiredAt(null), []);
 
   return (
     <AuthContext.Provider
-      value={{ ...state, signUp, signIn, signOut, setAccount }}
+      value={{
+        ...state,
+        signUp,
+        signIn,
+        signOut,
+        setAccount,
+        sessionExpiredAt,
+        acknowledgeSessionExpiry,
+      }}
     >
       {children}
     </AuthContext.Provider>

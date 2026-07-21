@@ -1,5 +1,8 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { useTheme } from "../design/ThemeProvider";
+import { space, radius } from "../design/tokens";
+import { Text } from "./ui/primitives";
 
 export type PauseTimelineEvent = { event: string; at: string };
 
@@ -37,7 +40,7 @@ export function parsePauseTimelineJson(
   }
 }
 
-/** Show the timeline only when there was at least one pause or resume. */
+/** Only worth showing when the timer was actually paused at least once. */
 export function shouldShowPauseTimeline(
   events: PauseTimelineEvent[] | null
 ): boolean {
@@ -49,19 +52,16 @@ export default function PauseTimelineIndicator({
 }: {
   pauseTimelineJson: string | null | undefined;
 }) {
+  const t = useTheme();
   const events = parsePauseTimelineJson(pauseTimelineJson);
   if (!events?.length || !shouldShowPauseTimeline(events)) return null;
 
   return (
-    <View style={styles.box}>
-      <Text style={styles.line}>
-        {events.map((e, i) => (
-          <Text key={`${e.event}-${e.at}-${i}`}>
-            {i > 0 ? <Text style={styles.sep}> · </Text> : null}
-            <Text style={styles.label}>{LABELS[e.event] ?? e.event}</Text>{" "}
-            {formatTimeLabel(e.at)}
-          </Text>
-        ))}
+    <View style={[styles.box, { backgroundColor: t.surfaceAlt }]}>
+      <Text variant="caption" tone="muted">
+        {events
+          .map((e) => `${LABELS[e.event] ?? e.event} ${formatTimeLabel(e.at)}`)
+          .join("  ·  ")}
       </Text>
     </View>
   );
@@ -69,15 +69,10 @@ export default function PauseTimelineIndicator({
 
 const styles = StyleSheet.create({
   box: {
-    marginTop: 4,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e2e8f0",
-    backgroundColor: "#f8fafc",
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    marginTop: space.xs,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
+    alignSelf: "flex-start",
   },
-  line: { fontSize: 10, lineHeight: 15, color: "#475569" },
-  sep: { color: "#cbd5e1" },
-  label: { fontWeight: "700", color: "#334155" },
 });

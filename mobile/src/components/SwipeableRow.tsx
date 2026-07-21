@@ -1,7 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   PanResponder,
   Animated,
@@ -9,6 +8,10 @@ import {
   UIManager,
   Platform,
 } from "react-native";
+import { useTheme } from "../design/ThemeProvider";
+import { radius } from "../design/tokens";
+import { Icon } from "../design/icons";
+import { Text } from "./ui/primitives";
 
 if (
   Platform.OS === "android" &&
@@ -19,12 +22,20 @@ if (
 
 const DELETE_THRESHOLD = 100;
 
+/**
+ * A swipe is unreachable with a screen reader on, so the same delete is offered
+ * as a rotor / local-menu action. It opens the same confirmation the swipe does
+ * rather than dismissing the row outright.
+ */
+const A11Y_ACTIONS = [{ name: "delete", label: "Delete" }];
+
 interface Props {
   children: React.ReactNode;
   onDelete: () => void;
 }
 
 export default function SwipeableRow({ children, onDelete }: Props) {
+  const t = useTheme();
   const translateX = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const isDismissed = useRef(false);
@@ -109,6 +120,9 @@ export default function SwipeableRow({ children, onDelete }: Props) {
         style={[
           styles.background,
           {
+            // The danger pair, not a fixed red: a saturated slab would glare on
+            // a dark screen, and the pale light-mode fill would vanish on it.
+            backgroundColor: t.dangerSoft,
             opacity: progressAnim.interpolate({
               inputRange: [0, 1],
               outputRange: [0, 0.9],
@@ -116,13 +130,24 @@ export default function SwipeableRow({ children, onDelete }: Props) {
           },
         ]}
         pointerEvents="none"
+        // pointerEvents alone still leaves it in the accessibility tree, so
+        // TalkBack would announce a "Delete" that can't be reached or pressed.
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       >
-        <Text style={styles.deleteLabel}>🗑️ Delete</Text>
+        <Icon name="trash" size="md" color={t.danger} />
+        <Text variant="subheadStrong" style={{ color: t.danger }}>
+          Delete
+        </Text>
       </Animated.View>
 
       {/* Swipeable foreground */}
       <Animated.View
         style={{ transform: [{ translateX }] }}
+        accessibilityActions={A11Y_ACTIONS}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === "delete") onDelete();
+        }}
         {...panResponder.panHandlers}
       >
         {children}
@@ -135,19 +160,15 @@ const styles = StyleSheet.create({
   container: {
     position: "relative",
     overflow: "hidden",
-    borderRadius: 16,
+    borderRadius: radius.lg,
   },
   background: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#ef4444",
-    borderRadius: 16,
+    borderRadius: radius.lg,
+    flexDirection: "row",
+    gap: 8,
     justifyContent: "center",
     alignItems: "center",
-  },
-  deleteLabel: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
   },
   gone: { height: 0, overflow: "hidden" },
 });

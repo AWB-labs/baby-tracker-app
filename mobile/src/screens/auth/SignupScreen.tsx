@@ -1,26 +1,39 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../../context/AuthContext";
 import { useBaby } from "../../context/BabyContext";
 import { AuthStackParamList } from "../../navigation/RootNavigator";
 import { useToast } from "../../components/Toast";
+import { useTheme } from "../../design/ThemeProvider";
+import { space, radius } from "../../design/tokens";
+import { useActivityTone } from "../../design/activity";
+import {
+  Screen,
+  Text,
+  Emoji,
+  Input,
+  Field,
+  Segmented,
+  Button,
+} from "../../components/ui";
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, "Signup">;
 };
 
+type Gender = "girl" | "boy";
+
+const GENDER_OPTIONS: { value: Gender; label: string }[] = [
+  { value: "girl", label: "Girl" },
+  { value: "boy", label: "Boy" },
+];
+
 export default function SignupScreen({ navigation }: Props) {
   const toast = useToast();
+  const t = useTheme();
+  // Same mark as sign-in, so the two steps read as one flow.
+  const mark = useActivityTone("pump").emoji;
   const { signUp } = useAuth();
   const { addBaby, setActiveBaby, refreshBabies } = useBaby();
 
@@ -32,7 +45,7 @@ export default function SignupScreen({ navigation }: Props) {
 
   // Step 2: first baby fields
   const [babyName, setBabyName] = useState("");
-  const [gender, setGender] = useState<"girl" | "boy">("girl");
+  const [gender, setGender] = useState<Gender>("girl");
 
   const [loading, setLoading] = useState(false);
 
@@ -95,73 +108,47 @@ export default function SignupScreen({ navigation }: Props) {
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.emoji}>👶</Text>
-          <Text style={styles.title}>Add Your Baby</Text>
-          <Text style={styles.subtitle}>
-            You can add more babies later from any screen
-          </Text>
+        <Screen scroll contentStyle={styles.content}>
+          <View style={styles.hero}>
+            <View style={[styles.mark, { backgroundColor: t.accentSoft }]}>
+              <Emoji size={44}>{mark}</Emoji>
+            </View>
+            <Text variant="display" center accessibilityRole="header">
+              Add your baby
+            </Text>
+            <Text variant="body" tone="muted" center>
+              You can add more babies later, from any screen.
+            </Text>
+          </View>
 
           <View style={styles.form}>
-            <Text style={styles.label}>BABY&apos;S NAME</Text>
-            <TextInput
-              style={styles.input}
+            <Input
+              label="Baby's name"
               value={babyName}
               onChangeText={setBabyName}
               placeholder="e.g. Touti"
-              placeholderTextColor="#ccc"
               autoFocus
+              returnKeyType="done"
             />
 
-            <Text style={styles.label}>GENDER</Text>
-            <View style={styles.genderRow}>
-              {(["girl", "boy"] as const).map((g) => (
-                <TouchableOpacity
-                  key={g}
-                  style={[
-                    styles.genderBtn,
-                    gender === g && {
-                      backgroundColor: g === "girl" ? "#ff6b95" : "#4e9eff",
-                      borderColor: g === "girl" ? "#ff6b95" : "#4e9eff",
-                    },
-                  ]}
-                  onPress={() => setGender(g)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.genderEmoji}>
-                    {g === "girl" ? "👧" : "👦"}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.genderLabel,
-                      gender === g && { color: "#fff" },
-                    ]}
-                  >
-                    {g === "girl" ? "Girl" : "Boy"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <Field label="Gender">
+              <Segmented
+                options={GENDER_OPTIONS}
+                value={gender}
+                onChange={setGender}
+              />
+            </Field>
 
-            <TouchableOpacity
-              style={[
-                styles.button,
-                loading && styles.buttonDisabled,
-                { backgroundColor: gender === "girl" ? "#ff6b95" : "#4e9eff" },
-              ]}
+            <Button
+              label="Start tracking"
+              variant="primary"
+              size="lg"
+              fullWidth
+              loading={loading}
               onPress={handleStep2}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? "Setting up..." : "Let's Go! 🎉"}
-              </Text>
-            </TouchableOpacity>
+            />
           </View>
-        </ScrollView>
+        </Screen>
       </KeyboardAvoidingView>
     );
   }
@@ -171,132 +158,94 @@ export default function SignupScreen({ navigation }: Props) {
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.emoji}>🍼</Text>
-        <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>Track your baby&apos;s journey</Text>
+      {/* Auth sits outside the tab navigator, so the content is centred and the
+          tab-bar clearance Screen normally reserves is dropped. */}
+      <Screen scroll contentStyle={styles.content}>
+        <View style={styles.hero}>
+          <View style={[styles.mark, { backgroundColor: t.accentSoft }]}>
+            <Emoji size={44}>{mark}</Emoji>
+          </View>
+          <Text variant="display" center accessibilityRole="header">
+            Create your account
+          </Text>
+          <Text variant="body" tone="muted" center>
+            One calm place for feeds, naps and nappies.
+          </Text>
+        </View>
 
         <View style={styles.form}>
-          <Text style={styles.label}>YOUR NAME</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            label="Your name"
             value={name}
             onChangeText={setName}
             placeholder="e.g. Ali"
-            placeholderTextColor="#ccc"
             autoFocus
+            textContentType="name"
+            returnKeyType="next"
           />
 
-          <Text style={styles.label}>EMAIL</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            label="Email"
             value={email}
             onChangeText={setEmail}
             placeholder="you@example.com"
-            placeholderTextColor="#ccc"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            textContentType="emailAddress"
+            returnKeyType="next"
           />
 
-          <Text style={styles.label}>PASSWORD</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            label="Password"
+            helper="At least 6 characters."
             value={password}
             onChangeText={setPassword}
-            placeholder="Min. 6 characters"
-            placeholderTextColor="#ccc"
+            placeholder="Choose a password"
             secureTextEntry
+            textContentType="newPassword"
+            returnKeyType="done"
           />
 
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
+          <Button
+            label="Continue"
+            icon="chevronRight"
+            iconPosition="trailing"
+            variant="primary"
+            size="lg"
+            fullWidth
+            loading={loading}
             onPress={handleStep1}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? "Creating account..." : "Next →"}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.linkBtn}
-            onPress={() => navigation.navigate("Login")}
-          >
-            <Text style={styles.linkText}>
-              Already have an account?{" "}
-              <Text style={styles.linkBold}>Sign in</Text>
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
-      </ScrollView>
+
+        <Button
+          label="Already have an account? Sign in"
+          variant="ghost"
+          fullWidth
+          onPress={() => navigation.navigate("Login")}
+        />
+      </Screen>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#fff5f7" },
-  container: {
+  flex: { flex: 1 },
+  content: {
     flexGrow: 1,
     justifyContent: "center",
+    paddingBottom: space.xxxl,
+    gap: space.xxl,
+  },
+  hero: { alignItems: "center", gap: space.xs },
+  mark: {
+    width: 88,
+    height: 88,
+    borderRadius: radius.pill,
     alignItems: "center",
-    paddingHorizontal: 28,
-    paddingVertical: 40,
+    justifyContent: "center",
+    marginBottom: space.sm,
   },
-  emoji: { fontSize: 52, marginBottom: 12 },
-  title: { fontSize: 28, fontWeight: "700", color: "#333", marginBottom: 4 },
-  subtitle: { fontSize: 14, color: "#999", marginBottom: 32 },
-  form: { width: "100%" },
-  label: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#aaa",
-    letterSpacing: 1,
-    marginBottom: 6,
-    textTransform: "uppercase",
-  },
-  input: {
-    borderWidth: 2,
-    borderColor: "#ffe0e8",
-    borderRadius: 14,
-    backgroundColor: "#fff5f7",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: "#333",
-    marginBottom: 16,
-  },
-  button: {
-    backgroundColor: "#ff6b95",
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
-    shadowColor: "#ff6b95",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  linkBtn: { marginTop: 20, alignItems: "center" },
-  linkText: { fontSize: 14, color: "#aaa" },
-  linkBold: { color: "#ff6b95", fontWeight: "700" },
-  genderRow: { flexDirection: "row", gap: 12, marginBottom: 24 },
-  genderBtn: {
-    flex: 1,
-    borderWidth: 2,
-    borderColor: "#ffe0e8",
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
-    backgroundColor: "#fff5f7",
-  },
-  genderEmoji: { fontSize: 28, marginBottom: 4 },
-  genderLabel: { fontSize: 14, fontWeight: "700", color: "#aaa" },
+  form: { gap: space.lg },
 });

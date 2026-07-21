@@ -1,16 +1,30 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Update this to your API server address.
-// For Expo Go on a physical device, use your machine's LAN IP (e.g. http://192.168.1.x:3001).
-// For Android emulator use http://10.0.2.2:3001
-// For iOS simulator use http://localhost:3001
-export const API_BASE_URL = "http://192.168.1.99:3001";
+/**
+ * Where the app talks to.
+ *
+ * Production is a public HTTPS URL, so any device on any network can reach it —
+ * no LAN IP, no firewall rule, no "same Wi-Fi" requirement.
+ *
+ * To point at a server running on this machine instead, set EXPO_PUBLIC_API_URL
+ * before starting Expo:
+ *   Expo Go on a phone   -> http://<your-LAN-IP>:3001   (and allow port 3001
+ *                            through the firewall)
+ *   Android emulator     -> http://10.0.2.2:3001
+ *   iOS simulator        -> http://localhost:3001
+ */
+const PRODUCTION_API_URL = "https://baby-tracker-app-api.vercel.app";
+
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || PRODUCTION_API_URL;
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
-  timeout: 10000,
+  // Serverless functions cold-start, and a phone on mobile data adds latency on
+  // top; 10s was tight enough to time out a first request that would have
+  // succeeded.
+  timeout: 20000,
 });
 
 // Inject token on every request

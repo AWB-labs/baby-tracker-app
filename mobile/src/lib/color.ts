@@ -48,6 +48,33 @@ export function isValidHexColor(value: string): boolean {
   return hexToRgb(value) !== null;
 }
 
+/** Blend two colours. t=0 returns `a`, t=1 returns `b`. */
+export function mix(a: string, b: string, t: number): string {
+  const ca = hexToRgb(a);
+  const cb = hexToRgb(b);
+  if (!ca || !cb) return a;
+  return rgbToHex({
+    r: ca.r + (cb.r - ca.r) * t,
+    g: ca.g + (cb.g - ca.g) * t,
+    b: ca.b + (cb.b - ca.b) * t,
+  });
+}
+
+/** Perceived brightness 0–1 (ITU-R BT.601), for picking readable foregrounds. */
+export function luminance(hex: string): number {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 0;
+  return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 / 255;
+}
+
+/**
+ * Black or white, whichever reads better on `background`. Prevents the classic
+ * failure of white label text on a light accent like amber.
+ */
+export function readableOn(background: string): string {
+  return luminance(background) > 0.62 ? "#101828" : "#FFFFFF";
+}
+
 export interface Palette {
   primary: string;
   primaryLight: string;

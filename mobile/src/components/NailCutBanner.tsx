@@ -1,10 +1,14 @@
-import React, { useState, useCallback } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { createLog } from "../api/logs";
-import type { LogEntry } from "../api/logs";
+import React, { useCallback, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { useTheme } from "../design/ThemeProvider";
+import { useActivityTone } from "../design/activity";
+import { space, radius, elevation, hitSlop } from "../design/tokens";
+import { Icon } from "../design/icons";
+import { Text, Emoji } from "./ui/primitives";
 import { useToast } from "./Toast";
+import { createLog, type LogEntry } from "../api/logs";
 
-// Reminder cadence: Sundays (0) and Wednesdays (3).
+/** Sundays and Wednesdays — the website's nail-cut cadence. */
 const REMINDER_DAYS = [0, 3];
 
 interface Props {
@@ -14,16 +18,23 @@ interface Props {
   onLogSaved: () => void;
 }
 
+/**
+ * The website's violet nail-cut nudge, ported: a soft strip with a one-tap
+ * check button. It vanishes for the day the moment it's handled, so it never
+ * becomes wallpaper.
+ */
 export default function NailCutBanner({
   babyId,
   logs,
   enteredByName,
   onLogSaved,
 }: Props) {
+  const t = useTheme();
+  const tone = useActivityTone("nailcut");
   const toast = useToast();
   const [saving, setSaving] = useState(false);
 
-  const handleCheck = useCallback(async () => {
+  const handleDone = useCallback(async () => {
     if (saving) return;
     setSaving(true);
     const now = new Date();
@@ -44,10 +55,8 @@ export default function NailCutBanner({
     }
   }, [saving, babyId, enteredByName, onLogSaved, toast]);
 
-  // Only nag on the reminder days.
   if (!REMINDER_DAYS.includes(new Date().getDay())) return null;
 
-  // Once it's been logged today the reminder is handled — hide it for the day.
   const today = new Date().toDateString();
   const doneToday = logs.some(
     (l) => l.type === "nailcut" && new Date(l.startTime).toDateString() === today
@@ -55,19 +64,35 @@ export default function NailCutBanner({
   if (doneToday) return null;
 
   return (
-    <View style={styles.banner}>
-      <Text style={styles.text}>
-        💅 Time to <Text style={styles.bold}>cut the nails</Text>
+    <View
+      style={[styles.banner, { backgroundColor: tone.soft }]}
+      accessibilityRole="summary"
+    >
+      <Emoji size={16}>💅</Emoji>
+      <Text variant="subhead" tone="muted" style={styles.text}>
+        Time to{" "}
+        <Text variant="subheadStrong" style={{ color: tone.text }}>
+          cut the nails
+        </Text>
       </Text>
-      <TouchableOpacity
-        style={[styles.checkBtn, saving && { opacity: 0.5 }]}
-        onPress={handleCheck}
+      <Pressable
+        onPress={handleDone}
         disabled={saving}
-        activeOpacity={0.7}
+        hitSlop={hitSlop}
+        accessibilityRole="button"
         accessibilityLabel="Mark nail cut as done"
+        style={({ pressed }) => [
+          styles.checkBtn,
+          { backgroundColor: t.surface, opacity: pressed || saving ? 0.6 : 1 },
+          elevation(1, false),
+        ]}
       >
-        <Text style={styles.checkMark}>{saving ? "…" : "✓"}</Text>
-      </TouchableOpacity>
+        {saving ? (
+          <ActivityIndicator size="small" color={tone.main} />
+        ) : (
+          <Icon name="check" size="md" color={tone.main} strokeWidth={3} />
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -76,28 +101,18 @@ const styles = StyleSheet.create({
   banner: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    backgroundColor: "#f5f3ff",
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
+    gap: space.sm,
+    borderRadius: radius.lg,
+    paddingLeft: space.lg,
+    paddingRight: space.sm,
+    paddingVertical: space.sm,
   },
-  text: { fontSize: 13, color: "#555", flexShrink: 1 },
-  bold: { fontWeight: "800", color: "#7c3aed" },
+  text: { flex: 1 },
   checkBtn: {
     width: 36,
     height: 36,
-    borderRadius: 12,
-    backgroundColor: "#fff",
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
   },
-  checkMark: { fontSize: 17, fontWeight: "900", color: "#7c3aed" },
 });
