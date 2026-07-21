@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Baby Tracker",
-    "slug": "baby-tracker-mobile",
+    "slug": "babytracker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -12,7 +12,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.babytracker.mobile"
+      "bundleIdentifier": "com.babytracker.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,13 +25,14 @@
       "package": "com.babytracker.mobile"
     },
     "plugins": [
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-notifications"
     ],
     "extra": {
       "eas": {
-        "projectId": "d3feec35-c8d0-42c4-add6-fea9c7958c87"
+        "projectId": "c7a13f7d-8a09-40e7-b69e-ed32e0dd3fc2"
       }
     },
-    "owner": "aliwaelezz"
+    "owner": "awb-expo"
   }
 }
