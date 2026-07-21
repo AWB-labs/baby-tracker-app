@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { z } from "zod";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import prisma from "../lib/prisma";
+import { parseOrThrow } from "../lib/validate";
 
 const router = Router();
 
@@ -13,14 +14,10 @@ const createProfileSchema = z.object({
 router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
 
-  const parsed = createProfileSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.errors[0].message });
-    return;
-  }
+  const { displayName } = parseOrThrow(createProfileSchema, req.body);
 
   const profile = await prisma.profile.create({
-    data: { accountId, displayName: parsed.data.displayName },
+    data: { accountId, displayName },
     select: { id: true, displayName: true },
   });
 

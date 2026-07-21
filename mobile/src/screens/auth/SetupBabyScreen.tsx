@@ -8,11 +8,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native";
 import { useBaby } from "../../context/BabyContext";
+import { useToast } from "../../components/Toast";
 
 export default function SetupBabyScreen() {
+  const toast = useToast();
   const { addBaby, setActiveBaby, refreshBabies } = useBaby();
   const [babyName, setBabyName] = useState("");
   const [gender, setGender] = useState<"girl" | "boy">("girl");
@@ -20,7 +21,7 @@ export default function SetupBabyScreen() {
 
   const handleSave = async () => {
     if (!babyName.trim()) {
-      Alert.alert("Error", "Please enter a baby name");
+      toast.error("Enter a name for your baby.");
       return;
     }
     setLoading(true);
@@ -28,8 +29,8 @@ export default function SetupBabyScreen() {
       const baby = await addBaby({ name: babyName.trim(), gender });
       await setActiveBaby(baby);
       await refreshBabies();
-    } catch {
-      Alert.alert("Error", "Could not create baby profile. Please try again.");
+    } catch (err) {
+      toast.showError(err);
     } finally {
       setLoading(false);
     }

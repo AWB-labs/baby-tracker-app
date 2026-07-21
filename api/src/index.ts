@@ -1,12 +1,23 @@
 import "dotenv/config";
+// Patches Express 4 so a rejected promise from an async handler reaches the
+// error middleware. Without it such a request hangs until the client times out
+// instead of returning anything at all. Must be imported before the routers.
+import "express-async-errors";
 import express from "express";
 import cors from "cors";
+import { ZodError } from "zod";
 
 import authRouter from "./routes/auth";
 import meRouter from "./routes/me";
 import babiesRouter from "./routes/babies";
+import membersRouter from "./routes/members";
 import logsRouter from "./routes/logs";
 import profilesRouter from "./routes/profiles";
+import settingsRouter from "./routes/settings";
+import remindersRouter from "./routes/reminders";
+import internalRouter from "./routes/internal";
+import { AppError, friendlyPrismaMessage } from "./lib/httpError";
+import { startReminderScheduler } from "./lib/reminderScheduler";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001");
@@ -21,10 +32,27 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/auth", authRouter);
 app.use("/me", meRouter);
 app.use("/babies", babiesRouter);
+// Caregiver management hangs off a baby: /babies/:babyId/members
+app.use("/babies", membersRouter);
 app.use("/logs", logsRouter);
 app.use("/profiles", profilesRouter);
+app.use("/settings", settingsRouter);
+app.use("/reminders", remindersRouter);
+app.use("/internal", internalRouter);
 
-// Global error handler
+// Unknown route — still a readable message rather than Express's HTML page.
+app.use((_req, res) => {
+  res.status(404).json({ error: "That page doesn't exist." });
+});
+
+/**
+ * Every error the app can ever receive passes through here.
+ *
+ * The rule: a client only ever sees a sentence written for a parent. Known,
+ * expected failures carry their own message; anything else is a bug, gets
+ * logged in full server-side, and is reported as a generic apology so no stack
+ * trace, SQL fragment or "Internal server error" leaks into the UI.
+ */
 app.use(
   (
     err: Error,
@@ -32,13 +60,60 @@ app.use(
     res: express.Response,
     _next: express.NextFunction
   ) => {
-    console.error(err.stack);
-    res.status(500).json({ error: "Internal server error" });
+    if (err instanceof AppError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+
+    if (err instanceof ZodError) {
+      res.status(400).json({
+        error: err.errors[0]?.message ?? "Some of those details aren't valid.",
+        code: "validation",
+      });
+      return;
+    }
+
+    if (err instanceof SyntaxError && "body" in err) {
+      res.status(400).json({ error: "That request was malformed.", code: "bad_json" });
+      return;
+    }
+
+    const prismaError = friendlyPrismaMessage(err);
+    if (prismaError) {
+      res
+        .status(prismaError.status)
+        .json({ error: prismaError.message, code: prismaError.code });
+      return;
+    }
+
+    console.error("[unhandled]", err);
+    res.status(500).json({
+      error: "Something went wrong on our end. Please try again.",
+      code: "server_error",
+    });
   }
 );
 
+/**
+ * How reminders get evaluated.
+ *
+ *   inline — an in-process loop. Only fires while this process is awake, so it
+ *            suits a machine you keep running (local dev, a VPS).
+ *   cron   — nothing runs in-process; an external scheduler POSTs to
+ *            /internal/reminders/tick. Required on free hosting that sleeps,
+ *            since a sleeping process can't tick itself.
+ */
+const REMINDER_MODE = (process.env.REMINDER_MODE ?? "inline").toLowerCase();
+
 app.listen(PORT, () => {
   console.log(`Baby Tracker API running on http://localhost:${PORT}`);
+  if (REMINDER_MODE === "inline") {
+    startReminderScheduler();
+  } else {
+    console.log(
+      `[reminders] mode=${REMINDER_MODE} — waiting for POST /internal/reminders/tick`
+    );
+  }
 });
 
 export default app;

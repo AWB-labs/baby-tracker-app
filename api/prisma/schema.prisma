@@ -4,7 +4,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Pooled connection, used by the running server.
   url      = env("DATABASE_URL")
+  // Direct (unpooled) connection. Migrations and introspection need a real
+  // session, which a transaction-mode pooler like Supabase's PgBouncer can't
+  // give them. Set it to the same value as DATABASE_URL if you aren't pooling.
+  directUrl = env("DIRECT_URL")
 }
 
 model Account {
@@ -13,20 +18,108 @@ model Account {
   password  String
   name      String
   createdAt DateTime      @default(now())
-  babies    Baby[]
-  profiles  Profile[]
-  logs      ActivityLog[]
+
+  // --- Settings ---
+  unitSystem           String  @default("metric") // metric | imperial
+  // Accent colour override for this caregiver's own app. Null means "derive
+  // from the baby", which is the historical gender-based palette.
+  themeColor           String?
+  notificationsEnabled Boolean @default(true)
+
+  ownedBabies Baby[]        @relation("BabyOwner")
+  memberships BabyMember[]
+  invitesSent BabyInvite[]  @relation("InviteSender")
+  profiles    Profile[]
+  logs        ActivityLog[]
+  reminders   Reminder[]
+  pushTokens  PushToken[]
 }
 
 model Baby {
-  id        Int           @id @default(autoincrement())
-  accountId Int
-  name      String
-  dob       DateTime?
-  gender    String        // "girl" | "boy"
-  createdAt DateTime      @default(now())
-  account   Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id Int @id @default(autoincrement())
+  // The account that created the baby. Kept on the original `accountId` column
+  // so adding sharing needed no destructive rename. It confers no read access
+  // on its own — every caregiver, owner included, has a BabyMember row.
+  ownerAccountId Int       @map("accountId")
+  name           String
+  dob            DateTime?
+  gender         String // "girl" | "boy"
+  avatarEmoji    String?
+  avatarColor    String?
+  createdAt      DateTime  @default(now())
+
+  owner     Account       @relation("BabyOwner", fields: [ownerAccountId], references: [id], onDelete: Cascade)
+  members   BabyMember[]
+  invites   BabyInvite[]
+  reminders Reminder[]
   logs      ActivityLog[]
+}
+
+/// Who may read and write a baby's logs. This is the only source of truth for
+/// access; every query about a baby goes through it.
+model BabyMember {
+  id        Int      @id @default(autoincrement())
+  babyId    Int
+  accountId Int
+  role      String   @default("member") // owner | member
+  createdAt DateTime @default(now())
+
+  baby    Baby    @relation(fields: [babyId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([babyId, accountId])
+  @@index([accountId])
+}
+
+/// A caregiver invited by an email address that has no account yet. Claimed and
+/// turned into a BabyMember the moment that email signs up.
+model BabyInvite {
+  id                 Int      @id @default(autoincrement())
+  babyId             Int
+  email              String
+  role               String   @default("member")
+  invitedByAccountId Int
+  createdAt          DateTime @default(now())
+
+  baby      Baby    @relation(fields: [babyId], references: [id], onDelete: Cascade)
+  invitedBy Account @relation("InviteSender", fields: [invitedByAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([babyId, email])
+  @@index([email])
+}
+
+/// "Remind me to feed every 3h." Owned by one caregiver so each can mute
+/// independently, but evaluated against the baby's shared activity log — a feed
+/// logged by anyone resets everybody's feed reminder.
+model Reminder {
+  id              Int       @id @default(autoincrement())
+  babyId          Int
+  accountId       Int
+  type            String // feed|pump|sleep|diaper|shower|vitamin|nailcut|custom
+  label           String? // shown instead of the type's name, required for custom
+  intervalMinutes Int
+  enabled         Boolean   @default(true)
+  lastNotifiedAt  DateTime?
+  createdAt       DateTime  @default(now())
+
+  baby    Baby    @relation(fields: [babyId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([babyId, accountId])
+  @@index([enabled])
+}
+
+model PushToken {
+  id        Int      @id @default(autoincrement())
+  accountId Int
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
 }
 
 model Profile {
@@ -39,22 +132,35 @@ model Profile {
 }
 
 model ActivityLog {
-  id              Int       @id @default(autoincrement())
+  id Int @id @default(autoincrement())
+  // The account that wrote this entry. Authorship only — access is decided by
+  // BabyMember, so any caregiver of the baby can edit or delete it.
   accountId       Int
   babyId          Int
   profileId       Int?
-  type            String    // feed|pump|sleep|diaper|shower|growth
-  side            String?   // left|right
-  diaperStatus    String?   // empty|wet|dirty|wet_and_dirty
+  type            String // feed|pump|sleep|diaper|shower|vitamin|nailcut|growth|health
+  side            String? // left|right
+  amountMl        Float? // bottle feed / pump volume
+  diaperStatus    String? // empty|wet|dirty|wet_and_dirty
   weightKg        Float?
   heightCm        Float?
+  healthCondition String? // fever|cold|stomach|other
+  medication      String?
+  dose            String?
+  feverCelsius    Float?
   startTime       DateTime
   endTime         DateTime?
   durationMinutes Float?
   comments        String?
   enteredByName   String
-  createdAt       DateTime  @default(now())
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  baby            Baby      @relation(fields: [babyId], references: [id], onDelete: Cascade)
-  profile         Profile?  @relation(fields: [profileId], references: [id])
+  // JSON array of { event: started|paused|resumed|stopped, at: ISO } for timed
+  // activities that were paused at least once.
+  pauseTimelineJson String?  @db.Text
+  createdAt         DateTime @default(now())
+
+  account Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  baby    Baby     @relation(fields: [babyId], references: [id], onDelete: Cascade)
+  profile Profile? @relation(fields: [profileId], references: [id])
+
+  @@index([babyId, startTime])
 }

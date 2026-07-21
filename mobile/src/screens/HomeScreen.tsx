@@ -15,11 +15,15 @@ import { useLogs } from "../hooks/useLogs";
 import ActivityTimerCard from "../components/ActivityTimerCard";
 import LogsList from "../components/LogsList";
 import LastFeedBanner from "../components/LastFeedBanner";
+import NailCutBanner from "../components/NailCutBanner";
+import DailyActionButtons from "../components/DailyActionButtons";
 import BabySwitcher from "../components/BabySwitcher";
 import ManualEntryModal from "../components/ManualEntryModal";
 import { ActivityType } from "../hooks/useTimer";
 
-const ACTIVITIES: ActivityType[] = ["pump", "feed", "sleep", "diaper", "shower"];
+// Shower and vitamin are once-daily quick actions rendered by
+// DailyActionButtons; nail cut is prompted by its own reminder banner.
+const ACTIVITIES: ActivityType[] = ["pump", "feed", "sleep", "diaper"];
 
 export default function HomeScreen() {
   const { account } = useAuth();
@@ -53,6 +57,8 @@ export default function HomeScreen() {
     );
   }
 
+  const enteredByName = account?.name || "Unknown";
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       <ScrollView
@@ -80,6 +86,15 @@ export default function HomeScreen() {
           <BabySwitcher />
         </View>
 
+        {/* Reminders */}
+        <NailCutBanner
+          babyId={activeBaby.id}
+          logs={logs}
+          enteredByName={enteredByName}
+          onLogSaved={refresh}
+        />
+        <LastFeedBanner logs={logs} />
+
         {/* Timer cards */}
         <View style={styles.section}>
           {ACTIVITIES.map((type) => (
@@ -88,10 +103,16 @@ export default function HomeScreen() {
               type={type}
               babyId={activeBaby.id}
               babyName={activeBaby.name}
-              enteredByName={account?.name || "Unknown"}
+              enteredByName={enteredByName}
               onLogSaved={refresh}
             />
           ))}
+          <DailyActionButtons
+            babyId={activeBaby.id}
+            logs={logs}
+            enteredByName={enteredByName}
+            onLogSaved={refresh}
+          />
         </View>
 
         {/* Manual entry */}
@@ -106,9 +127,6 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* Last feed banner */}
-        <LastFeedBanner logs={logs} />
-
         {/* Activity log */}
         <Text style={[styles.sectionTitle, { color: theme.primary }]}>
           ACTIVITY LOG
@@ -116,7 +134,7 @@ export default function HomeScreen() {
         {loading ? (
           <Text style={styles.loadingText}>Loading...</Text>
         ) : (
-          <LogsList logs={logs} onDelete={handleDelete} />
+          <LogsList logs={logs} onDelete={handleDelete} onEdit={refresh} />
         )}
       </ScrollView>
 
@@ -124,7 +142,7 @@ export default function HomeScreen() {
         visible={showManual}
         babyId={activeBaby.id}
         babyName={activeBaby.name}
-        enteredByName={account?.name || "Unknown"}
+        enteredByName={enteredByName}
         onSaved={refresh}
         onClose={() => setShowManual(false)}
       />

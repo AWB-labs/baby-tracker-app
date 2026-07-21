@@ -8,18 +8,19 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../../context/AuthContext";
 import { useBaby } from "../../context/BabyContext";
 import { AuthStackParamList } from "../../navigation/RootNavigator";
+import { useToast } from "../../components/Toast";
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, "Signup">;
 };
 
 export default function SignupScreen({ navigation }: Props) {
+  const toast = useToast();
   const { signUp } = useAuth();
   const { addBaby, setActiveBaby, refreshBabies } = useBaby();
 
@@ -37,22 +38,34 @@ export default function SignupScreen({ navigation }: Props) {
 
   const handleStep1 = async () => {
     if (!name.trim() || !email.trim() || !password.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
+      toast.error("Fill in your name, email and password.");
       return;
     }
     if (password.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters");
+      toast.error("Choose a password of at least 6 characters.");
       return;
     }
     setLoading(true);
     try {
-      await signUp(name.trim(), email.trim().toLowerCase(), password);
+      const claimed = await signUp(
+        name.trim(),
+        email.trim().toLowerCase(),
+        password
+      );
+      if (claimed > 0) {
+        // Someone already invited this email, so there's a baby waiting — no
+        // need to make them create one.
+        await refreshBabies();
+        toast.success(
+          claimed === 1
+            ? "You've been added to a baby's care team."
+            : `You've been added to ${claimed} babies' care teams.`
+        );
+        return;
+      }
       setStep(2);
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data
-          ?.error || "Sign up failed. Try again.";
-      Alert.alert("Sign Up Failed", msg);
+    } catch (err) {
+      toast.showError(err);
     } finally {
       setLoading(false);
     }
@@ -60,7 +73,7 @@ export default function SignupScreen({ navigation }: Props) {
 
   const handleStep2 = async () => {
     if (!babyName.trim()) {
-      Alert.alert("Error", "Please enter a baby name");
+      toast.error("Enter a name for your baby.");
       return;
     }
     setLoading(true);
@@ -69,8 +82,8 @@ export default function SignupScreen({ navigation }: Props) {
       await setActiveBaby(baby);
       await refreshBabies();
       // Navigation handled by RootNavigator (babies.length > 0)
-    } catch {
-      Alert.alert("Error", "Could not create baby profile. Please try again.");
+    } catch (err) {
+      toast.showError(err);
     } finally {
       setLoading(false);
     }

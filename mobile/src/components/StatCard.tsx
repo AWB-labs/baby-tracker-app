@@ -8,9 +8,18 @@ interface Props {
   today: string;
   avg: string;
   total: string;
+  /** How many times the activity happened all-time, shown under the total. */
+  totalCount?: number;
 }
 
-export default function StatCard({ icon, label, today, avg, total }: Props) {
+export default function StatCard({
+  icon,
+  label,
+  today,
+  avg,
+  total,
+  totalCount,
+}: Props) {
   const theme = useTheme();
   return (
     <View style={styles.card}>
@@ -30,6 +39,11 @@ export default function StatCard({ icon, label, today, avg, total }: Props) {
         <View style={styles.statCell}>
           <Text style={[styles.statValueGray, { color: "#aaa" }]}>{total}</Text>
           <Text style={styles.statLabel}>ALL TIME</Text>
+          {totalCount !== undefined && totalCount > 0 && (
+            <Text style={[styles.statCount, { color: theme.primary }]}>
+              {totalCount} time{totalCount !== 1 ? "s" : ""}
+            </Text>
+          )}
         </View>
       </View>
     </View>
@@ -55,4 +69,5 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 20, fontWeight: "700" },
   statValueGray: { fontSize: 20, fontWeight: "700", color: "#555" },
   statLabel: { fontSize: 9, fontWeight: "700", color: "#bbb", letterSpacing: 0.5, marginTop: 2 },
+  statCount: { fontSize: 9, fontWeight: "700", marginTop: 2 },
 });

@@ -7,29 +7,58 @@ import {
   ScrollView,
   StyleSheet,
   RefreshControl,
-  Alert,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../theme";
+import { useToast } from "../components/Toast";
+import { useUnits } from "../context/SettingsContext";
 import { useLogs } from "../hooks/useLogs";
 import { useBaby } from "../context/BabyContext";
 import { useAuth } from "../context/AuthContext";
 import BabySwitcher from "../components/BabySwitcher";
-import { createLog } from "../api/logs";
+import SwipeableRow from "../components/SwipeableRow";
+import DeleteConfirmModal from "../components/DeleteConfirmModal";
+import EditLogModal from "../components/EditLogModal";
+import { createLog, type LogEntry } from "../api/logs";
 import { formatDateLabel } from "../utils/formatTime";
+
+function formatDateDisplay(d: Date): string {
+  return d.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** The chosen calendar day, stamped with the current clock time. */
+function onDateWithCurrentClock(day: Date): Date {
+  const now = new Date();
+  const result = new Date(day);
+  result.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), 0);
+  return result;
+}
 
 export default function GrowthScreen() {
   const theme = useTheme();
+  const toast = useToast();
+  const units = useUnits();
   const { activeBaby } = useBaby();
   const { account } = useAuth();
-  const { logs, loading, refresh } = useLogs("all");
+  const { logs, loading, refresh, handleDelete } = useLogs("all");
   const [showForm, setShowForm] = useState(false);
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [dateChoice, setDateChoice] = useState<"today" | "custom">("today");
+  const [customDate, setCustomDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [editLog, setEditLog] = useState<LogEntry | null>(null);
 
   const growthLogs = useMemo(
     () => logs.filter((l) => l.type === "growth"),
@@ -50,32 +79,41 @@ export default function GrowthScreen() {
     setRefreshing(false);
   }, [refresh]);
 
+  const resetForm = () => {
+    setShowForm(false);
+    setWeight("");
+    setHeight("");
+    setNotes("");
+    setDateChoice("today");
+    setCustomDate(new Date());
+    setShowDatePicker(false);
+  };
+
   const handleSave = async () => {
     if (!weight && !height) {
-      Alert.alert("Error", "Enter weight or height");
+      toast.error("Enter a weight or a height.");
       return;
     }
     if (!activeBaby) return;
     setSaving(true);
-    const now = new Date();
+    const at = (
+      dateChoice === "today" ? new Date() : onDateWithCurrentClock(customDate)
+    ).toISOString();
     try {
       await createLog({
         babyId: activeBaby.id,
         type: "growth",
-        weightKg: weight ? parseFloat(weight) : null,
-        heightCm: height ? parseFloat(height) : null,
-        startTime: now.toISOString(),
-        endTime: now.toISOString(),
+        weightKg: weight ? units.parseWeight(weight) : null,
+        heightCm: height ? units.parseHeight(height) : null,
+        startTime: at,
+        endTime: at,
         comments: notes.trim() || null,
         enteredByName: account?.name || "Unknown",
       });
       await refresh();
-      setShowForm(false);
-      setWeight("");
-      setHeight("");
-      setNotes("");
-    } catch {
-      Alert.alert("Error", "Could not save measurement. Try again.");
+      resetForm();
+    } catch (err) {
+      toast.showError(err);
     } finally {
       setSaving(false);
     }
@@ -85,6 +123,7 @@ export default function GrowthScreen() {
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       <ScrollView
         contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -110,7 +149,9 @@ export default function GrowthScreen() {
           <View style={styles.statCard}>
             <Text style={styles.statEmoji}>⚖️</Text>
             <Text style={styles.statValue}>
-              {latestWeight ? `${latestWeight.weightKg} kg` : "—"}
+              {latestWeight?.weightKg != null
+                ? units.formatWeight(latestWeight.weightKg)
+                : "—"}
             </Text>
             <Text style={styles.statLabel}>
               {latestWeight
@@ -121,7 +162,9 @@ export default function GrowthScreen() {
           <View style={styles.statCard}>
             <Text style={styles.statEmoji}>📏</Text>
             <Text style={styles.statValue}>
-              {latestHeight ? `${latestHeight.heightCm} cm` : "—"}
+              {latestHeight?.heightCm != null
+                ? units.formatHeight(latestHeight.heightCm)
+                : "—"}
             </Text>
             <Text style={styles.statLabel}>
               {latestHeight
@@ -135,7 +178,11 @@ export default function GrowthScreen() {
         {!showForm && (
           <TouchableOpacity
             style={[styles.addBtn, { borderColor: theme.primary }]}
-            onPress={() => setShowForm(true)}
+            onPress={() => {
+              setShowForm(true);
+              setDateChoice("today");
+              setCustomDate(new Date());
+            }}
             activeOpacity={0.7}
           >
             <Text style={styles.addBtnEmoji}>➕</Text>
@@ -155,22 +202,82 @@ export default function GrowthScreen() {
               </Text>
             )}
 
-            <Text style={styles.fieldLabel}>WEIGHT (KG)</Text>
+            <Text style={styles.fieldLabel}>DATE</Text>
+            <View style={styles.choiceRow}>
+              {(["today", "custom"] as const).map((choice) => {
+                const selected = dateChoice === choice;
+                return (
+                  <TouchableOpacity
+                    key={choice}
+                    style={[
+                      styles.choiceBtn,
+                      selected
+                        ? { backgroundColor: theme.primary, borderColor: theme.primary }
+                        : {
+                            borderColor: theme.primaryLight,
+                            backgroundColor: theme.primaryLighter,
+                          },
+                    ]}
+                    onPress={() => setDateChoice(choice)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.choiceText,
+                        { color: selected ? "#fff" : theme.pillText },
+                      ]}
+                    >
+                      {choice === "today" ? "Today" : "Another date"}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {dateChoice === "custom" && (
+              <>
+                <TouchableOpacity
+                  style={[styles.pickerBtn, { borderColor: theme.primaryLight }]}
+                  onPress={() => setShowDatePicker(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.pickerText}>
+                    {formatDateDisplay(customDate)}
+                  </Text>
+                </TouchableOpacity>
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={customDate}
+                    mode="date"
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={(_, d) => {
+                      setShowDatePicker(Platform.OS === "ios");
+                      if (d) setCustomDate(d);
+                    }}
+                  />
+                )}
+              </>
+            )}
+
+            <Text style={styles.fieldLabel}>
+              WEIGHT ({units.weight.toUpperCase()})
+            </Text>
             <TextInput
               style={[styles.input, { borderColor: theme.primaryLight, backgroundColor: theme.primaryLighter }]}
               value={weight}
               onChangeText={setWeight}
-              placeholder="e.g. 4.5"
+              placeholder={units.system === "metric" ? "e.g. 4.5" : "e.g. 9.9"}
               placeholderTextColor="#ccc"
               keyboardType="decimal-pad"
             />
 
-            <Text style={styles.fieldLabel}>HEIGHT (CM)</Text>
+            <Text style={styles.fieldLabel}>
+              HEIGHT ({units.height.toUpperCase()})
+            </Text>
             <TextInput
               style={[styles.input, { borderColor: theme.primaryLight, backgroundColor: theme.primaryLighter }]}
               value={height}
               onChangeText={setHeight}
-              placeholder="e.g. 52"
+              placeholder={units.system === "metric" ? "e.g. 52" : "e.g. 20.5"}
               placeholderTextColor="#ccc"
               keyboardType="decimal-pad"
             />
@@ -187,12 +294,7 @@ export default function GrowthScreen() {
             <View style={styles.formBtns}>
               <TouchableOpacity
                 style={styles.formCancelBtn}
-                onPress={() => {
-                  setShowForm(false);
-                  setWeight("");
-                  setHeight("");
-                  setNotes("");
-                }}
+                onPress={resetForm}
                 activeOpacity={0.8}
               >
                 <Text style={styles.formCancelText}>Cancel</Text>
@@ -229,38 +331,82 @@ export default function GrowthScreen() {
         ) : (
           <View style={styles.historyList}>
             {growthLogs.map((log) => (
-              <View key={log.id} style={styles.historyCard}>
-                <View style={[styles.historyIconCircle, { backgroundColor: "#f5f3ff" }]}>
-                  <Text style={styles.historyIcon}>📏</Text>
-                </View>
-                <View style={styles.historyInfo}>
-                  <View style={styles.measureRow}>
-                    {log.weightKg !== null && (
-                      <View style={styles.weightBadge}>
-                        <Text style={styles.weightBadgeText}>⚖️ {log.weightKg} kg</Text>
-                      </View>
-                    )}
-                    {log.heightCm !== null && (
-                      <View style={styles.heightBadge}>
-                        <Text style={styles.heightBadgeText}>📏 {log.heightCm} cm</Text>
-                      </View>
-                    )}
+              <SwipeableRow key={log.id} onDelete={() => setPendingDeleteId(log.id)}>
+                <View style={styles.historyCard}>
+                  <View style={[styles.historyIconCircle, { backgroundColor: "#f5f3ff" }]}>
+                    <Text style={styles.historyIcon}>📏</Text>
                   </View>
-                  <Text style={styles.historyDate}>
-                    {formatDateLabel(log.startTime)}
-                  </Text>
-                  {log.comments ? (
-                    <Text style={styles.historyComment}>
-                      &ldquo;{log.comments}&rdquo;
+                  <View style={styles.historyInfo}>
+                    <View style={styles.measureRow}>
+                      {log.weightKg !== null && (
+                        <View style={styles.weightBadge}>
+                          <Text style={styles.weightBadgeText}>
+                          ⚖️ {units.formatWeight(log.weightKg)}
+                        </Text>
+                        </View>
+                      )}
+                      {log.heightCm !== null && (
+                        <View style={styles.heightBadge}>
+                          <Text style={styles.heightBadgeText}>
+                          📏 {units.formatHeight(log.heightCm)}
+                        </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.historyDate}>
+                      {formatDateLabel(log.startTime)}
                     </Text>
-                  ) : null}
-                  <Text style={styles.historyBy}>by {log.enteredByName}</Text>
+                    {log.comments ? (
+                      <Text style={styles.historyComment}>
+                        &ldquo;{log.comments}&rdquo;
+                      </Text>
+                    ) : null}
+                    <Text style={styles.historyBy}>by {log.enteredByName}</Text>
+                    <View style={styles.editRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.editBtn,
+                          {
+                            borderColor: theme.primaryLight,
+                            backgroundColor: theme.primaryLighter,
+                          },
+                        ]}
+                        onPress={() => setEditLog(log)}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Edit measurement"
+                      >
+                        <Text style={[styles.editText, { color: theme.pillText }]}>
+                          ✏️ Edit
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
-              </View>
+              </SwipeableRow>
             ))}
           </View>
         )}
       </ScrollView>
+
+      <DeleteConfirmModal
+        visible={pendingDeleteId !== null}
+        onConfirm={() => {
+          if (pendingDeleteId !== null) {
+            handleDelete(pendingDeleteId);
+            setPendingDeleteId(null);
+          }
+        }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
+
+      {editLog && (
+        <EditLogModal
+          key={editLog.id}
+          log={editLog}
+          onClose={() => setEditLog(null)}
+          onSaved={refresh}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -328,6 +474,23 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     marginTop: 2,
   },
+  choiceRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  choiceBtn: {
+    flex: 1,
+    borderWidth: 2,
+    borderRadius: 14,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+  choiceText: { fontSize: 14, fontWeight: "700" },
+  pickerBtn: {
+    borderWidth: 2,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 12,
+  },
+  pickerText: { fontSize: 14, color: "#333" },
   input: {
     borderWidth: 2,
     borderRadius: 14,
@@ -406,4 +569,12 @@ const styles = StyleSheet.create({
   historyDate: { fontSize: 12, color: "#aaa" },
   historyComment: { fontSize: 12, color: "#888", fontStyle: "italic", marginTop: 3 },
   historyBy: { fontSize: 10, color: "#ccc", marginTop: 2 },
+  editRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 8 },
+  editBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  editText: { fontSize: 12, fontWeight: "700" },
 });

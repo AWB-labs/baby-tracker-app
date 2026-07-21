@@ -6,12 +6,16 @@ import HomeScreen from "../screens/HomeScreen";
 import HistoryScreen from "../screens/HistoryScreen";
 import AnalyticsScreen from "../screens/AnalyticsScreen";
 import GrowthScreen from "../screens/GrowthScreen";
+import HealthScreen from "../screens/HealthScreen";
+import SettingsScreen from "../screens/SettingsScreen";
 
 export type TabParamList = {
   Home: undefined;
   History: undefined;
   Analytics: undefined;
   Growth: undefined;
+  Health: undefined;
+  Settings: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -22,6 +26,8 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
     History: "📅",
     Analytics: "📊",
     Growth: "📏",
+    Health: "🩺",
+    Settings: "⚙️",
   };
   return (
     <Text style={{ fontSize: focused ? 22 : 20, opacity: focused ? 1 : 0.5 }}>
@@ -56,6 +62,8 @@ export default function AppTabs() {
       <Tab.Screen name="History" component={HistoryScreen} />
       <Tab.Screen name="Analytics" component={AnalyticsScreen} />
       <Tab.Screen name="Growth" component={GrowthScreen} />
+      <Tab.Screen name="Health" component={HealthScreen} />
+      <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }

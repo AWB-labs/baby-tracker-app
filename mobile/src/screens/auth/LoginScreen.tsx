@@ -8,17 +8,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../../context/AuthContext";
 import { AuthStackParamList } from "../../navigation/RootNavigator";
+import { useToast } from "../../components/Toast";
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, "Login">;
 };
 
 export default function LoginScreen({ navigation }: Props) {
+  const toast = useToast();
   const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,17 +27,21 @@ export default function LoginScreen({ navigation }: Props) {
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
+      toast.error("Enter your email and password.");
       return;
     }
     setLoading(true);
     try {
-      await signIn(email.trim().toLowerCase(), password);
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data
-          ?.error || "Login failed. Check your credentials.";
-      Alert.alert("Login Failed", msg);
+      const claimed = await signIn(email.trim().toLowerCase(), password);
+      if (claimed > 0) {
+        toast.success(
+          claimed === 1
+            ? "You've been added to a baby's care team."
+            : `You've been added to ${claimed} babies' care teams.`
+        );
+      }
+    } catch (err) {
+      toast.showError(err);
     } finally {
       setLoading(false);
     }

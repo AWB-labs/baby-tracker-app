@@ -26,4 +26,30 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
+type UnauthorizedHandler = () => void;
+let onUnauthorized: UnauthorizedHandler | null = null;
+
+/**
+ * Called when the server rejects our token. Registered by AuthProvider so an
+ * expired session drops the user back to the sign-in screen with an
+ * explanation, instead of every screen quietly failing to load.
+ */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  onUnauthorized = handler;
+}
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Sign-in and sign-up answer 401 for a wrong password; that's a normal
+    // failed attempt, not an expired session, so it must not sign anyone out.
+    const url = error?.config?.url ?? "";
+    const isAuthAttempt = url.includes("/auth/");
+    if (error?.response?.status === 401 && !isAuthAttempt) {
+      onUnauthorized?.();
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default apiClient;

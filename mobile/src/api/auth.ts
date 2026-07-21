@@ -1,14 +1,20 @@
 import apiClient from "./client";
+import type { AccountSettings, UnitSystem } from "./settings";
 
 export interface AccountInfo {
   id: number;
   name: string;
   email: string;
+  unitSystem?: UnitSystem;
+  themeColor?: string | null;
+  notificationsEnabled?: boolean;
 }
 
 export interface AuthResponse {
   token: string;
   account: AccountInfo;
+  /** Babies this email had been invited to, granted on sign-up/sign-in. */
+  claimedInvites?: number;
 }
 
 export async function signup(
@@ -40,7 +46,12 @@ export interface Baby {
   name: string;
   dob: string | null;
   gender: "girl" | "boy";
+  avatarEmoji: string | null;
+  avatarColor: string | null;
+  ownerAccountId: number;
   createdAt: string;
+  /** This account's role on the baby. Only present on /me. */
+  role?: "owner" | "member";
 }
 
 export interface Profile {
@@ -49,7 +60,7 @@ export interface Profile {
 }
 
 export interface MeResponse {
-  account: AccountInfo;
+  account: AccountSettings & { createdAt: string };
   babies: Baby[];
   profiles: Profile[];
 }

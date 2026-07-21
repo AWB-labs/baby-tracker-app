@@ -7,16 +7,17 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
-  Alert,
 } from "react-native";
 import { useBaby } from "../context/BabyContext";
 import { useTheme } from "../theme";
+import { useToast } from "./Toast";
 import type { Baby } from "../api/auth";
 
 export default function BabySwitcher() {
   const { babies, activeBaby, setActiveBaby, addBaby, refreshBabies } =
     useBaby();
   const theme = useTheme();
+  const toast = useToast();
   const [visible, setVisible] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
@@ -30,7 +31,7 @@ export default function BabySwitcher() {
 
   const handleAdd = async () => {
     if (!newName.trim()) {
-      Alert.alert("Error", "Please enter a baby name");
+      toast.error("Enter a name for your baby.");
       return;
     }
     setSaving(true);
@@ -42,8 +43,8 @@ export default function BabySwitcher() {
       setNewName("");
       setNewGender("girl");
       setVisible(false);
-    } catch {
-      Alert.alert("Error", "Could not add baby. Try again.");
+    } catch (err) {
+      toast.showError(err);
     } finally {
       setSaving(false);
     }
@@ -56,9 +57,16 @@ export default function BabySwitcher() {
         onPress={() => setVisible(true)}
         activeOpacity={0.7}
       >
-        <View
-          style={[styles.dot, { backgroundColor: theme.primary }]}
-        />
+        {activeBaby?.avatarEmoji ? (
+          <Text style={styles.triggerEmoji}>{activeBaby.avatarEmoji}</Text>
+        ) : (
+          <View
+            style={[
+              styles.dot,
+              { backgroundColor: activeBaby?.avatarColor || theme.primary },
+            ]}
+          />
+        )}
         <Text style={[styles.triggerText, { color: theme.primary }]}>
           {activeBaby?.name || "Select Baby"}
         </Text>
@@ -96,19 +104,26 @@ export default function BabySwitcher() {
                   onPress={() => handleSelect(baby)}
                   activeOpacity={0.7}
                 >
-                  <View
-                    style={[
-                      styles.babyDot,
-                      {
-                        backgroundColor:
-                          baby.gender === "girl" ? "#ff6b95" : "#4e9eff",
-                      },
-                    ]}
-                  />
+                  {baby.avatarEmoji ? (
+                    <Text style={styles.babyEmoji}>{baby.avatarEmoji}</Text>
+                  ) : (
+                    <View
+                      style={[
+                        styles.babyDot,
+                        {
+                          backgroundColor:
+                            baby.avatarColor ||
+                            (baby.gender === "girl" ? "#ff6b95" : "#4e9eff"),
+                        },
+                      ]}
+                    />
+                  )}
                   <Text style={styles.babyName}>{baby.name}</Text>
-                  <Text style={styles.babyGender}>
-                    {baby.gender === "girl" ? "👧" : "👦"}
-                  </Text>
+                  {!baby.avatarEmoji && (
+                    <Text style={styles.babyGender}>
+                      {baby.gender === "girl" ? "👧" : "👦"}
+                    </Text>
+                  )}
                   {activeBaby?.id === baby.id && (
                     <Text style={styles.checkmark}>✓</Text>
                   )}
@@ -192,6 +207,8 @@ export default function BabySwitcher() {
 }
 
 const styles = StyleSheet.create({
+  triggerEmoji: { fontSize: 15 },
+  babyEmoji: { fontSize: 20, width: 22, textAlign: "center" },
   trigger: {
     flexDirection: "row",
     alignItems: "center",
