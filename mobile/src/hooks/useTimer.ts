@@ -76,6 +76,8 @@ export interface UseTimerResult {
   handleResume: () => void;
   handleStop: () => void; // opens the note form
   handleCancel: () => void;
+  /** Move a running session to the other breast without restarting it. */
+  switchSide: (side: "left" | "right") => void;
   /** Nudge the start earlier (positive) or later (negative), in seconds. */
   adjustStart: (deltaSeconds: number) => void;
   showComment: boolean;
@@ -252,6 +254,40 @@ export function useTimer(
     if (intervalRef.current) clearInterval(intervalRef.current);
   }, [startTime, paused, type, babyId]);
 
+  /**
+   * Swap sides mid-feed.
+   *
+   * Babies routinely switch breast partway through, and the alternative —
+   * finishing and starting again — splits one feed into two entries and loses
+   * the real total. The elapsed time and the original start are untouched; only
+   * the side recorded on the saved log changes, with a marker in the timeline so
+   * the side recorded on the saved log changes.
+   *
+   * No timeline event is written: the timeline is the pause/resume record the
+   * history view draws, and inventing an entry for it would show a break in a
+   * feed that never stopped.
+   */
+  const switchSide = useCallback(
+    (side: "left" | "right") => {
+      if (!startTime || !babyId || side === activeSide) return;
+      setActiveSide(side);
+      persist({
+        originalStartTimeISO: (
+          originalStartTimeRef.current || startTime
+        ).toISOString(),
+        startTimeISO: startTime.toISOString(),
+        pausedElapsed: pausedElapsedRef.current,
+        paused,
+        pausedAtISO: paused
+          ? (endTimeRef.current ?? new Date()).toISOString()
+          : null,
+        activeSide: side,
+        timeline: timelineRef.current,
+      });
+    },
+    [startTime, activeSide, paused, babyId, persist]
+  );
+
   // Nudge the running/paused timer's start by deltaSeconds (positive = earlier,
   // i.e. "add" elapsed; negative = later, i.e. "subtract"). Lets a late tap be
   // backdated — e.g. baby fell asleep 10 min ago. Clamped so elapsed can't go
@@ -374,6 +410,7 @@ export function useTimer(
     handleResume,
     handleStop,
     handleCancel,
+    switchSide,
     adjustStart,
     showComment,
     showDiaperStatus,

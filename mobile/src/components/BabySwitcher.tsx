@@ -23,6 +23,8 @@ import {
   FadeInUp,
 } from "./ui";
 import { useToast } from "./Toast";
+import DobField from "./DobField";
+import { formatBabyAge } from "../lib/greeting";
 import type { Baby } from "../api/auth";
 
 const GENDERS: { value: "girl" | "boy"; label: string }[] = [
@@ -47,6 +49,7 @@ export default function BabySwitcher() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newGender, setNewGender] = useState<"girl" | "boy">("girl");
+  const [newDob, setNewDob] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const handleSelect = async (baby: Baby) => {
@@ -61,12 +64,17 @@ export default function BabySwitcher() {
     }
     setSaving(true);
     try {
-      const baby = await addBaby({ name: newName.trim(), gender: newGender });
+      const baby = await addBaby({
+        name: newName.trim(),
+        gender: newGender,
+        dob: newDob,
+      });
       await setActiveBaby(baby);
       await refreshBabies();
       setShowAddForm(false);
       setNewName("");
       setNewGender("girl");
+      setNewDob(null);
       setVisible(false);
     } catch (err) {
       toast.showError(err);
@@ -178,13 +186,18 @@ export default function BabySwitcher() {
                     // The label replaces the row's children for a screen
                     // reader, so the ownership badge has to be spoken here or
                     // it exists for sighted users only.
-                    accessibilityLabel={
+                    accessibilityLabel={[
+                      baby.name,
+                      baby.gender === "girl" ? "girl" : "boy",
+                      formatBabyAge(baby.dob),
                       baby.role
-                        ? `${baby.name}, ${
-                            baby.role === "owner" ? "yours" : "shared"
-                          }`
-                        : baby.name
-                    }
+                        ? baby.role === "owner"
+                          ? "yours"
+                          : "shared"
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
                     style={({ pressed }) => [
                       styles.babyRow,
                       {
@@ -209,13 +222,22 @@ export default function BabySwitcher() {
                       )}
                     </View>
 
-                    <Text
-                      variant="bodyStrong"
-                      numberOfLines={1}
-                      style={styles.flex}
-                    >
-                      {baby.name}
-                    </Text>
+                    {/* Gender and age sit under the name: on a shared account
+                        two siblings can have similar names, and the age is the
+                        fastest way to tell which row is which. */}
+                    <View style={styles.rowBody}>
+                      <Text variant="bodyStrong" numberOfLines={1}>
+                        {baby.name}
+                      </Text>
+                      <Text variant="caption" tone="subtle" numberOfLines={1}>
+                        {[
+                          baby.gender === "girl" ? "Girl" : "Boy",
+                          formatBabyAge(baby.dob),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Text>
+                    </View>
 
                     {/* Role only comes back from /me, so it stays optional. */}
                     {baby.role ? (
@@ -252,6 +274,7 @@ export default function BabySwitcher() {
                 onChange={setNewGender}
               />
             </Field>
+            <DobField value={newDob} onChange={setNewDob} />
           </View>
         )}
       </Sheet>
@@ -276,6 +299,9 @@ const styles = StyleSheet.create({
   triggerLabel: { flexShrink: 1 },
   dot: { width: 10, height: 10, borderRadius: radius.pill },
   babyList: { gap: space.sm },
+  // Takes the leftover width so a long name truncates instead of shoving the
+  // badge and tick off the row.
+  rowBody: { flex: 1, minWidth: 0, gap: space.xxs, paddingVertical: space.sm },
   addForm: { gap: space.md },
   babyRow: {
     flexDirection: "row",

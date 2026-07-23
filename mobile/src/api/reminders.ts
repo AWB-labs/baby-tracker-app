@@ -36,9 +36,45 @@ export interface Reminder {
   type: ReminderType;
   label: string | null;
   intervalMinutes: number;
+  /** Weekday numbers (0 = Sunday) this may fire on. Null means every day. */
+  daysOfWeek: number[] | null;
+  tzOffsetMinutes: number | null;
   enabled: boolean;
   lastNotifiedAt: string | null;
   createdAt: string;
+}
+
+export const WEEKDAYS: { value: number; short: string; long: string }[] = [
+  { value: 0, short: "Sun", long: "Sunday" },
+  { value: 1, short: "Mon", long: "Monday" },
+  { value: 2, short: "Tue", long: "Tuesday" },
+  { value: 3, short: "Wed", long: "Wednesday" },
+  { value: 4, short: "Thu", long: "Thursday" },
+  { value: 5, short: "Fri", long: "Friday" },
+  { value: 6, short: "Sat", long: "Saturday" },
+];
+
+/**
+ * Minutes to add to UTC to get this device's local time (Cairo → +180).
+ *
+ * The server stores it alongside the chosen days so "Tuesday" means the
+ * caregiver's Tuesday. Note the sign: getTimezoneOffset returns the opposite.
+ */
+export function localUtcOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset();
+}
+
+/** "Every day" / "Weekdays" / "Mon, Wed, Fri" */
+export function formatDays(days: number[] | null | undefined): string {
+  if (!days || days.length === 0 || days.length === 7) return "Every day";
+  const set = new Set(days);
+  if (set.size === 5 && [1, 2, 3, 4, 5].every((d) => set.has(d))) {
+    return "Weekdays";
+  }
+  if (set.size === 2 && set.has(0) && set.has(6)) return "Weekends";
+  return WEEKDAYS.filter((d) => set.has(d.value))
+    .map((d) => d.short)
+    .join(", ");
 }
 
 export async function getReminders(babyId: number): Promise<Reminder[]> {
@@ -54,8 +90,12 @@ export async function createReminder(data: {
   label?: string | null;
   hours: number;
   minutes: number;
+  daysOfWeek?: number[] | null;
 }): Promise<Reminder> {
-  const res = await apiClient.post<Reminder>("/reminders", data);
+  const res = await apiClient.post<Reminder>("/reminders", {
+    ...data,
+    tzOffsetMinutes: localUtcOffsetMinutes(),
+  });
   return res.data;
 }
 
@@ -66,9 +106,15 @@ export async function updateReminder(
     enabled?: boolean;
     hours?: number;
     minutes?: number;
+    daysOfWeek?: number[] | null;
   }
 ): Promise<Reminder> {
-  const res = await apiClient.patch<Reminder>(`/reminders/${id}`, data);
+  const res = await apiClient.patch<Reminder>(`/reminders/${id}`, {
+    ...data,
+    ...(data.daysOfWeek !== undefined
+      ? { tzOffsetMinutes: localUtcOffsetMinutes() }
+      : {}),
+  });
   return res.data;
 }
 

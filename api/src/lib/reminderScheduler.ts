@@ -1,6 +1,11 @@
 import prisma from "./prisma";
 import { sendPushNotifications, PushMessage } from "./push";
-import { formatInterval, reminderLogType, reminderMeta } from "./reminders";
+import {
+  formatInterval,
+  isAllowedDay,
+  reminderLogType,
+  reminderMeta,
+} from "./reminders";
 
 const TICK_MS = 60_000;
 
@@ -42,6 +47,8 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
       type: true,
       label: true,
       intervalMinutes: true,
+      daysOfWeek: true,
+      tzOffsetMinutes: true,
       lastNotifiedAt: true,
       createdAt: true,
       baby: { select: { name: true } },
@@ -59,6 +66,20 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
   for (const reminder of reminders) {
     const tokens = reminder.account.pushTokens.map((t) => t.token);
     if (tokens.length === 0) continue;
+
+    // Checked before the anchor query below, so a reminder that's off today
+    // costs nothing. Deliberately does not stamp lastNotifiedAt: the countdown
+    // keeps running, so a weekdays-only reminder that comes due on Sunday
+    // fires first thing Monday rather than waiting a whole extra interval.
+    if (
+      !isAllowedDay({
+        daysOfWeek: reminder.daysOfWeek,
+        tzOffsetMinutes: reminder.tzOffsetMinutes,
+        now,
+      })
+    ) {
+      continue;
+    }
 
     const logType = reminderLogType(reminder.type);
 

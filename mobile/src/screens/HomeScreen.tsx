@@ -87,13 +87,19 @@ export default function HomeScreen() {
 
   const firstName = account?.name?.split(" ")[0];
   const age = formatBabyAge(activeBaby.dob);
+  // "Girl · 3 months old", falling back to just the gender until a date of
+  // birth is set — the subtitle should never be empty under the baby's name.
+  const babyLine =
+    [activeBaby.gender === "girl" ? "Girl" : "Boy", age]
+      .filter(Boolean)
+      .join("  ·  ") || "Here's today";
 
   return (
     <Screen refreshing={refreshing} onRefresh={onRefresh}>
       <ScreenHeader
         overline={`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
         title={activeBaby.name}
-        subtitle={age ?? "Here's today"}
+        subtitle={babyLine}
         actions={
           <>
             <BabySwitcher />

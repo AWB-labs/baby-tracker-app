@@ -44,3 +44,76 @@ export function formatInterval(minutes: number): string {
 
 export const MIN_INTERVAL_MINUTES = 5;
 export const MAX_INTERVAL_MINUTES = 60 * 24 * 7;
+
+/* -------------------------------------------------------------------------- */
+/* Days of the week                                                           */
+/* -------------------------------------------------------------------------- */
+
+export const WEEKDAY_LABELS = [
+  "Sun",
+  "Mon",
+  "Tue",
+  "Wed",
+  "Thu",
+  "Fri",
+  "Sat",
+] as const;
+
+/**
+ * Normalise a chosen set of weekdays for storage.
+ *
+ * Null and "every day" are the same thing, so both collapse to null — that way
+ * a reminder restricted to all seven days doesn't take a different code path
+ * from one that was never restricted at all.
+ */
+export function serialiseDays(days: number[] | null | undefined): string | null {
+  if (!days) return null;
+  const unique = Array.from(new Set(days.filter((d) => d >= 0 && d <= 6))).sort(
+    (a, b) => a - b
+  );
+  if (unique.length === 0 || unique.length === 7) return null;
+  return unique.join(",");
+}
+
+export function parseDays(stored: string | null | undefined): number[] | null {
+  if (!stored) return null;
+  const days = stored
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  return days.length > 0 ? days : null;
+}
+
+/**
+ * Is `now` on a day this reminder is allowed to fire?
+ *
+ * The comparison happens in the caregiver's local day, not the server's: a
+ * "weekdays only" reminder in Cairo must not go quiet at 9pm Friday because it
+ * is already Saturday in UTC.
+ *
+ * Pure and exported so the rule can be tested without a database.
+ */
+export function isAllowedDay(input: {
+  daysOfWeek: string | null;
+  tzOffsetMinutes: number | null;
+  now: Date;
+}): boolean {
+  const days = parseDays(input.daysOfWeek);
+  if (!days) return true;
+  const offset = input.tzOffsetMinutes ?? 0;
+  const local = new Date(input.now.getTime() + offset * 60_000);
+  return days.includes(local.getUTCDay());
+}
+
+/** "Weekdays" / "Sat, Sun" / "Every day" — for the notification and the UI. */
+export function formatDays(stored: string | null | undefined): string {
+  const days = parseDays(stored);
+  if (!days) return "Every day";
+  if (days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d))) {
+    return "Weekdays";
+  }
+  if (days.length === 2 && days.includes(0) && days.includes(6)) {
+    return "Weekends";
+  }
+  return days.map((d) => WEEKDAY_LABELS[d]).join(", ");
+}

@@ -98,6 +98,15 @@ model Reminder {
   type            String // feed|pump|sleep|diaper|shower|vitamin|nailcut|custom
   label           String? // shown instead of the type's name, required for custom
   intervalMinutes Int
+  /// Which days this may fire on, as sorted comma-separated weekday numbers
+  /// (0 = Sunday … 6 = Saturday) — "1,2,3,4,5" for weekdays only. Null means
+  /// every day, which is what every reminder created before this existed is.
+  daysOfWeek      String?
+  /// The device's UTC offset in minutes when the days were chosen, so "Tuesday"
+  /// means the caregiver's Tuesday rather than the server's. Null falls back to
+  /// UTC. Stored rather than derived because the server has no other way to
+  /// know where the account is.
+  tzOffsetMinutes Int?
   enabled         Boolean   @default(true)
   lastNotifiedAt  DateTime?
   createdAt       DateTime  @default(now())

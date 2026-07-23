@@ -104,6 +104,7 @@ export type IconName =
   | "chevronLeft"
   | "chevronRight"
   | "clock"
+  | "calendar"
   | "bell"
   | "bellOff"
   | "users"
@@ -165,6 +166,9 @@ const ICONS: Record<IconName, LucideIcon> = {
   chevronLeft: ChevronLeft,
   chevronRight: ChevronRight,
   clock: Clock,
+  // Same glyph as the History tab, under the name a date control wants. Kept
+  // separate so renaming either one doesn't silently change the other.
+  calendar: Calendar,
   bell: Bell,
   bellOff: BellOff,
   users: Users,
@@ -249,7 +253,7 @@ export const ACTIVITY_LABEL: Record<string, string> = {
 };
 
 export const DIAPER_LABEL: Record<string, string> = {
-  empty: "Dry",
+  empty: "Clean",
   wet: "Wet",
   dirty: "Dirty",
   wet_and_dirty: "Both",

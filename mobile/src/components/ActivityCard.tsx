@@ -1,7 +1,13 @@
 import React, { useCallback, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useTheme } from "../design/ThemeProvider";
-import { space, radius, hitSlop, DISABLED_OPACITY } from "../design/tokens";
+import {
+  space,
+  radius,
+  hitSlop,
+  DISABLED_OPACITY,
+  PRESSED_OPACITY,
+} from "../design/tokens";
 import { Icon } from "../design/icons";
 import {
   useActivityTone,
@@ -14,6 +20,7 @@ import { Card } from "./ui/Card";
 import { Button, IconButton } from "./ui/Button";
 import { Input } from "./ui/Input";
 import { Sheet } from "./ui/Sheet";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { useToast } from "./Toast";
 import { useUnits } from "../context/SettingsContext";
 import { useTimer, type ActivityType } from "../hooks/useTimer";
@@ -74,6 +81,7 @@ export default function ActivityCard({
   const [amount, setAmount] = useState("");
   const [showAmount, setShowAmount] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const amountValue = units.parseVolume(amount);
   const amountValid = !isNaN(amountValue) && amountValue > 0;
@@ -182,9 +190,13 @@ export default function ActivityCard({
         <View style={styles.activeHeader}>
           <View style={styles.rowCenter}>
             <Emoji size={18}>{tone.emoji}</Emoji>
+            {/* The side is only repeated here when there's no switcher below
+                to state it — otherwise the card says "Left" twice. */}
             <Text variant="subheadStrong" style={{ color: tone.text }}>
               {label}
-              {timer.activeSide ? ` · ${timer.activeSide === "left" ? "Left" : "Right"}` : ""}
+              {timer.activeSide && !config.hasSides
+                ? ` · ${timer.activeSide === "left" ? "Left" : "Right"}`
+                : ""}
             </Text>
           </View>
           <Badge tone={timer.paused ? "warning" : "success"}>
@@ -201,6 +213,47 @@ export default function ActivityCard({
         >
           {formatTimer(timer.elapsed)}
         </Text>
+
+        {/* Babies swap breast mid-feed constantly. Doing that by finishing and
+            starting again would record two short feeds instead of one real
+            one, so the running session can just move across. */}
+        {config.hasSides && timer.activeSide && (
+          <View style={styles.switchRow}>
+            {(["left", "right"] as const).map((side) => {
+              const current = timer.activeSide === side;
+              return (
+                <Pressable
+                  key={side}
+                  onPress={() => timer.switchSide(side)}
+                  hitSlop={hitSlop}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: current }}
+                  accessibilityLabel={
+                    current
+                      ? `Currently on the ${side}`
+                      : `Switch to the ${side}`
+                  }
+                  style={({ pressed }) => [
+                    styles.switchBtn,
+                    {
+                      backgroundColor: current ? tone.soft : "transparent",
+                      borderColor: current ? tone.border : t.border,
+                      opacity: pressed ? PRESSED_OPACITY : 1,
+                    },
+                  ]}
+                >
+                  <Emoji size={16}>{SIDE_EMOJI[side]}</Emoji>
+                  <Text
+                    variant="subheadStrong"
+                    style={{ color: current ? tone.text : t.textSubtle }}
+                  >
+                    {side === "left" ? "Left" : "Right"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         {/* Backdate a late tap without abandoning the session. */}
         <View style={styles.adjustRow}>
@@ -250,6 +303,32 @@ export default function ActivityCard({
             style={styles.flex}
           />
         </View>
+
+        {/* Started by accident, or the baby never settled. Full width and
+            below the primary controls so it can't be hit instead of Finish;
+            it confirms first, because the elapsed time can't be recovered. */}
+        <Button
+          label="Cancel"
+          icon="close"
+          variant="ghost"
+          fullWidth
+          onPress={() => setConfirmDiscard(true)}
+          style={styles.cancelBtn}
+        />
+
+        <ConfirmDialog
+          visible={confirmDiscard}
+          icon="trash"
+          title={`Discard this ${label.toLowerCase()}?`}
+          message={`${formatTimer(timer.elapsed)} will be thrown away and nothing will be saved.`}
+          confirmLabel="Discard"
+          cancelLabel="Keep going"
+          onConfirm={() => {
+            setConfirmDiscard(false);
+            cancelAll();
+          }}
+          onCancel={() => setConfirmDiscard(false)}
+        />
       </Card>
     );
   }
@@ -494,6 +573,23 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   clock: { marginVertical: space.sm },
+  switchRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: space.sm,
+    marginBottom: space.md,
+  },
+  switchBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.xs,
+    minWidth: 104,
+    height: 40,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+  },
+  cancelBtn: { marginTop: space.sm },
   adjustRow: {
     flexDirection: "row",
     alignItems: "center",

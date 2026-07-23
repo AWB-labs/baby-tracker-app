@@ -45,13 +45,21 @@ import {
   updateReminder,
   deleteReminder,
   formatInterval,
+  formatDays,
+  WEEKDAYS,
   REMINDER_TYPES,
   REMINDER_META,
   type Reminder,
   type ReminderType,
 } from "../api/reminders";
 import { updateBaby } from "../api/babies";
+import DobField from "../components/DobField";
 import type { UnitSystem } from "../api/settings";
+
+const GENDER_OPTIONS: { value: "girl" | "boy"; label: string }[] = [
+  { value: "girl", label: "Girl" },
+  { value: "boy", label: "Boy" },
+];
 
 /**
  * Avatar emoji are content, not chrome — they're the picture the family picks
@@ -110,9 +118,18 @@ export default function SettingsScreen() {
   const [newLabel, setNewLabel] = useState("");
   const [newHours, setNewHours] = useState("3");
   const [newMinutes, setNewMinutes] = useState("0");
+  // Empty means every day — the common case, so it's also the default.
+  const [newDays, setNewDays] = useState<number[]>([]);
   const [addingReminder, setAddingReminder] = useState(false);
 
   const [savingField, setSavingField] = useState<string | null>(null);
+
+  // Baby details, seeded from the active baby and re-seeded when it changes.
+  const [babyName, setBabyName] = useState(activeBaby?.name ?? "");
+  const [babyGender, setBabyGender] = useState<"girl" | "boy">(
+    activeBaby?.gender ?? "girl"
+  );
+  const [babyDob, setBabyDob] = useState<string | null>(activeBaby?.dob ?? null);
 
   const isOwner = activeBaby ? activeBaby.role === "owner" : false;
 
@@ -214,11 +231,15 @@ export default function SettingsScreen() {
         label: newLabel.trim() || null,
         hours,
         minutes,
+        daysOfWeek: newDays.length > 0 ? newDays : null,
       });
       setReminders((prev) => [...prev, created]);
       setNewLabel("");
+      setNewDays([]);
       toast.success(
-        `You'll be reminded every ${formatInterval(created.intervalMinutes)}.`
+        created.daysOfWeek
+          ? `You'll be reminded every ${formatInterval(created.intervalMinutes)} on ${formatDays(created.daysOfWeek).toLowerCase()}.`
+          : `You'll be reminded every ${formatInterval(created.intervalMinutes)}.`
       );
     } catch (err) {
       toast.showError(err);
@@ -291,6 +312,42 @@ export default function SettingsScreen() {
   };
 
   // --- Baby appearance ---
+
+  // Switching baby while this screen is open must not leave the previous
+  // baby's name sitting in the form, ready to be saved onto the new one.
+  useEffect(() => {
+    setBabyName(activeBaby?.name ?? "");
+    setBabyGender(activeBaby?.gender ?? "girl");
+    setBabyDob(activeBaby?.dob ?? null);
+  }, [activeBaby?.id, activeBaby?.name, activeBaby?.gender, activeBaby?.dob]);
+
+  const babyDetailsChanged =
+    !!activeBaby &&
+    (babyName.trim() !== activeBaby.name ||
+      babyGender !== activeBaby.gender ||
+      (babyDob ?? null) !== (activeBaby.dob ?? null));
+
+  const handleSaveBabyDetails = async () => {
+    if (!activeBaby) return;
+    if (!babyName.trim()) {
+      toast.error("Enter a name for your baby.");
+      return;
+    }
+    setSavingField("details");
+    try {
+      await updateBaby(activeBaby.id, {
+        name: babyName.trim(),
+        gender: babyGender,
+        dob: babyDob,
+      });
+      await refreshBabies();
+      toast.success("Details saved.");
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setSavingField(null);
+    }
+  };
 
   const handleBabyAvatar = async (patch: { avatarEmoji?: string | null }) => {
     if (!activeBaby) return;
@@ -471,6 +528,46 @@ export default function SettingsScreen() {
             </Card>
           </View>
 
+          {/* ---------- Baby ---------- */}
+          <View style={styles.section}>
+            <SectionHeader title={`${activeBaby.name}'s details`} />
+            <Card>
+              <View style={styles.form}>
+                <Input
+                  label="Name"
+                  value={babyName}
+                  onChangeText={setBabyName}
+                  placeholder="Baby's name"
+                  returnKeyType="done"
+                />
+
+                <Field label="Gender">
+                  <Segmented
+                    options={GENDER_OPTIONS}
+                    value={babyGender}
+                    onChange={setBabyGender}
+                    disabled={savingField === "details"}
+                  />
+                </Field>
+
+                <DobField value={babyDob} onChange={setBabyDob} />
+
+                {/* Only offered once something has actually changed, so the
+                    card doesn't sit there looking like unfinished work. */}
+                {babyDetailsChanged && (
+                  <Button
+                    label="Save details"
+                    icon="check"
+                    variant="primary"
+                    fullWidth
+                    loading={savingField === "details"}
+                    onPress={handleSaveBabyDetails}
+                  />
+                )}
+              </View>
+            </Card>
+          </View>
+
           {/* ---------- Reminders ---------- */}
           <View style={styles.section}>
             <SectionHeader title="Reminders" />
@@ -522,6 +619,9 @@ export default function SettingsScreen() {
                             <Text variant="caption" tone="subtle">
                               Every {formatInterval(r.intervalMinutes)}
                               {meta?.watchesActivity ? " since the last one" : ""}
+                              {r.daysOfWeek
+                                ? ` · ${formatDays(r.daysOfWeek)}`
+                                : ""}
                             </Text>
                           </View>
                           <Switch
@@ -593,6 +693,57 @@ export default function SettingsScreen() {
                 <Text variant="footnote" tone="subtle">
                   At least 5 minutes in total.
                 </Text>
+
+                {/* Nothing selected means every day, so the common case needs
+                    no interaction at all — you only touch this to narrow it. */}
+                <Field
+                  label="On these days"
+                  helper={
+                    newDays.length === 0
+                      ? "Every day. Tap to limit it to certain days."
+                      : formatDays(newDays)
+                  }
+                >
+                  <View style={styles.dayRow}>
+                    {WEEKDAYS.map((day) => {
+                      const selected = newDays.includes(day.value);
+                      return (
+                        <Pressable
+                          key={day.value}
+                          onPress={() =>
+                            setNewDays((prev) =>
+                              prev.includes(day.value)
+                                ? prev.filter((d) => d !== day.value)
+                                : [...prev, day.value].sort((a, b) => a - b)
+                            )
+                          }
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          accessibilityLabel={day.long}
+                          style={({ pressed }) => [
+                            styles.dayTile,
+                            {
+                              backgroundColor: selected
+                                ? t.accent
+                                : t.accentSofter,
+                              borderColor: selected ? t.accent : "transparent",
+                              opacity: pressed ? PRESSED_OPACITY : 1,
+                            },
+                          ]}
+                        >
+                          <Text
+                            variant="caption"
+                            style={{
+                              color: selected ? t.onAccent : t.accentText,
+                            }}
+                          >
+                            {day.short}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </Field>
 
                 <Button
                   label={addingReminder ? "Adding…" : "Add reminder"}
@@ -772,6 +923,17 @@ const styles = StyleSheet.create({
   },
   divider: { marginVertical: space.lg },
   intervalRow: { flexDirection: "row", gap: space.sm },
+  // Seven tiles that must fit one line on the narrowest phone, so they flex
+  // rather than carrying a fixed width.
+  dayRow: { flexDirection: "row", gap: space.xs },
+  dayTile: {
+    flex: 1,
+    height: 44,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+  },
   swatchWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   swatch: {
     width: 44,

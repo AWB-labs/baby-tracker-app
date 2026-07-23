@@ -5,6 +5,8 @@ import prisma from "../lib/prisma";
 import { requireBabyAccess } from "../lib/babyAccess";
 import {
   isReminderType,
+  serialiseDays,
+  parseDays,
   MIN_INTERVAL_MINUTES,
   MAX_INTERVAL_MINUTES,
 } from "../lib/reminders";
@@ -19,15 +21,37 @@ const REMINDER_SELECT = {
   type: true,
   label: true,
   intervalMinutes: true,
+  daysOfWeek: true,
+  tzOffsetMinutes: true,
   enabled: true,
   lastNotifiedAt: true,
   createdAt: true,
 } as const;
 
+type StoredReminder = {
+  daysOfWeek: string | null;
+  [key: string]: unknown;
+};
+
+/** Days are stored as a string but travel as an array the client can render. */
+function present<T extends StoredReminder>(reminder: T) {
+  return { ...reminder, daysOfWeek: parseDays(reminder.daysOfWeek) };
+}
+
 // "every [x] hours and/or [minutes]" arrives as two fields and is stored as one.
 const intervalFields = {
   hours: z.number().int().min(0).max(168).optional(),
   minutes: z.number().int().min(0).max(59).optional(),
+};
+
+/**
+ * Restrict a reminder to certain weekdays. An empty array or all seven days
+ * both mean "no restriction", and null clears one that was set.
+ */
+const dayFields = {
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).nullable().optional(),
+  // Minutes to ADD to UTC for the caregiver's local time, i.e. +180 for Cairo.
+  tzOffsetMinutes: z.number().int().min(-840).max(840).nullable().optional(),
 };
 
 function totalMinutes(hours?: number, minutes?: number): number {
@@ -40,6 +64,7 @@ const createReminderSchema = z
     type: z.string(),
     label: z.string().max(60).nullable().optional(),
     ...intervalFields,
+    ...dayFields,
   })
   .superRefine((data, ctx) => {
     if (!isReminderType(data.type)) {
@@ -74,6 +99,7 @@ const updateReminderSchema = z
     label: z.string().max(60).nullable().optional(),
     enabled: z.boolean().optional(),
     ...intervalFields,
+    ...dayFields,
   })
   .superRefine((data, ctx) => {
     if (data.hours === undefined && data.minutes === undefined) return;
@@ -107,17 +133,15 @@ router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
     select: REMINDER_SELECT,
   });
 
-  res.json(reminders);
+  res.json(reminders.map(present));
 });
 
 // POST /reminders
 router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
 
-  const { babyId, type, label, hours, minutes } = parseOrThrow(
-    createReminderSchema,
-    req.body
-  );
+  const { babyId, type, label, hours, minutes, daysOfWeek, tzOffsetMinutes } =
+    parseOrThrow(createReminderSchema, req.body);
 
   await requireBabyAccess(accountId, babyId);
 
@@ -139,6 +163,8 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
     );
   }
 
+  const days = serialiseDays(daysOfWeek);
+
   const reminder = await prisma.reminder.create({
     data: {
       babyId,
@@ -146,21 +172,23 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
       type,
       label: label?.trim() || null,
       intervalMinutes: totalMinutes(hours, minutes),
+      daysOfWeek: days,
+      // Only meaningful alongside a day restriction, so don't store a location
+      // for a reminder that fires every day regardless.
+      tzOffsetMinutes: days ? (tzOffsetMinutes ?? null) : null,
     },
     select: REMINDER_SELECT,
   });
 
-  res.status(201).json(reminder);
+  res.status(201).json(present(reminder));
 });
 
 // PATCH /reminders/:id
 router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
   const id = parseId(req.params.id, "reminder");
-  const { label, enabled, hours, minutes } = parseOrThrow(
-    updateReminderSchema,
-    req.body
-  );
+  const { label, enabled, hours, minutes, daysOfWeek, tzOffsetMinutes } =
+    parseOrThrow(updateReminderSchema, req.body);
 
   // Reminders are personal, so ownership is the whole check.
   const existing = await prisma.reminder.findFirst({
@@ -179,6 +207,11 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
     // below the time already elapsed would fire on the very next tick.
     data.lastNotifiedAt = null;
   }
+  if (daysOfWeek !== undefined) {
+    const days = serialiseDays(daysOfWeek);
+    data.daysOfWeek = days;
+    data.tzOffsetMinutes = days ? (tzOffsetMinutes ?? null) : null;
+  }
 
   if (existing.type === "custom" && data.label === null) {
     throw badRequest("Give this reminder a name.", "label_required");
@@ -190,7 +223,7 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
     select: REMINDER_SELECT,
   });
 
-  res.json(reminder);
+  res.json(present(reminder));
 });
 
 // DELETE /reminders/:id

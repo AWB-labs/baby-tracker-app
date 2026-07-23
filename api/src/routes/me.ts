@@ -10,47 +10,51 @@ const router = Router();
 router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
 
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      createdAt: true,
-      ...SETTINGS_SELECT,
-    },
-  });
+  // This is the request the app blocks its first screen on, and none of the
+  // three reads depends on another. Issued together they cost one round-trip to
+  // the database instead of three — the difference is most of the wait on a
+  // cold serverless function.
+  const [account, memberships, profiles] = await Promise.all([
+    prisma.account.findUnique({
+      where: { id: accountId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        createdAt: true,
+        ...SETTINGS_SELECT,
+      },
+    }),
+    // Every baby this account is a caregiver for, not just the ones it created.
+    prisma.babyMember.findMany({
+      where: { accountId },
+      orderBy: { createdAt: "asc" },
+      select: {
+        role: true,
+        baby: {
+          select: {
+            id: true,
+            name: true,
+            dob: true,
+            gender: true,
+            avatarEmoji: true,
+            avatarColor: true,
+            ownerAccountId: true,
+            createdAt: true,
+          },
+        },
+      },
+    }),
+    prisma.profile.findMany({
+      where: { accountId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, displayName: true },
+    }),
+  ]);
 
   if (!account) {
     throw notFound("We couldn't find your account. Please sign in again.", "no_account");
   }
-
-  // Every baby this account is a caregiver for, not just the ones it created.
-  const memberships = await prisma.babyMember.findMany({
-    where: { accountId },
-    orderBy: { createdAt: "asc" },
-    select: {
-      role: true,
-      baby: {
-        select: {
-          id: true,
-          name: true,
-          dob: true,
-          gender: true,
-          avatarEmoji: true,
-          avatarColor: true,
-          ownerAccountId: true,
-          createdAt: true,
-        },
-      },
-    },
-  });
-
-  const profiles = await prisma.profile.findMany({
-    where: { accountId },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, displayName: true },
-  });
 
   res.json({
     account,

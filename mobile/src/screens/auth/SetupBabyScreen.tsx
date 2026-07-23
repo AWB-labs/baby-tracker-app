@@ -14,6 +14,7 @@ import {
   Segmented,
   Button,
 } from "../../components/ui";
+import DobField from "../../components/DobField";
 
 type Gender = "girl" | "boy";
 
@@ -30,6 +31,7 @@ export default function SetupBabyScreen() {
   const { addBaby, setActiveBaby, refreshBabies } = useBaby();
   const [babyName, setBabyName] = useState("");
   const [gender, setGender] = useState<Gender>("girl");
+  const [dob, setDob] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
@@ -39,7 +41,7 @@ export default function SetupBabyScreen() {
     }
     setLoading(true);
     try {
-      const baby = await addBaby({ name: babyName.trim(), gender });
+      const baby = await addBaby({ name: babyName.trim(), gender, dob });
       await setActiveBaby(baby);
       await refreshBabies();
     } catch (err) {
@@ -86,6 +88,8 @@ export default function SetupBabyScreen() {
               onChange={setGender}
             />
           </Field>
+
+          <DobField value={dob} onChange={setDob} />
 
           <Button
             label="Start tracking"

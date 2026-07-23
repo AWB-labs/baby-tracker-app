@@ -107,7 +107,9 @@ export const ACTIVITY_LABEL: Record<string, string> = {
 };
 
 export const DIAPER_META: Record<string, { emoji: string; label: string }> = {
-  empty: { emoji: "✅", label: "Empty" },
+  // Stored as "empty" since the first release; renaming the column would mean
+  // rewriting every existing row, so only the wording parents read changes.
+  empty: { emoji: "✅", label: "Clean" },
   wet: { emoji: "💧", label: "Wet" },
   dirty: { emoji: "💩", label: "Dirty" },
   wet_and_dirty: { emoji: "💧💩", label: "Wet & Dirty" },
