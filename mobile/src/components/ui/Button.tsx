@@ -38,10 +38,11 @@ export interface ButtonProps {
 }
 
 const SIZES: Record<ButtonSize, { height: number; px: number; gap: number }> = {
-  // Never below 44: the platform minimum for a reliable tap.
-  sm: { height: HIT_SLOP_MIN, px: space.md, gap: space.xs },
-  md: { height: 50, px: space.lg, gap: space.sm },
-  lg: { height: 56, px: space.xl, gap: space.sm },
+  // sm dips below 44 visually but its 8pt hitSlop keeps the real target ≥44;
+  // md/lg trimmed so primary buttons read trim rather than chunky.
+  sm: { height: 40, px: space.md, gap: space.xs },
+  md: { height: 46, px: space.lg, gap: space.sm },
+  lg: { height: 52, px: space.xl, gap: space.sm },
 };
 
 export function Button({

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useTheme } from "../design/ThemeProvider";
-import { space, radius, DISABLED_OPACITY } from "../design/tokens";
+import { space, radius, DISABLED_OPACITY, PRESSED_OPACITY } from "../design/tokens";
 import { Icon } from "../design/icons";
 import {
   Text,
@@ -18,6 +18,7 @@ import {
   loadHabits,
   saveHabits,
   computeHabitStats,
+  HABIT_CATALOG,
   type HabitDef,
   type HabitStats,
 } from "../lib/habits";
@@ -55,6 +56,7 @@ export default function Habits({
   const toast = useToast();
 
   const [habits, setHabits] = useState<HabitDef[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [history, setHistory] = useState<LogEntry[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
   const [showCustomize, setShowCustomize] = useState(false);
@@ -62,8 +64,12 @@ export default function Habits({
   // Per-baby config from the device.
   useEffect(() => {
     let alive = true;
-    loadHabits(babyId).then((loaded) => {
-      if (alive) setHabits(loaded);
+    setLoaded(false);
+    loadHabits(babyId).then((next) => {
+      if (alive) {
+        setHabits(next);
+        setLoaded(true);
+      }
     });
     return () => {
       alive = false;
@@ -128,11 +134,17 @@ export default function Habits({
     [babyId]
   );
 
-  const toggleHabit = useCallback(
+  const addHabit = useCallback(
+    (def: HabitDef) => {
+      if (habits.some((h) => h.type === def.type)) return;
+      persist([...habits, { ...def, enabled: true }]);
+    },
+    [habits, persist]
+  );
+
+  const removeHabit = useCallback(
     (type: string) => {
-      persist(
-        habits.map((h) => (h.type === type ? { ...h, enabled: !h.enabled } : h))
-      );
+      persist(habits.filter((h) => h.type !== type));
     },
     [habits, persist]
   );
@@ -149,7 +161,14 @@ export default function Habits({
     [habits, persist]
   );
 
-  if (habits.length === 0) return null;
+  // Catalogue habits the family hasn't added yet — the "Add a habit" list.
+  const available = HABIT_CATALOG.filter(
+    (c) => !habits.some((h) => h.type === c.type)
+  );
+
+  // Wait for the device config before drawing, so removed habits don't flash
+  // back in for a frame on load.
+  if (!loaded) return null;
 
   return (
     <View style={styles.section}>
@@ -173,14 +192,14 @@ export default function Habits({
         <Pressable
           onPress={() => setShowCustomize(true)}
           accessibilityRole="button"
-          accessibilityLabel="All habits are hidden. Customize habits."
+          accessibilityLabel="No habits yet. Add some."
           style={[
             styles.emptyRow,
             { borderColor: t.borderStrong, backgroundColor: t.accentSofter },
           ]}
         >
           <Text variant="subhead" style={{ color: t.accentText }}>
-            All habits are hidden — tap to choose some
+            No habits yet — tap to add some
           </Text>
         </Pressable>
       ) : (
@@ -302,7 +321,7 @@ export default function Habits({
         visible={showCustomize}
         onClose={() => setShowCustomize(false)}
         title="Customize habits"
-        subtitle="Choose the once-a-day routines on your Today screen. Each keeps its own streak."
+        subtitle="Add or remove the once-a-day routines on your Today screen. Each keeps its own streak."
         footer={
           <Button
             label="Done"
@@ -313,60 +332,92 @@ export default function Habits({
         }
       >
         <View style={styles.custList}>
-          {habits.map((habit, index) => {
-            const stat = stats.get(habit.type);
-            const caption = !habit.enabled
-              ? "Hidden"
-              : stat?.doneToday
+          <SectionHeader title="On Today" />
+          {habits.length === 0 ? (
+            <Text variant="subhead" tone="subtle" style={styles.custEmptyLine}>
+              None yet — add one below.
+            </Text>
+          ) : (
+            habits.map((habit, index) => {
+              const stat = stats.get(habit.type);
+              const caption = stat?.doneToday
                 ? `Done today · 🔥 ${stat.streak}-day streak`
                 : stat && stat.streak > 0
                   ? `🔥 ${stat.streak}-day streak`
                   : stat?.missed
                     ? "Missed yesterday · streak reset"
                     : "No streak yet";
-            return (
-              <View
-                key={habit.type}
-                style={[styles.custItem, index > 0 && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth }]}
+              return (
+                <View
+                  key={habit.type}
+                  style={[styles.custItem, index > 0 && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth }]}
+                >
+                  <View style={[styles.custEmoji, { backgroundColor: t.accentSoft }]}>
+                    <Emoji size={19}>{habit.emoji}</Emoji>
+                  </View>
+                  <View style={styles.custMid}>
+                    <Text variant="bodyStrong">{habit.label}</Text>
+                    <Text variant="caption" tone="subtle">
+                      {caption}
+                    </Text>
+                  </View>
+                  <IconButton
+                    icon="chevronUp"
+                    label={`Move ${habit.label} up`}
+                    variant="ghost"
+                    size="sm"
+                    disabled={index === 0}
+                    onPress={() => moveHabit(habit.type, -1)}
+                  />
+                  <IconButton
+                    icon="chevronDown"
+                    label={`Move ${habit.label} down`}
+                    variant="ghost"
+                    size="sm"
+                    disabled={index === habits.length - 1}
+                    onPress={() => moveHabit(habit.type, 1)}
+                  />
+                  <IconButton
+                    icon="trash"
+                    label={`Remove ${habit.label}`}
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => removeHabit(habit.type)}
+                  />
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        {available.length > 0 && (
+          <View style={styles.custList}>
+            <SectionHeader title="Add a habit" />
+            {available.map((def, index) => (
+              <Pressable
+                key={def.type}
+                onPress={() => addHabit(def)}
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${def.label}`}
+                style={({ pressed }) => [
+                  styles.custItem,
+                  index > 0 && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth },
+                  { opacity: pressed ? PRESSED_OPACITY : 1 },
+                ]}
               >
                 <View style={[styles.custEmoji, { backgroundColor: t.accentSoft }]}>
-                  <Emoji size={19}>{habit.emoji}</Emoji>
+                  <Emoji size={19}>{def.emoji}</Emoji>
                 </View>
                 <View style={styles.custMid}>
-                  <Text variant="bodyStrong">{habit.label}</Text>
-                  <Text variant="caption" tone="subtle">
-                    {caption}
-                  </Text>
+                  <Text variant="bodyStrong">{def.label}</Text>
                 </View>
-                <IconButton
-                  icon="chevronUp"
-                  label={`Move ${habit.label} up`}
-                  variant="ghost"
-                  size="sm"
-                  disabled={index === 0}
-                  onPress={() => moveHabit(habit.type, -1)}
-                />
-                <IconButton
-                  icon="chevronDown"
-                  label={`Move ${habit.label} down`}
-                  variant="ghost"
-                  size="sm"
-                  disabled={index === habits.length - 1}
-                  onPress={() => moveHabit(habit.type, 1)}
-                />
-                <Switch
-                  value={habit.enabled}
-                  onValueChange={() => toggleHabit(habit.type)}
-                  trackColor={{ false: t.border, true: t.accent }}
-                  thumbColor={t.surface}
-                  accessibilityLabel={`${habit.label} ${
-                    habit.enabled ? "shown" : "hidden"
-                  } on Today`}
-                />
-              </View>
-            );
-          })}
-        </View>
+                <View style={[styles.addBadge, { backgroundColor: t.accentSoft }]}>
+                  <Icon name="plus" size="sm" color={t.accentText} />
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </Sheet>
     </View>
   );
@@ -415,6 +466,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
   },
   custList: {},
+  custEmptyLine: { paddingVertical: space.sm },
   custItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -429,4 +481,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   custMid: { flex: 1, minWidth: 0, gap: 1 },
+  addBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

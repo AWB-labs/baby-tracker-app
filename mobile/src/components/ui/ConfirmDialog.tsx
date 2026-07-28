@@ -1,5 +1,6 @@
 import React from "react";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { useThemeContext } from "../../design/ThemeProvider";
 import { space, radius, elevation } from "../../design/tokens";
 import { Icon, type IconName } from "../../design/icons";
@@ -39,7 +40,26 @@ export function ConfirmDialog({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={[styles.overlay, { backgroundColor: t.scrim }]}>
+      <View style={styles.overlay}>
+        {/* Frosted backdrop instead of a flat black wash — the same treatment
+            the sheets use, so every dismissable layer reads as one system. */}
+        <BlurView
+          intensity={isDark ? 40 : 26}
+          tint={isDark ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+          experimentalBlurMethod="dimezisBlurView"
+        />
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: isDark
+                ? "rgba(0,0,0,0.35)"
+                : "rgba(20,10,15,0.18)",
+            },
+          ]}
+          pointerEvents="none"
+        />
         {/* The backdrop is a sibling of the card, never its parent: a Pressable
             wrapping the card is one accessibility element, and everything inside
             it — title, message, both buttons — stops being reachable. */}

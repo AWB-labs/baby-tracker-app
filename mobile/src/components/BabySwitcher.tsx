@@ -107,21 +107,23 @@ export default function BabySwitcher() {
           },
         ]}
       >
-        {/* Avatar + chevron only: the screen header beside this pill already
-            says the baby's name in 28pt, and repeating it here is what used to
-            squeeze the header subtitle onto two lines. */}
-        {activeBaby?.avatarEmoji ? (
-          <Emoji size={18} label={activeBaby.name}>
-            {activeBaby.avatarEmoji}
+        {/* Avatar + name + chevron: a bare dot read as empty chrome, so the
+            pill now carries a real baby face (👶 by default) and the name, and
+            is unmistakably "who am I tracking, tap to change". */}
+        <View style={[styles.avatarChip, { backgroundColor: t.accentSoft }]}>
+          <Emoji size={16} label={activeBaby?.name}>
+            {activeBaby?.avatarEmoji || "👶"}
           </Emoji>
-        ) : (
-          <View
-            style={[
-              styles.dot,
-              { backgroundColor: t.accent },
-            ]}
-          />
-        )}
+        </View>
+        {activeBaby?.name ? (
+          <Text
+            variant="subheadStrong"
+            numberOfLines={1}
+            style={[styles.triggerName, { color: t.text }]}
+          >
+            {activeBaby.name}
+          </Text>
+        ) : null}
         <Icon name="chevronDown" size="sm" color={t.accentText} />
       </Pressable>
 
@@ -284,13 +286,21 @@ const styles = StyleSheet.create({
   trigger: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.xxs,
+    gap: space.xs,
     height: HIT_SLOP_MIN,
-    paddingHorizontal: space.sm,
+    paddingLeft: space.xs,
+    paddingRight: space.sm,
     borderRadius: radius.pill,
     borderWidth: 2,
   },
-  dot: { width: 10, height: 10, borderRadius: radius.pill },
+  avatarChip: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  triggerName: { maxWidth: 116 },
   babyList: { gap: space.sm },
   // Takes the leftover width so a long name truncates instead of shoving the
   // badge and tick off the row.

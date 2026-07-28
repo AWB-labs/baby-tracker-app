@@ -55,9 +55,10 @@ export function Chip({
       style={({ pressed }) => [
         styles.chip,
         {
-          // Website filter pills: bg-baby-50 resting, solid baby-400 selected.
+          // Resting pills carry a light-pink border (baby-200) so they read as
+          // real chips, not ghost text; selected fills solid baby-400.
           backgroundColor: selected ? t.accent : t.accentSofter,
-          borderColor: selected ? t.accent : t.accentSofter,
+          borderColor: selected ? t.accent : t.borderStrong,
           opacity: disabled ? DISABLED_OPACITY : pressed ? 0.75 : 1,
         },
         style,

@@ -22,7 +22,15 @@ export type ActivityKey =
   | "vitamin"
   | "nailcut"
   | "growth"
-  | "health";
+  | "health"
+  // Once-a-day habit types (mirror api/src/routes/logs.ts).
+  | "tummy"
+  | "sunlight"
+  | "bath"
+  | "massage"
+  | "teeth"
+  | "walk"
+  | "medicine";
 
 export interface ActivityTone {
   emoji: string;
@@ -46,6 +54,13 @@ const LIGHT: Record<ActivityKey, ActivityTone> = {
   nailcut: { emoji: "💅", main: "#8b5cf6", soft: "#f5f3ff", text: "#7c3aed", border: "#ddd6fe" },
   growth: { emoji: "📏", main: "#a855f7", soft: "#faf5ff", text: "#9333ea", border: "#e9d5ff" },
   health: { emoji: "🩺", main: "#f43f5e", soft: "#fff1f2", text: "#be123c", border: "#fecdd3" },
+  tummy: { emoji: "🤸", main: "#10b981", soft: "#ecfdf5", text: "#047857", border: "#a7f3d0" },
+  sunlight: { emoji: "☀️", main: "#eab308", soft: "#fefce8", text: "#a16207", border: "#fef08a" },
+  bath: { emoji: "🛁", main: "#0ea5e9", soft: "#f0f9ff", text: "#0369a1", border: "#bae6fd" },
+  massage: { emoji: "💆", main: "#ec4899", soft: "#fdf2f8", text: "#be185d", border: "#fbcfe8" },
+  teeth: { emoji: "🪥", main: "#14b8a6", soft: "#f0fdfa", text: "#0f766e", border: "#99f6e4" },
+  walk: { emoji: "🚶", main: "#84cc16", soft: "#f7fee7", text: "#4d7c0f", border: "#d9f99d" },
+  medicine: { emoji: "💉", main: "#ef4444", soft: "#fef2f2", text: "#b91c1c", border: "#fecaca" },
 };
 
 const NEUTRAL: ActivityTone = {
@@ -104,6 +119,13 @@ export const ACTIVITY_LABEL: Record<string, string> = {
   nailcut: "Nail Cut",
   growth: "Growth",
   health: "Health",
+  tummy: "Tummy Time",
+  sunlight: "Sunlight",
+  bath: "Bath",
+  massage: "Massage",
+  teeth: "Brush Teeth",
+  walk: "Walk",
+  medicine: "Medicine",
 };
 
 export const DIAPER_META: Record<string, { emoji: string; label: string }> = {

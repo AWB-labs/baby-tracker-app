@@ -320,8 +320,7 @@ export default function LogsList({ logs, onDelete, onEdit, initialFilter = null 
               {showHeader && (
                 <Text
                   variant="overline"
-                  tone="accent"
-                  center
+                  tone="subtle"
                   style={styles.dateHeader}
                   accessibilityRole="header"
                 >
@@ -371,7 +370,12 @@ export default function LogsList({ logs, onDelete, onEdit, initialFilter = null 
 
 const styles = StyleSheet.create({
   list: { gap: space.sm },
-  dateHeader: { paddingTop: space.md, paddingBottom: space.xs },
+  dateHeader: {
+    paddingTop: space.xl,
+    paddingBottom: space.xs,
+    paddingLeft: space.xxs,
+    letterSpacing: 1.4,
+  },
   noMatches: { paddingVertical: space.xxl },
   row: {
     flexDirection: "row",

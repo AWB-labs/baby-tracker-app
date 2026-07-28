@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -8,9 +10,10 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTheme } from "../../design/ThemeProvider";
-import { space, radius } from "../../design/tokens";
+import { useThemeContext, useReduceMotion } from "../../design/ThemeProvider";
+import { space, radius, motion } from "../../design/tokens";
 import { Text } from "./primitives";
 import { IconButton } from "./Button";
 
@@ -27,9 +30,12 @@ export interface SheetProps {
 /**
  * Bottom sheet.
  *
- * The scrim is deliberately heavy: a weak overlay leaves the page behind
- * competing for attention, and the sheet stops reading as a separate layer.
- * Tapping it dismisses, matching the platform expectation.
+ * The backdrop and the panel animate independently: the frosted backdrop just
+ * fades in, and only the panel slides up from the bottom. (The old
+ * `animationType="slide"` moved the whole layer — scrim included — so the
+ * darkening appeared to climb up the screen with the sheet, which read as a
+ * glitch.) A blur separates the sheet from the page behind it instead of a
+ * heavy black wash. Tapping the backdrop dismisses.
  */
 export function Sheet({
   visible,
@@ -39,24 +45,95 @@ export function Sheet({
   children,
   footer,
 }: SheetProps) {
-  const t = useTheme();
+  const { theme: t, isDark } = useThemeContext();
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReduceMotion();
+
+  // Keep the Modal mounted through the closing animation, then unmount.
+  const [mounted, setMounted] = useState(visible);
+  // Measured so the panel slides exactly its own height — no off-screen guess.
+  const [sheetH, setSheetH] = useState(0);
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      if (reduceMotion) {
+        progress.setValue(1);
+        return;
+      }
+      const anim = Animated.timing(progress, {
+        toValue: 1,
+        duration: motion.base,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      });
+      anim.start();
+      return () => anim.stop();
+    }
+    if (mounted) {
+      if (reduceMotion) {
+        progress.setValue(0);
+        setMounted(false);
+        return;
+      }
+      const anim = Animated.timing(progress, {
+        toValue: 0,
+        duration: motion.base * motion.exitRatio,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      });
+      anim.start(({ finished }) => {
+        if (finished) setMounted(false);
+      });
+      return () => anim.stop();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, reduceMotion]);
+
+  if (!mounted) return null;
+
+  const translateY = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [sheetH || 600, 0],
+  });
 
   return (
     <Modal
-      visible={visible}
+      visible
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={[styles.overlay, { backgroundColor: t.scrim }]}>
-        <Pressable
-          style={styles.backdrop}
-          onPress={onClose}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-        />
+      <View style={styles.root}>
+        {/* Frosted backdrop — fades in on its own, so the darkening no longer
+            travels up with the sheet. */}
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: progress }]}>
+          <BlurView
+            intensity={isDark ? 40 : 26}
+            tint={isDark ? "dark" : "light"}
+            style={StyleSheet.absoluteFill}
+            experimentalBlurMethod="dimezisBlurView"
+          />
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: isDark
+                  ? "rgba(0,0,0,0.35)"
+                  : "rgba(20,10,15,0.18)",
+              },
+            ]}
+            pointerEvents="none"
+          />
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          />
+        </Animated.View>
 
         <KeyboardAvoidingView
           // Android ignores "padding" inside a Modal, so it resizes instead.
@@ -64,13 +141,18 @@ export function Sheet({
           style={styles.keyboardWrap}
           pointerEvents="box-none"
         >
-          <View
+          <Animated.View
+            onLayout={(e) => setSheetH(e.nativeEvent.layout.height)}
             style={[
               styles.sheet,
               {
                 backgroundColor: t.surface,
                 borderColor: t.border,
                 paddingBottom: Math.max(insets.bottom, space.lg),
+                // Hidden until measured, so the first open never flashes at the
+                // fallback offset before sliding from its true height.
+                opacity: sheetH === 0 ? 0 : progress,
+                transform: [{ translateY }],
               },
             ]}
           >
@@ -101,7 +183,7 @@ export function Sheet({
             </ScrollView>
 
             {footer ? <View style={styles.footer}>{footer}</View> : null}
-          </View>
+          </Animated.View>
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -109,8 +191,7 @@ export function Sheet({
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { ...StyleSheet.absoluteFillObject },
+  root: { flex: 1, justifyContent: "flex-end" },
   // flex:1 is load-bearing, not decoration: the sheet's `maxHeight: "92%"` is a
   // percentage, and Yoga resolves a percentage against an auto-height parent to
   // nothing at all. Without a definite height here the cap is silently dropped,

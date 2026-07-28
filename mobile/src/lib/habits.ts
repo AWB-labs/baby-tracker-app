@@ -15,7 +15,17 @@ import type { LogEntry } from "../api/logs";
  * first; the config format here already carries label + emoji per entry so
  * that day needs no migration on the client.
  */
-export type HabitType = "shower" | "vitamin" | "nailcut";
+export type HabitType =
+  | "shower"
+  | "vitamin"
+  | "nailcut"
+  | "tummy"
+  | "sunlight"
+  | "bath"
+  | "massage"
+  | "teeth"
+  | "walk"
+  | "medicine";
 
 export interface HabitDef {
   type: HabitType;
@@ -24,6 +34,25 @@ export interface HabitDef {
   enabled: boolean;
 }
 
+/**
+ * Every habit a family can add, in the order they appear in the "Add a habit"
+ * picker. Each `type` is a real server log type (api/src/routes/logs.ts), so a
+ * tick syncs across caregivers like any other entry.
+ */
+export const HABIT_CATALOG: HabitDef[] = [
+  { type: "vitamin", label: "Vitamin", emoji: "💊", enabled: true },
+  { type: "shower", label: "Shower", emoji: "🚿", enabled: true },
+  { type: "nailcut", label: "Nail Cut", emoji: "💅", enabled: true },
+  { type: "tummy", label: "Tummy Time", emoji: "🤸", enabled: true },
+  { type: "sunlight", label: "Sunlight", emoji: "☀️", enabled: true },
+  { type: "bath", label: "Bath", emoji: "🛁", enabled: true },
+  { type: "massage", label: "Massage", emoji: "💆", enabled: true },
+  { type: "teeth", label: "Brush Teeth", emoji: "🪥", enabled: true },
+  { type: "walk", label: "Walk", emoji: "🚶", enabled: true },
+  { type: "medicine", label: "Medicine", emoji: "💉", enabled: true },
+];
+
+/** What a brand-new baby starts with, before the family customizes. */
 export const DEFAULT_HABITS: HabitDef[] = [
   { type: "vitamin", label: "Vitamin", emoji: "💊", enabled: true },
   { type: "shower", label: "Shower", emoji: "🚿", enabled: true },
@@ -34,16 +63,24 @@ function storageKey(babyId: number): string {
   return `babytracker_habits_${babyId}`;
 }
 
+const CATALOG_BY_TYPE = new Map(HABIT_CATALOG.map((h) => [h.type, h]));
+
 export async function loadHabits(babyId: number): Promise<HabitDef[]> {
   try {
     const raw = await AsyncStorage.getItem(storageKey(babyId));
     if (!raw) return DEFAULT_HABITS;
     const saved: HabitDef[] = JSON.parse(raw);
     if (!Array.isArray(saved)) return DEFAULT_HABITS;
-    // Keep saved order and toggles, but let newly-shipped defaults appear.
-    const known = new Set(saved.map((h) => h.type));
-    const missing = DEFAULT_HABITS.filter((d) => !known.has(d.type));
-    return [...saved, ...missing];
+    // Honour the saved list exactly — including habits the family has removed.
+    // Only drop types no longer in the catalogue and refresh label/emoji from
+    // it, so a shipped rename reaches an existing config without re-adding
+    // anything the user took off.
+    return saved
+      .filter((h) => CATALOG_BY_TYPE.has(h.type))
+      .map((h) => {
+        const meta = CATALOG_BY_TYPE.get(h.type)!;
+        return { ...h, label: meta.label, emoji: meta.emoji };
+      });
   } catch {
     return DEFAULT_HABITS;
   }

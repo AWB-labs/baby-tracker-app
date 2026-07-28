@@ -28,6 +28,12 @@ export interface ScreenProps {
    * otherwise the last section floats above a large empty gap.
    */
   presentation?: "tab" | "modal";
+  /**
+   * Drop the top safe-area padding so the first child can paint behind the
+   * status bar — e.g. a full-bleed gradient header that supplies its own top
+   * inset. Everything below still lays out normally.
+   */
+  bleedTop?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
 }
 
@@ -38,9 +44,12 @@ export function Screen({
   onRefresh,
   grabber = false,
   presentation = "tab",
+  bleedTop = false,
   contentStyle,
 }: ScreenProps) {
   const t = useTheme();
+  const edges = bleedTop ? ([] as const) : (["top"] as const);
+  const topPad = bleedTop ? { paddingTop: 0 } : null;
 
   // The tab bar floats above content, so a tab screen reserves the pill's full
   // footprint — its inset from the bottom edge plus its height — and then a
@@ -65,8 +74,8 @@ export function Screen({
 
   if (!scroll) {
     return (
-      <SafeAreaView edges={["top"]} style={[styles.flex, { backgroundColor: t.bg }]}>
-        <View style={[styles.content, { paddingBottom }, contentStyle]}>
+      <SafeAreaView edges={edges} style={[styles.flex, { backgroundColor: t.bg }]}>
+        <View style={[styles.content, { paddingBottom }, topPad, contentStyle]}>
           {body}
         </View>
       </SafeAreaView>
@@ -74,9 +83,9 @@ export function Screen({
   }
 
   return (
-    <SafeAreaView edges={["top"]} style={[styles.flex, { backgroundColor: t.bg }]}>
+    <SafeAreaView edges={edges} style={[styles.flex, { backgroundColor: t.bg }]}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom }, contentStyle]}
+        contentContainerStyle={[styles.content, { paddingBottom }, topPad, contentStyle]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -108,6 +117,8 @@ export interface ScreenHeaderProps {
   overline?: string;
   /** Trailing controls, e.g. a baby switcher or settings button. */
   actions?: React.ReactNode;
+  /** White text, for a header sitting on a coloured/gradient background. */
+  light?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -116,21 +127,37 @@ export function ScreenHeader({
   subtitle,
   overline,
   actions,
+  light = false,
   style,
 }: ScreenHeaderProps) {
   return (
     <View style={[styles.header, style]}>
       <View style={styles.headerText}>
         {overline ? (
-          <Text variant="subheadStrong" tone="accent" numberOfLines={1}>
+          <Text
+            variant="subheadStrong"
+            tone="accent"
+            numberOfLines={1}
+            style={light && { color: "rgba(255,255,255,0.92)" }}
+          >
             {overline}
           </Text>
         ) : null}
-        <Text variant="title1" accessibilityRole="header" numberOfLines={1}>
+        <Text
+          variant="title1"
+          accessibilityRole="header"
+          numberOfLines={1}
+          style={light && { color: "#ffffff" }}
+        >
           {title}
         </Text>
         {subtitle ? (
-          <Text variant="subhead" tone="subtle" numberOfLines={2}>
+          <Text
+            variant="subhead"
+            tone="subtle"
+            numberOfLines={2}
+            style={light && { color: "rgba(255,255,255,0.85)" }}
+          >
             {subtitle}
           </Text>
         ) : null}

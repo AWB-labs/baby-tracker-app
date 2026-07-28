@@ -36,8 +36,12 @@ interface Config {
 }
 
 const CONFIG: Record<string, Config> = {
+  // Feed is breast (L/R timed) with a bottle shortcut: a bottle saves as a
+  // `feed` with a volume and no side, exactly as the database has always stored
+  // it — no separate type on the wire.
   feed: { hasSides: true, hasAmount: true, amountLabel: "Bottle" },
-  pump: { hasSides: true, hasAmount: true, amountLabel: "Amount" },
+  // Pump is breast pumping — timed per side, like a feed.
+  pump: { hasSides: true, hasAmount: false },
   sleep: { hasSides: false, hasAmount: false },
   diaper: { hasSides: false, hasAmount: false },
 };
@@ -284,30 +288,33 @@ export default function TrackRow({
           <View style={styles.adjustRow}>
             <IconButton
               icon="minus"
-              label="Subtract 5 minutes from elapsed time"
+              label="Subtract 1 minute from elapsed time"
               variant="surface"
               size="sm"
-              disabled={timer.elapsed < 300}
-              onPress={() => timer.adjustStart(-300)}
+              disabled={timer.elapsed < 60}
+              onPress={() => timer.adjustStart(-60)}
             />
             <Text variant="caption" tone="subtle">
-              adjust start · 5 min
+              adjust start · 1 min
             </Text>
             <IconButton
               icon="plus"
-              label="Add 5 minutes to elapsed time"
+              label="Add 1 minute to elapsed time"
               variant="surface"
               size="sm"
-              onPress={() => timer.adjustStart(300)}
+              onPress={() => timer.adjustStart(60)}
             />
           </View>
 
+          {/* Pause/Finish/Cancel share one row. Cancel is confirmed — the
+              elapsed time can't be recovered once discarded. */}
           <View style={styles.controlRow}>
             {timer.paused ? (
               <Button
                 label="Resume"
                 icon="play"
                 variant="success"
+                size="sm"
                 onPress={timer.handleResume}
                 style={styles.flex}
               />
@@ -316,6 +323,7 @@ export default function TrackRow({
                 label="Pause"
                 icon="pause"
                 variant="secondary"
+                size="sm"
                 onPress={timer.handlePause}
                 style={styles.flex}
               />
@@ -324,21 +332,18 @@ export default function TrackRow({
               label="Finish"
               icon="stop"
               variant="primary"
+              size="sm"
               onPress={timer.handleStop}
               style={styles.flex}
             />
+            <Button
+              label="Cancel"
+              variant="ghost"
+              size="sm"
+              onPress={() => setConfirmDiscard(true)}
+              style={styles.flex}
+            />
           </View>
-
-          {/* Full width, below the primary controls, confirmed — the elapsed
-              time can't be recovered once discarded. */}
-          <Button
-            label="Cancel"
-            icon="close"
-            variant="ghost"
-            fullWidth
-            onPress={() => setConfirmDiscard(true)}
-            style={styles.cancelBtn}
-          />
         </View>
 
         <ConfirmDialog
@@ -409,33 +414,35 @@ export default function TrackRow({
               a11y="Log a diaper change"
               onPress={timer.openDiaperStatus}
             />
-          ) : type === "sleep" ? (
-            <MiniButton
-              label="Start"
-              icon="play"
-              a11y="Start sleep"
-              onPress={() => timer.handleStart()}
-            />
-          ) : (
+          ) : config.hasSides ? (
             <>
               <MiniButton
                 label="L"
+                wide
                 a11y={`Start ${label.toLowerCase()} on the left`}
                 onPress={() => timer.handleStart("left")}
               />
               <MiniButton
                 label="R"
+                wide
                 a11y={`Start ${label.toLowerCase()} on the right`}
                 onPress={() => timer.handleStart("right")}
               />
               {config.hasAmount && (
                 <MiniButton
                   emoji="🍼"
-                  a11y={`${config.amountLabel} — record ${label.toLowerCase()} by volume instead of timing it`}
+                  a11y={`Log a bottle ${label.toLowerCase()} by volume`}
                   onPress={() => setShowAmount(true)}
                 />
               )}
             </>
+          ) : (
+            <MiniButton
+              label="Start"
+              icon="play"
+              a11y={`Start ${label.toLowerCase()}`}
+              onPress={() => timer.handleStart()}
+            />
           )}
         </View>
       </View>
@@ -467,18 +474,21 @@ export default function TrackRow({
   );
 }
 
-/** Compact 44pt action — a letter, a word, or an emoji. */
+/** Compact start action — a letter, a word, or an emoji. `wide` gives the
+ *  single-letter L/R taps a more comfortable, tappable footprint. */
 function MiniButton({
   label,
   emoji,
   icon,
   a11y,
+  wide,
   onPress,
 }: {
   label?: string;
   emoji?: string;
   icon?: "plus" | "play";
   a11y: string;
+  wide?: boolean;
   onPress: () => void;
 }) {
   const t = useTheme();
@@ -490,6 +500,7 @@ function MiniButton({
       accessibilityLabel={a11y}
       style={({ pressed }) => [
         styles.mini,
+        wide && styles.miniWide,
         {
           backgroundColor: t.accentSofter,
           borderColor: t.borderStrong,
@@ -497,14 +508,14 @@ function MiniButton({
         },
       ]}
     >
-      {emoji ? <Emoji size={18}>{emoji}</Emoji> : null}
+      {emoji ? <Emoji size={20}>{emoji}</Emoji> : null}
       {icon === "plus" ? (
-        <Text variant="subheadStrong" style={{ color: t.accentText }}>＋</Text>
+        <Text variant="title3" style={{ color: t.accentText }}>＋</Text>
       ) : icon === "play" ? (
-        <Text variant="subheadStrong" style={{ color: t.accentText }}>▶</Text>
+        <Text variant="title3" style={{ color: t.accentText }}>▶</Text>
       ) : null}
       {label ? (
-        <Text variant="subheadStrong" style={{ color: t.accentText }}>
+        <Text variant="bodyStrong" style={{ color: t.accentText }}>
           {label}
         </Text>
       ) : null}
@@ -564,7 +575,7 @@ function TrackSheet({
         shown === "status"
           ? "What was it?"
           : shown === "amount"
-            ? `${config.amountLabel} ${label.toLowerCase()}`
+            ? config.amountLabel ?? "Amount"
             : `Save this ${label.toLowerCase()}?`
       }
       subtitle={
@@ -684,12 +695,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: space.xs,
-    minWidth: 44,
-    height: 44,
+    minWidth: 46,
+    height: 40,
     paddingHorizontal: space.md,
     borderRadius: radius.md,
     borderWidth: 1.5,
   },
+  // Single-letter L/R get a touch more width so they don't read as cramped.
+  miniWide: { minWidth: 54 },
 
   /* running */
   runBox: {
@@ -719,7 +732,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 2,
   },
-  cancelBtn: { marginTop: space.sm },
   adjustRow: {
     flexDirection: "row",
     alignItems: "center",

@@ -10,6 +10,14 @@ const INSTANT_TYPES: ReadonlySet<string> = new Set([
   "nailcut",
   "growth",
   "health",
+  // Once-a-day habits — logged as a single moment, never timed.
+  "tummy",
+  "sunlight",
+  "bath",
+  "massage",
+  "teeth",
+  "walk",
+  "medicine",
 ]);
 
 interface InstantLogFields {

@@ -1,8 +1,10 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
-import { space } from "../design/tokens";
+import { space, radius } from "../design/tokens";
 import { useAuth } from "../context/AuthContext";
 import { useBaby } from "../context/BabyContext";
 import { useLogs } from "../hooks/useLogs";
@@ -12,7 +14,7 @@ import {
   Screen,
   ScreenHeader,
   SectionHeader,
-  Button,
+  Text,
   EmptyState,
   Card,
   Divider,
@@ -20,6 +22,7 @@ import {
 import Snapshot from "../components/Snapshot";
 import TrackRow, { type TrackType } from "../components/TrackRow";
 import Habits from "../components/Habits";
+import Foods from "../components/Foods";
 import BabySwitcher from "../components/BabySwitcher";
 import ManualEntryModal from "../components/ManualEntryModal";
 import { greetingFor, formatBabyAge } from "../lib/greeting";
@@ -39,7 +42,7 @@ const HOME_FETCH_LIMIT = 50;
  */
 const POLL_INTERVAL_MS = 60_000;
 
-const TRACK_TYPES: TrackType[] = ["feed", "sleep", "diaper", "pump"];
+const TRACK_TYPES: TrackType[] = ["feed", "pump", "sleep", "diaper"];
 
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
   for (const log of logs) {
@@ -56,6 +59,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [habitsRefreshKey, setHabitsRefreshKey] = useState(0);
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
+  const insets = useSafeAreaInsets();
 
   // The timers live here, not in the rows: the snapshot needs to read the
   // same running feed/sleep the track rows control.
@@ -109,27 +113,52 @@ export default function HomeScreen() {
       .join(" · ") || "Here's today";
 
   return (
-    <Screen refreshing={refreshing} onRefresh={onRefresh}>
-      <ScreenHeader
-        overline={`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
-        title={activeBaby.name}
-        subtitle={babyLine}
-        actions={<BabySwitcher />}
-      />
-
-      {/* What's happening right now — four doors, not banners. */}
-      {!loading && (
-        <Snapshot
-          logs={logs}
-          feedTimer={feedTimer}
-          sleepTimer={sleepTimer}
-          onOpenLog={(filter) => navigation.navigate("Log", { filter })}
-          onOpenInsights={() => navigation.navigate("Insights")}
+    <Screen bleedTop refreshing={refreshing} onRefresh={onRefresh}>
+      {/* The dashboard's top — greeting, who, and the live snapshot — sits on a
+          pink gradient that bleeds to the screen edges and behind the status
+          bar; Track and everything below return to the app's blush surface. */}
+      <LinearGradient
+        colors={["#f3437e", "#993758"]}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={[styles.hero, { paddingTop: insets.top + space.md }]}
+      >
+        <ScreenHeader
+          light
+          overline={`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
+          title={activeBaby.name}
+          subtitle={babyLine}
+          actions={<BabySwitcher />}
         />
-      )}
+
+        {/* What's happening right now — four doors, not banners. */}
+        {!loading && (
+          <Snapshot
+            logs={logs}
+            feedTimer={feedTimer}
+            sleepTimer={sleepTimer}
+            onOpenLog={(filter) => navigation.navigate("Log", { filter })}
+            onOpenInsights={() => navigation.navigate("Insights")}
+          />
+        )}
+      </LinearGradient>
 
       <View style={styles.section}>
-        <SectionHeader title="Track" />
+        <SectionHeader
+          title="Track"
+          action={
+            <Pressable
+              onPress={() => setShowManual(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Add something that already happened"
+            >
+              <Text variant="subheadStrong" tone="accent">
+                ＋ Add
+              </Text>
+            </Pressable>
+          }
+        />
         <Card padded={false}>
           {TRACK_TYPES.map((type, index) => (
             <View key={`${type}-${activeBaby.id}`}>
@@ -145,13 +174,6 @@ export default function HomeScreen() {
             </View>
           ))}
         </Card>
-        <Button
-          label="Add something that already happened"
-          icon="plus"
-          variant="ghost"
-          fullWidth
-          onPress={() => setShowManual(true)}
-        />
       </View>
 
       <Habits
@@ -160,6 +182,8 @@ export default function HomeScreen() {
         onLogSaved={refresh}
         refreshKey={habitsRefreshKey}
       />
+
+      <Foods babyId={activeBaby.id} />
 
       <ManualEntryModal
         visible={showManual}
@@ -177,4 +201,14 @@ const styles = StyleSheet.create({
   section: { gap: space.sm },
   center: { alignItems: "center" },
   divider: { marginHorizontal: space.lg },
+  // Full-bleed pink header: negative side margins cancel the Screen's padding
+  // so it reaches both edges; the bottom corners round into the blush below.
+  hero: {
+    marginHorizontal: -space.lg,
+    paddingHorizontal: space.lg,
+    paddingBottom: space.xl,
+    gap: space.lg,
+    borderBottomLeftRadius: radius.xxl,
+    borderBottomRightRadius: radius.xxl,
+  },
 });

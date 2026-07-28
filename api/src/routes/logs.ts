@@ -51,6 +51,15 @@ const createLogSchema = z
       "nailcut",
       "growth",
       "health",
+      // Once-a-day habit types. Instant logs (see lib/activities.ts); the
+      // mobile habit catalogue mirrors this list.
+      "tummy",
+      "sunlight",
+      "bath",
+      "massage",
+      "teeth",
+      "walk",
+      "medicine",
     ]),
     side: z.enum(["left", "right"]).nullable().optional(),
     amountMl: z.number().positive().nullable().optional(),
