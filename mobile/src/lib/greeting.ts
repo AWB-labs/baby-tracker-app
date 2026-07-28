@@ -16,8 +16,9 @@ export function greetingFor(date: Date = new Date()): string {
 }
 
 /**
- * A baby's age, phrased the way parents actually say it: days for the first
- * fortnight, then weeks up to about six months, then months.
+ * A baby's age, phrased the way parents actually say it — and always precise
+ * to the day, because with a baby every day counts: plain days for the first
+ * month, then "3 months, 12 days" up to two years, then years.
  */
 export function formatBabyAge(dob: string | null | undefined): string | null {
   if (!dob) return null;
@@ -28,13 +29,15 @@ export function formatBabyAge(dob: string | null | undefined): string | null {
   if (days < 0) return null;
   if (days === 0) return "born today";
   if (days === 1) return "1 day old";
-  if (days < 14) return `${days} days old`;
-
-  const weeks = Math.floor(days / 7);
-  if (weeks < 26) return weeks === 1 ? "1 week old" : `${weeks} weeks old`;
+  if (days < 31) return `${days} days old`;
 
   const months = Math.floor(days / 30.44);
-  if (months < 24) return months === 1 ? "1 month old" : `${months} months old`;
+  if (months < 24) {
+    const remDays = Math.floor(days - months * 30.44);
+    const monthPart = months === 1 ? "1 month" : `${months} months`;
+    if (remDays === 0) return `${monthPart} old`;
+    return `${monthPart}, ${remDays} day${remDays === 1 ? "" : "s"} old`;
+  }
 
   const years = Math.floor(days / 365.25);
   const remainingMonths = Math.floor((days - years * 365.25) / 30.44);

@@ -29,6 +29,7 @@ const FILTERS: (string | null)[] = [
   "shower",
   "vitamin",
   "nailcut",
+  "growth",
   "health",
 ];
 
@@ -40,6 +41,7 @@ const FILTER_EMOJI: Record<string, string> = {
   shower: "🚿",
   vitamin: "💊",
   nailcut: "💅",
+  growth: "📏",
   health: "🩺",
 };
 
@@ -254,10 +256,21 @@ interface Props {
   logs: LogEntry[];
   onDelete?: (id: number) => void;
   onEdit?: () => void | Promise<void>;
+  /**
+   * Filter applied from outside — a snapshot card deep-linking into the Log
+   * pre-filtered to its activity. Later changes re-apply; the user can still
+   * switch chips freely afterwards.
+   */
+  initialFilter?: string | null;
 }
 
-export default function LogsList({ logs, onDelete, onEdit }: Props) {
-  const [filter, setFilter] = useState<string | null>(null);
+export default function LogsList({ logs, onDelete, onEdit, initialFilter = null }: Props) {
+  const [filter, setFilter] = useState<string | null>(initialFilter);
+
+  // Re-apply when a new deep link arrives while the tab is already mounted.
+  React.useEffect(() => {
+    setFilter(initialFilter);
+  }, [initialFilter]);
   const [pendingDelete, setPendingDelete] = useState<LogEntry | null>(null);
   const [editLog, setEditLog] = useState<LogEntry | null>(null);
 

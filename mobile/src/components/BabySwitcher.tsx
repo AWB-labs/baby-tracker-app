@@ -107,8 +107,13 @@ export default function BabySwitcher() {
           },
         ]}
       >
+        {/* Avatar + chevron only: the screen header beside this pill already
+            says the baby's name in 28pt, and repeating it here is what used to
+            squeeze the header subtitle onto two lines. */}
         {activeBaby?.avatarEmoji ? (
-          <Emoji size={16}>{activeBaby.avatarEmoji}</Emoji>
+          <Emoji size={18} label={activeBaby.name}>
+            {activeBaby.avatarEmoji}
+          </Emoji>
         ) : (
           <View
             style={[
@@ -117,14 +122,6 @@ export default function BabySwitcher() {
             ]}
           />
         )}
-        <Text
-          variant="subheadStrong"
-          tone="accent"
-          numberOfLines={1}
-          style={styles.triggerLabel}
-        >
-          {activeBaby?.name || "Select Baby"}
-        </Text>
         <Icon name="chevronDown" size="sm" color={t.accentText} />
       </Pressable>
 
@@ -287,16 +284,12 @@ const styles = StyleSheet.create({
   trigger: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.xs,
-    maxWidth: 160,
+    gap: space.xxs,
     height: HIT_SLOP_MIN,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.sm,
     borderRadius: radius.pill,
     borderWidth: 2,
   },
-  // Shrinks before the avatar and chevron do, so a long name truncates
-  // instead of pushing the chevron out of the pill.
-  triggerLabel: { flexShrink: 1 },
   dot: { width: 10, height: 10, borderRadius: radius.pill },
   babyList: { gap: space.sm },
   // Takes the leftover width so a long name truncates instead of shoving the

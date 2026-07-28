@@ -14,7 +14,6 @@ import { useThemeContext } from "../design/ThemeProvider";
 import LoginScreen from "../screens/auth/LoginScreen";
 import SignupScreen from "../screens/auth/SignupScreen";
 import SetupBabyScreen from "../screens/auth/SetupBabyScreen";
-import SettingsScreen from "../screens/SettingsScreen";
 import AppTabs from "./AppTabs";
 
 export type AuthStackParamList = {
@@ -25,7 +24,6 @@ export type AuthStackParamList = {
 export type AppStackParamList = {
   SetupBaby: undefined;
   Main: undefined;
-  Settings: undefined;
 };
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -66,25 +64,9 @@ function AppNavigator() {
       {babies.length === 0 ? (
         <AppStack.Screen name="SetupBaby" component={SetupBabyScreen} />
       ) : (
-        <>
-          <AppStack.Screen name="Main" component={AppTabs} />
-          {/* Pushed rather than a tab: reachable from the Today header, and
-              presented as a modal so dismissing returns you where you were. */}
-          <AppStack.Screen
-            name="Settings"
-            component={SettingsScreen}
-            options={{
-              presentation: "modal",
-              animation: "slide_from_bottom",
-              // Swipe-down to dismiss. iOS gives it to modals for free; naming
-              // it explicitly keeps the gesture and the grabber consistent, and
-              // Android — which has no such gesture — relies on the close
-              // button the screen draws instead.
-              gestureEnabled: true,
-              gestureDirection: "vertical",
-            }}
-          />
-        </>
+        // Settings now lives inside the tabs as Account, so the app stack is
+        // just the tab container.
+        <AppStack.Screen name="Main" component={AppTabs} />
       )}
     </AppStack.Navigator>
   );

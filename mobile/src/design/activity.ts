@@ -144,8 +144,8 @@ export const REMINDER_EMOJI: Record<string, string> = {
 
 export const TAB_EMOJI = {
   Today: "🏠",
-  History: "📅",
-  Trends: "📊",
-  Growth: "📏",
+  Log: "📖",
+  Insights: "📊",
   Health: "🩺",
+  Account: "👤",
 } as const;

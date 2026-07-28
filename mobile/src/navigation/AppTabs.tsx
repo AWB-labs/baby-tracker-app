@@ -9,21 +9,26 @@ import { TAB_EMOJI } from "../design/activity";
 import { space, radius, tabBar, elevation } from "../design/tokens";
 import { Text, Emoji } from "../components/ui";
 import HomeScreen from "../screens/HomeScreen";
-import HistoryScreen from "../screens/HistoryScreen";
-import AnalyticsScreen from "../screens/AnalyticsScreen";
-import GrowthScreen from "../screens/GrowthScreen";
+import LogScreen from "../screens/LogScreen";
+import InsightsScreen from "../screens/InsightsScreen";
 import HealthScreen from "../screens/HealthScreen";
+import SettingsScreen from "../screens/SettingsScreen";
 
 /**
- * Five destinations, the platform maximum for a bottom bar. Settings lives
- * behind the Today header — it isn't a peer of the daily-use screens.
+ * Five destinations, the platform maximum for a bottom bar.
+ *
+ * Log is the entry timeline ("what happened"); Insights merges growth and
+ * activity trends ("how are things going"); Account holds settings — in the
+ * bar rather than behind the Today header, so it's reachable from anywhere
+ * and the header keeps its width for the baby's name and age.
  */
 export type TabParamList = {
   Today: undefined;
-  History: undefined;
-  Trends: undefined;
-  Growth: undefined;
+  /** Snapshot cards deep-link here with an activity filter pre-applied. */
+  Log: { filter?: string } | undefined;
+  Insights: undefined;
   Health: undefined;
+  Account: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -118,10 +123,10 @@ export default function AppTabs() {
       screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Today" component={HomeScreen} />
-      <Tab.Screen name="History" component={HistoryScreen} />
-      <Tab.Screen name="Trends" component={AnalyticsScreen} />
-      <Tab.Screen name="Growth" component={GrowthScreen} />
+      <Tab.Screen name="Log" component={LogScreen} />
+      <Tab.Screen name="Insights" component={InsightsScreen} />
       <Tab.Screen name="Health" component={HealthScreen} />
+      <Tab.Screen name="Account" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }

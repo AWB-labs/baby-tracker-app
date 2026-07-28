@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Switch, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
 import { useTheme, useThemeContext, type Appearance } from "../design/ThemeProvider";
 import { space, radius, DISABLED_OPACITY, PRESSED_OPACITY } from "../design/tokens";
 import { REMINDER_EMOJI } from "../design/activity";
@@ -89,7 +88,6 @@ interface PendingRemoval {
 
 export default function SettingsScreen() {
   const t = useTheme();
-  const navigation = useNavigation();
   const { appearance, setAppearance } = useThemeContext();
   const toast = useToast();
   const units = useUnits();
@@ -379,18 +377,8 @@ export default function SettingsScreen() {
 
   if (!activeBaby) {
     return (
-      <Screen scroll={false} grabber presentation="modal">
-        <ScreenHeader
-          title="Settings"
-          actions={
-            <IconButton
-              icon="close"
-              label="Close settings"
-              variant="surface"
-              onPress={() => navigation.goBack()}
-            />
-          }
-        />
+      <Screen scroll={false}>
+        <ScreenHeader title="Account" />
         <EmptyState
           icon="settings"
           title="Nothing to configure yet"
@@ -404,23 +392,10 @@ export default function SettingsScreen() {
     pendingRemoval?.kind === "member" && pendingRemoval.id === account?.id;
 
   return (
-    <Screen
-      refreshing={refreshing}
-      onRefresh={onRefresh}
-      grabber
-      presentation="modal"
-    >
+    <Screen refreshing={refreshing} onRefresh={onRefresh}>
       <ScreenHeader
-        title="Settings"
+        title="Account"
         subtitle={account ? `${account.name} · ${account.email}` : undefined}
-        actions={
-          <IconButton
-            icon="close"
-            label="Close settings"
-            variant="surface"
-            onPress={() => navigation.goBack()}
-          />
-        }
       />
 
       {loading ? (
