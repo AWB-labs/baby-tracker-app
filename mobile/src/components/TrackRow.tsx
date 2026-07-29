@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useTheme } from "../design/ThemeProvider";
 import {
@@ -14,7 +14,7 @@ import {
 } from "../design/activity";
 import { Text, Badge, Emoji } from "./ui/primitives";
 import { Button, IconButton } from "./ui/Button";
-import { Input } from "./ui/Input";
+import { Input, Field } from "./ui/Input";
 import { Sheet } from "./ui/Sheet";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { useToast } from "./Toast";
@@ -47,6 +47,18 @@ const CONFIG: Record<string, Config> = {
 };
 
 export type TrackType = "feed" | "pump" | "sleep" | "diaper";
+
+/**
+ * Nap or night.
+ *
+ * Two words that can't be recovered from timestamps later: eleven hours of
+ * sleep is a very different night depending on whether it came in one stretch
+ * or six naps, and only the person who was there knows which.
+ */
+const SLEEP_KINDS: { value: "nap" | "night"; label: string; emoji: string }[] = [
+  { value: "nap", label: "Nap", emoji: "☀️" },
+  { value: "night", label: "Night", emoji: "🌙" },
+];
 
 interface Props {
   type: TrackType;
@@ -90,6 +102,15 @@ export default function TrackRow({
   const [diaperStatus, setDiaperStatus] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [showAmount, setShowAmount] = useState(false);
+  /**
+   * Nap or night, asked when a sleep is finished.
+   *
+   * Defaulted rather than left empty — the sheet is a confirmation, and making
+   * it a required choice would put a decision in front of someone who has just
+   * finished settling a baby. It's seeded from the clock only as a starting
+   * position, which the toggle is right there to correct.
+   */
+  const [sleepKind, setSleepKind] = useState<"nap" | "night">("nap");
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -101,6 +122,7 @@ export default function TrackRow({
     setDiaperStatus(null);
     setAmount("");
     setShowAmount(false);
+    setSleepKind("nap");
   }, []);
 
   const cancelAll = useCallback(() => {
@@ -122,6 +144,7 @@ export default function TrackRow({
         type,
         side: timer.activeSide,
         diaperStatus: type === "diaper" ? diaperStatus : null,
+        sleepKind: type === "sleep" ? sleepKind : null,
         // A finished pump is measured, not annotated: the useful thing to
         // capture is how much came out, so that sheet asks for millilitres
         // where every other activity asks for a note.
@@ -142,7 +165,7 @@ export default function TrackRow({
       setSaving(false);
     }
   }, [
-    babyId, type, timer, diaperStatus, note, amountValid, amountValue,
+    babyId, type, timer, diaperStatus, note, amountValid, amountValue, sleepKind,
     enteredByName, onLogSaved, toast, label, reset,
   ]);
 
@@ -172,6 +195,23 @@ export default function TrackRow({
     amountValid, amountValue, saving, babyId, type,
     enteredByName, onLogSaved, toast, units, reset,
   ]);
+
+  /*
+   * Seed the nap/night choice from when the sleep began.
+   *
+   * A guess, not a decision: it only sets where the toggle starts, and the
+   * toggle is on screen to be corrected. Nothing is ever saved from the clock
+   * alone — a sleep logged before this existed stays unlabelled rather than
+   * being backfilled with an assumption.
+   */
+  useEffect(() => {
+    if (type !== "sleep" || !timer.showComment) return;
+    const start = timer.getOriginalStartTime() ?? new Date();
+    const hour = start.getHours();
+    setSleepKind(hour >= 19 || hour < 6 ? "night" : "nap");
+    // getOriginalStartTime is stable; re-running on it would fight the toggle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, timer.showComment]);
 
   const running = timer.isActive;
 
@@ -384,6 +424,8 @@ export default function TrackRow({
           }}
           onChangeAmount={setAmount}
           onChangeNote={setNote}
+          sleepKind={sleepKind}
+          onChangeSleepKind={setSleepKind}
           onSaveAmount={saveAmount}
           onSaveSession={saveSession}
         />
@@ -471,6 +513,8 @@ export default function TrackRow({
         }}
         onChangeAmount={setAmount}
         onChangeNote={setNote}
+        sleepKind={sleepKind}
+        onChangeSleepKind={setSleepKind}
         onSaveAmount={saveAmount}
         onSaveSession={saveSession}
       />
@@ -544,10 +588,12 @@ function TrackSheet({
   note,
   saving,
   units,
+  sleepKind,
   onClose,
   onPickStatus,
   onChangeAmount,
   onChangeNote,
+  onChangeSleepKind,
   onSaveAmount,
   onSaveSession,
 }: {
@@ -563,10 +609,12 @@ function TrackSheet({
   note: string;
   saving: boolean;
   units: ReturnType<typeof useUnits>;
+  sleepKind: "nap" | "night";
   onClose: () => void;
   onPickStatus: (value: string) => void;
   onChangeAmount: (value: string) => void;
   onChangeNote: (value: string) => void;
+  onChangeSleepKind: (kind: "nap" | "night") => void;
   onSaveAmount: () => void;
   onSaveSession: () => void;
 }) {
@@ -658,6 +706,52 @@ function TrackSheet({
               : null
           }
         />
+      ) : type === "sleep" ? (
+        /* Nap or night, then the note. Which one it was is the difference
+           between "slept 11 hours" and "slept 11 hours across six naps", and
+           it can't be recovered later from the timestamps alone. */
+        <>
+          <Field label="Was this a nap or the night?">
+            <View style={styles.kindRow}>
+              {SLEEP_KINDS.map((option) => {
+                const selected = sleepKind === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    onPress={() => onChangeSleepKind(option.value)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={option.label}
+                    style={({ pressed }) => [
+                      styles.kindBtn,
+                      {
+                        backgroundColor: selected ? t.accent : t.accentSofter,
+                        borderColor: selected ? t.accent : t.borderStrong,
+                        opacity: pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Emoji size={18}>{option.emoji}</Emoji>
+                    <Text
+                      variant="subheadStrong"
+                      style={{ color: selected ? t.onAccent : t.accentText }}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Field>
+          <Input
+            label="Note"
+            helper="Optional — anything worth remembering about this one."
+            value={note}
+            onChangeText={onChangeNote}
+            placeholder="Woke twice, took a while to settle…"
+            returnKeyType="done"
+          />
+        </>
       ) : type === "pump" ? (
         /* Finishing a pump asks for the yield rather than a note — that number
            is the point of the session, and burying it behind a manual entry
@@ -770,6 +864,17 @@ const styles = StyleSheet.create({
     marginBottom: space.lg,
   },
   controlRow: { flexDirection: "row", gap: space.sm },
+  kindRow: { flexDirection: "row", gap: space.sm },
+  kindBtn: {
+    flex: 1,
+    flexDirection: "row",
+    height: 52,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.sm,
+  },
   statusGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   statusTile: {
     width: "47.5%",

@@ -212,6 +212,11 @@ model ActivityLog {
   diaperStatus    String? // empty|wet|dirty|wet_and_dirty
   weightKg        Float?
   heightCm        Float?
+  /// "nap" | "night", on a sleep entry. Null on everything else, and on sleeps
+  /// recorded before the distinction existed — which is why nothing derives it
+  /// from the clock as a fallback: a 7pm start is a nap in one household and
+  /// bedtime in the next, and guessing would put invented data in the averages.
+  sleepKind       String?
   healthCondition String? // fever|cold|stomach|other
   medication      String?
   dose            String?

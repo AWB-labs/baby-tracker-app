@@ -11,6 +11,8 @@ export interface LogEntry {
   side: string | null;
   amountMl: number | null;
   diaperStatus: string | null;
+  /** "nap" | "night" on a sleep. Null elsewhere, and on sleeps predating it. */
+  sleepKind: string | null;
   weightKg: number | null;
   heightCm: number | null;
   healthCondition: string | null;
@@ -59,6 +61,7 @@ export interface CreateLogInput {
   side?: string | null;
   amountMl?: number | null;
   diaperStatus?: string | null;
+  sleepKind?: "nap" | "night" | null;
   weightKg?: number | null;
   heightCm?: number | null;
   healthCondition?: string | null;
@@ -82,6 +85,7 @@ export interface UpdateLogInput {
   side?: string | null;
   amountMl?: number | null;
   diaperStatus?: string | null;
+  sleepKind?: "nap" | "night" | null;
   weightKg?: number | null;
   heightCm?: number | null;
   healthCondition?: string | null;

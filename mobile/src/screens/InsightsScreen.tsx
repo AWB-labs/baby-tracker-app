@@ -162,6 +162,106 @@ function onDateWithCurrentClock(day: Date): Date {
  * where the Log answers "what happened". Individual measurements are edited
  * from the Log tab like any other entry.
  */
+/** How many days back the nap/night split is measured over. */
+const SLEEP_SPLIT_DAYS = 7;
+
+/**
+ * Night sleep against daytime naps.
+ *
+ * Total sleep alone hides the thing parents actually care about: eleven hours
+ * spread over six naps is a very different week from eleven hours in one
+ * stretch. Only entries that were labelled count — the split is drawn from what
+ * someone chose at the time, never inferred from the clock, so an unlabelled
+ * backlog is reported as unlabelled rather than guessed into one column.
+ */
+function SleepSplit({ logs }: { logs: LogEntry[] }) {
+  const t = useTheme();
+  const tones = useActivityTones();
+
+  const split = useMemo(() => {
+    const since = Date.now() - SLEEP_SPLIT_DAYS * 86_400_000;
+    let napMinutes = 0;
+    let nightMinutes = 0;
+    let napCount = 0;
+    let nightCount = 0;
+    let unlabelled = 0;
+
+    for (const log of logs) {
+      if (log.type !== "sleep") continue;
+      if (new Date(log.startTime).getTime() < since) continue;
+      const mins = log.durationMinutes ?? 0;
+      if (log.sleepKind === "night") {
+        nightMinutes += mins;
+        nightCount += 1;
+      } else if (log.sleepKind === "nap") {
+        napMinutes += mins;
+        napCount += 1;
+      } else {
+        unlabelled += 1;
+      }
+    }
+    return { napMinutes, nightMinutes, napCount, nightCount, unlabelled };
+  }, [logs]);
+
+  const total = split.napMinutes + split.nightMinutes;
+  // Nothing labelled yet means nothing to say. The section appears on its own
+  // once a few sleeps have been marked.
+  if (total === 0) return null;
+
+  const nightShare = Math.round((split.nightMinutes / total) * 100);
+
+  return (
+    <View style={styles.section}>
+      <SectionHeader title={`Night vs naps, last ${SLEEP_SPLIT_DAYS} days`} />
+      <Card style={styles.rhythmCard}>
+        {/* One bar rather than two numbers: the ratio is the point, and a
+            proportion is read faster than it is calculated. */}
+        <View style={[styles.splitBar, { backgroundColor: tones.sleep.soft }]}>
+          <View
+            style={[
+              styles.splitFill,
+              { width: `${nightShare}%`, backgroundColor: tones.sleep.main },
+            ]}
+          />
+        </View>
+
+        <View style={styles.splitLegend}>
+          <View style={styles.rowCenter}>
+            <Emoji size={14}>🌙</Emoji>
+            <Text variant="subheadStrong" tabular>
+              {formatMinutes(split.nightMinutes)}
+            </Text>
+            <Text variant="caption" tone="subtle">
+              night · {split.nightCount}
+            </Text>
+          </View>
+          <View style={styles.rowCenter}>
+            <Emoji size={14}>☀️</Emoji>
+            <Text variant="subheadStrong" tabular>
+              {formatMinutes(split.napMinutes)}
+            </Text>
+            <Text variant="caption" tone="subtle">
+              naps · {split.napCount}
+            </Text>
+          </View>
+        </View>
+
+        <Text variant="footnote" tone="subtle">
+          {nightShare}% of sleep came at night, across{" "}
+          {(split.napCount / SLEEP_SPLIT_DAYS).toFixed(1)} naps a day.
+        </Text>
+
+        {split.unlabelled > 0 && (
+          <Text variant="footnote" style={{ color: t.textSubtle }}>
+            {split.unlabelled} sleep{split.unlabelled === 1 ? "" : "s"} aren't
+            marked as a nap or a night, so they're left out.
+          </Text>
+        )}
+      </Card>
+    </View>
+  );
+}
+
 /**
  * Which activities are worth describing as a routine, and the verb each one
  * takes so the sentence reads naturally. A nappy change has no rhythm worth
@@ -421,6 +521,7 @@ export default function InsightsScreen() {
         <SkeletonList rows={4} />
       ) : (
         <>
+          <SleepSplit logs={logs} />
           <DailyRhythms logs={logs} />
           {/* ------------------------------------------------------ growth */}
           <View style={styles.section}>
@@ -845,6 +946,14 @@ const styles = StyleSheet.create({
   center: { alignItems: "center" },
   section: { gap: space.sm },
   rhythmCard: { gap: space.sm },
+  splitBar: { height: 12, borderRadius: radius.pill, overflow: "hidden" },
+  splitFill: { height: "100%" },
+  splitLegend: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: space.sm,
+  },
   rhythmGroup: { gap: space.sm },
   rhythmRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   rhythmRule: { height: StyleSheet.hairlineWidth, marginVertical: space.xxs },

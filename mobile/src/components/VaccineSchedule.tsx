@@ -39,6 +39,119 @@ function formatGivenDate(iso: string): string {
 }
 
 /**
+ * One month of the schedule.
+ *
+ * Carries its own required/optional mark as well as sitting in a labelled
+ * group: the tiles are scanned individually once you're looking for a specific
+ * month, and a badge that only exists in a heading two rows up isn't there when
+ * you need it.
+ */
+function MonthTile({
+  month,
+  onOpen,
+}: {
+  month: VaccineMonth;
+  onOpen: (m: VaccineMonth) => void;
+}) {
+  const t = useTheme();
+
+  // Three states, each with its own colour so the grid reads at a glance:
+  // done, overdue, and not yet due.
+  const bg = month.given
+    ? t.successSoft
+    : month.overdue
+      ? t.warningSoft
+      : t.accentSofter;
+  const fg = month.given ? t.success : month.overdue ? t.warning : t.accentText;
+  const status = month.given ? "done" : month.overdue ? "overdue" : "not yet";
+
+  return (
+    <Pressable
+      onPress={() => onOpen(month)}
+      accessibilityRole="button"
+      accessibilityLabel={`Month ${month.month}, ${
+        month.mandatory ? "required" : "optional"
+      }, ${month.given ? `given ${formatGivenDate(month.givenAt!)}` : status}`}
+      style={({ pressed }) => [
+        styles.tile,
+        {
+          backgroundColor: bg,
+          borderColor: month.given ? t.success : t.borderStrong,
+          // A required month carries a heavier edge, so the ones that matter
+          // stand out without resting on colour alone.
+          borderWidth: month.mandatory ? 2 : StyleSheet.hairlineWidth,
+          opacity: pressed ? PRESSED_OPACITY : 1,
+        },
+      ]}
+    >
+      {/* Filled for required, hollow for optional — a shape difference, so it
+          survives colour blindness and a greyscale screenshot. */}
+      <Text
+        variant="caption"
+        style={[
+          styles.tileMark,
+          { color: month.mandatory ? t.accent : t.textSubtle },
+        ]}
+      >
+        {month.mandatory ? "●" : "○"}
+      </Text>
+
+      <Text variant="caption" tone="muted">
+        Month
+      </Text>
+      <Text variant="title3" tabular style={{ color: fg }}>
+        {month.month}
+      </Text>
+      <View style={styles.tileFoot}>
+        {month.given ? <Emoji size={12}>✅</Emoji> : null}
+        <Text variant="caption" style={{ color: fg }} numberOfLines={1}>
+          {status}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/** A labelled run of months — the required ones, or the optional ones. */
+function VaccineGroup({
+  title,
+  caption,
+  months,
+  onOpen,
+}: {
+  title: string;
+  caption: string;
+  months: VaccineMonth[];
+  onOpen: (m: VaccineMonth) => void;
+}) {
+  const t = useTheme();
+  const required = title === "Required";
+  return (
+    <View style={styles.group}>
+      <View style={styles.groupHead}>
+        <Text
+          variant="caption"
+          style={{ color: required ? t.accent : t.textSubtle }}
+        >
+          {required ? "●" : "○"}
+        </Text>
+        <Text variant="overline" tone="subtle">
+          {title}
+        </Text>
+        <Text variant="caption" tone="muted">
+          · {caption}
+        </Text>
+      </View>
+      <View style={styles.grid}>
+        {months.map((m) => (
+          <MonthTile key={m.month} month={m} onOpen={onOpen} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
  * The first year's immunisation schedule: one tile per month of age.
  *
  * Odd months are mandatory and even months optional. That split is the app's
@@ -79,6 +192,9 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
   }, [load]);
 
   const schedule = useMemo(() => buildSchedule(records, dob), [records, dob]);
+
+  const required = useMemo(() => schedule.filter((m) => m.mandatory), [schedule]);
+  const optional = useMemo(() => schedule.filter((m) => !m.mandatory), [schedule]);
 
   const summary = useMemo(() => {
     const required = schedule.filter((m) => m.mandatory);
@@ -137,8 +253,28 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
     <View style={styles.section}>
       <SectionHeader title="Vaccines" />
 
-      {/* The headline answers the only question most visits start with: are we
-          up to date on the ones that aren't optional? */}
+      {/* Split rather than one run of twelve. Which visits can't be missed is
+          the first thing anyone wants from this screen, and reading it off the
+          parity of a month number is a puzzle nobody should have to solve. */}
+      <VaccineGroup
+        title="Required"
+        caption="Don't miss these"
+        months={required}
+        onOpen={openMonth}
+      />
+
+      <View style={[styles.groupDivider, { backgroundColor: t.border }]} />
+
+      <VaccineGroup
+        title="Optional"
+        caption="Check with your clinic"
+        months={optional}
+        onOpen={openMonth}
+      />
+
+      {/* Below the grid, not above it: the tally is a summary *of* the months,
+          and reading it first meant being given a score before being shown what
+          it counted. */}
       <Card style={styles.summary}>
         <View style={styles.summaryRow}>
           <View style={styles.summaryItem}>
@@ -164,65 +300,10 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
           </View>
         </View>
         <Text variant="footnote" tone="subtle">
-          Odd months are the required visits; even months are optional. Always
-          follow the card your clinic gives you.
+          Always follow the card your clinic gives you — schedules differ by
+          country.
         </Text>
       </Card>
-
-      <View style={styles.grid}>
-        {schedule.map((m) => {
-          // Three states, each with its own colour so the grid can be read at a
-          // glance: done, overdue, and not yet due.
-          const bg = m.given
-            ? t.successSoft
-            : m.overdue
-            ? t.warningSoft
-            : t.accentSofter;
-          const fg = m.given ? t.success : m.overdue ? t.warning : t.accentText;
-          const label = m.given
-            ? "done"
-            : m.overdue
-            ? "overdue"
-            : m.mandatory
-            ? "required"
-            : "optional";
-
-          return (
-            <Pressable
-              key={m.month}
-              onPress={() => openMonth(m)}
-              accessibilityRole="button"
-              accessibilityLabel={`Month ${m.month}, ${
-                m.mandatory ? "required" : "optional"
-              }, ${m.given ? `given ${formatGivenDate(m.givenAt!)}` : label}`}
-              style={({ pressed }) => [
-                styles.tile,
-                {
-                  backgroundColor: bg,
-                  borderColor: m.given ? t.success : t.borderStrong,
-                  // A required month gets a heavier edge, so the ones that
-                  // matter stand out without relying on colour alone.
-                  borderWidth: m.mandatory ? 2 : StyleSheet.hairlineWidth,
-                  opacity: pressed ? PRESSED_OPACITY : 1,
-                },
-              ]}
-            >
-              <Text variant="caption" tone="muted">
-                Month
-              </Text>
-              <Text variant="title3" tabular style={{ color: fg }}>
-                {m.month}
-              </Text>
-              <View style={styles.tileFoot}>
-                {m.given ? <Emoji size={12}>✅</Emoji> : null}
-                <Text variant="caption" style={{ color: fg }} numberOfLines={1}>
-                  {label}
-                </Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
 
       <Sheet
         visible={selected !== null}
@@ -347,6 +428,11 @@ const styles = StyleSheet.create({
   // Three across on a narrow phone, so all twelve months are two thumb-scrolls
   // at most and the year reads as one block.
   grid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  group: { gap: space.xs },
+  groupHead: { flexDirection: "row", alignItems: "center", gap: space.xs },
+  groupDivider: { height: StyleSheet.hairlineWidth, marginVertical: space.xs },
+  // Top-right of the tile, out of the way of the month number.
+  tileMark: { position: "absolute", top: space.xs, right: space.sm },
   tile: {
     flexGrow: 1,
     flexBasis: "30%",

@@ -18,6 +18,7 @@ const LOG_SELECT = {
   side: true,
   amountMl: true,
   diaperStatus: true,
+  sleepKind: true,
   weightKg: true,
   heightCm: true,
   healthCondition: true,
@@ -70,6 +71,7 @@ const createLogSchema = z
       .enum(["empty", "wet", "dirty", "wet_and_dirty"])
       .nullable()
       .optional(),
+    sleepKind: z.enum(["nap", "night"]).nullable().optional(),
     weightKg: z.number().nullable().optional(),
     heightCm: z.number().nullable().optional(),
     healthCondition: z.string().nullable().optional(),
@@ -176,6 +178,7 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
     side,
     amountMl,
     diaperStatus,
+    sleepKind,
     weightKg,
     heightCm,
     healthCondition,
@@ -230,6 +233,9 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
       side: side ?? null,
       amountMl: isFeedOrPump ? amountMl ?? null : null,
       diaperStatus: type === "diaper" ? diaperStatus ?? null : null,
+      // Only a sleep has one; storing it on anything else would put a field in
+      // the data that nothing reads and every future query has to wonder about.
+      sleepKind: type === "sleep" ? sleepKind ?? null : null,
       weightKg: type === "growth" ? weightKg ?? null : null,
       heightCm: type === "growth" ? heightCm ?? null : null,
       healthCondition: type === "health" ? healthCondition ?? null : null,
@@ -257,6 +263,7 @@ const updateLogSchema = z.object({
     .enum(["empty", "wet", "dirty", "wet_and_dirty"])
     .nullable()
     .optional(),
+  sleepKind: z.enum(["nap", "night"]).nullable().optional(),
   weightKg: z.number().nullable().optional(),
   heightCm: z.number().nullable().optional(),
   healthCondition: z.string().nullable().optional(),
@@ -299,6 +306,13 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
       throw badRequest("Only a nappy entry has a status.", "wrong_type");
     }
     data.diaperStatus = body.diaperStatus;
+  }
+
+  if (body.sleepKind !== undefined) {
+    if (existing.type !== "sleep") {
+      throw badRequest("Only a sleep entry is a nap or a night.", "wrong_type");
+    }
+    data.sleepKind = body.sleepKind;
   }
 
   if (body.amountMl !== undefined) {
