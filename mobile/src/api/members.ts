@@ -16,6 +16,8 @@ export const RELATIONS: { value: string; label: string; emoji: string }[] = [
   { value: "grandfather", label: "Grandfather", emoji: "👴" },
   { value: "aunt", label: "Aunt", emoji: "👩‍🦰" },
   { value: "uncle", label: "Uncle", emoji: "🧔" },
+  { value: "guardian", label: "Guardian", emoji: "🧑‍⚖️" },
+  { value: "nanny", label: "Nanny", emoji: "🧑‍🍼" },
   { value: "other", label: "Other", emoji: "🧑" },
 ];
 

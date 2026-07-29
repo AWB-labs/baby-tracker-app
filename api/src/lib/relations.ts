@@ -16,6 +16,8 @@ export const RELATIONS = [
   { value: "grandfather", label: "Grandfather", emoji: "👴" },
   { value: "aunt", label: "Aunt", emoji: "👩‍🦰" },
   { value: "uncle", label: "Uncle", emoji: "🧔" },
+  { value: "guardian", label: "Guardian", emoji: "🧑‍⚖️" },
+  { value: "nanny", label: "Nanny", emoji: "🧑‍🍼" },
   // Carries a free-text note; everything above is self-explanatory.
   { value: "other", label: "Other", emoji: "🧑" },
 ] as const;

@@ -11,12 +11,14 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../context/AuthContext";
 import { useBaby } from "../context/BabyContext";
 import { useThemeContext } from "../design/ThemeProvider";
+import WelcomeScreen from "../screens/auth/WelcomeScreen";
 import LoginScreen from "../screens/auth/LoginScreen";
 import SignupScreen from "../screens/auth/SignupScreen";
 import SetupBabyScreen from "../screens/auth/SetupBabyScreen";
 import AppTabs from "./AppTabs";
 
 export type AuthStackParamList = {
+  Welcome: undefined;
   Login: undefined;
   Signup: undefined;
 };
@@ -48,6 +50,9 @@ function Splash() {
 function AuthNavigator() {
   return (
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+      {/* Welcome first: the old landing screen asked for credentials before
+          saying what the app was for. */}
+      <AuthStack.Screen name="Welcome" component={WelcomeScreen} />
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="Signup" component={SignupScreen} />
     </AuthStack.Navigator>
