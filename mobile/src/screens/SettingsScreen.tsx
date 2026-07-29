@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, StyleSheet, Switch, View } from "react-native";
+import { Platform, Pressable, Share, StyleSheet, Switch, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme, useThemeContext, type Appearance } from "../design/ThemeProvider";
 import { space, radius, DISABLED_OPACITY, PRESSED_OPACITY } from "../design/tokens";
@@ -36,6 +36,11 @@ import {
   addMember,
   removeMember,
   cancelInvite,
+  createInviteLink,
+  claimInvite,
+  setMemberRelation,
+  formatRelation,
+  RELATIONS,
   type BabyMember,
   type PendingInvite,
 } from "../api/members";
@@ -57,7 +62,7 @@ import {
 } from "../api/reminders";
 import { updateBaby } from "../api/babies";
 import DobField from "../components/DobField";
-import type { UnitSystem } from "../api/settings";
+import { updateSettings, type UnitSystem } from "../api/settings";
 
 const GENDER_OPTIONS: { value: "girl" | "boy"; label: string }[] = [
   { value: "girl", label: "Girl" },
@@ -113,6 +118,13 @@ export default function SettingsScreen() {
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
+  // Chosen once and applied to whichever way the invite goes out.
+  const [inviteRelation, setInviteRelation] = useState<string | null>(null);
+  const [inviteNote, setInviteNote] = useState("");
+  const [sharingLink, setSharingLink] = useState(false);
+  const [joinToken, setJoinToken] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [savingRelation, setSavingRelation] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
 
   // New-reminder form
@@ -175,16 +187,111 @@ export default function SettingsScreen() {
       return;
     }
     if (!activeBaby) return;
+    if (inviteRelation === "other" && !inviteNote.trim()) {
+      toast.error("Say how they're related.");
+      return;
+    }
     setInviting(true);
     try {
-      const result = await addMember(activeBaby.id, email);
+      const result = await addMember(
+        activeBaby.id,
+        email,
+        inviteRelation,
+        inviteRelation === "other" ? inviteNote.trim() : null
+      );
       toast.success(result.message);
       setInviteEmail("");
+      setInviteRelation(null);
+      setInviteNote("");
       await load();
     } catch (err) {
       toast.showError(err);
     } finally {
       setInviting(false);
+    }
+  };
+
+  /**
+   * Share a claim link instead of an address.
+   *
+   * An email invite only lands if that person signs up with the exact address
+   * typed, which is a poor bet when you're sending it over WhatsApp. The link
+   * works whatever address they use, so it goes out through the OS share sheet
+   * rather than being copied by hand.
+   */
+  const handleShareLink = async () => {
+    if (!activeBaby) return;
+    if (inviteRelation === "other" && !inviteNote.trim()) {
+      toast.error("Say how they're related.");
+      return;
+    }
+    setSharingLink(true);
+    try {
+      const link = await createInviteLink(
+        activeBaby.id,
+        inviteRelation,
+        inviteRelation === "other" ? inviteNote.trim() : null
+      );
+      await Share.share({
+        message:
+          `Join me on Baby Tracker to help look after ${activeBaby.name}.\n\n` +
+          `Sign up, then go to Account → Join a baby and paste this code:\n\n${link.token}\n\n` +
+          `It expires in ${link.expiresInDays} days.`,
+      });
+      setInviteRelation(null);
+      setInviteNote("");
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setSharingLink(false);
+    }
+  };
+
+  /**
+   * Change your own relationship.
+   *
+   * Written to both places it matters: the account, which is what a baby you
+   * create next will inherit, and your membership of the baby on screen, which
+   * is what the caregiver list below actually renders. Keeping them in step is
+   * why this isn't just a settings PATCH.
+   */
+  const handleSaveMyRelation = async (relation: string | null) => {
+    if (!activeBaby || !account) return;
+    // "Other" needs a note, and there's nowhere to type one from a chip row, so
+    // it's handled by the same field the invite form uses.
+    const note = relation === "other" ? account.relationNote ?? null : null;
+    setSavingRelation(true);
+    try {
+      const updated = await updateSettings({ relation, relationNote: note });
+      setAccount({ ...account, ...updated });
+      await setMemberRelation(activeBaby.id, account.id, relation, note);
+      await load();
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setSavingRelation(false);
+    }
+  };
+
+  /** Redeem a code someone shared with you. */
+  const handleJoin = async () => {
+    const token = joinToken.trim();
+    if (!token) return;
+    setJoining(true);
+    try {
+      const result = await claimInvite(token);
+      toast.success(
+        result.status === "joined"
+          ? `You've joined ${result.babyName}.`
+          : `You already have access to ${result.babyName}.`
+      );
+      setJoinToken("");
+      await refreshBabies();
+      await load();
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -409,6 +516,63 @@ export default function SettingsScreen() {
                 Everyone here can see and add entries for {activeBaby.name}.
               </Text>
 
+              {/* Anyone who signed up before onboarding asked this has no
+                  relationship set, so this is where they fill it in. */}
+              <Field label={`You are ${activeBaby.name}'s…`}>
+                <ChipWrap>
+                  {RELATIONS.map((option) => (
+                    <Chip
+                      key={option.value}
+                      label={option.label}
+                      emoji={option.emoji}
+                      selected={account?.relation === option.value}
+                      disabled={savingRelation}
+                      onPress={() =>
+                        handleSaveMyRelation(
+                          account?.relation === option.value ? null : option.value
+                        )
+                      }
+                    />
+                  ))}
+                </ChipWrap>
+              </Field>
+
+              <Divider style={styles.divider} />
+
+              {/* Who they are is asked once, up front, and applies to whichever
+                  way you send it — so the list below reads as people rather
+                  than as a column of addresses. */}
+              <Field
+                label="Who are they?"
+                helper="Optional. It doesn't change what they can see or do."
+              >
+                <ChipWrap>
+                  {RELATIONS.map((option) => (
+                    <Chip
+                      key={option.value}
+                      label={option.label}
+                      emoji={option.emoji}
+                      selected={inviteRelation === option.value}
+                      onPress={() =>
+                        setInviteRelation(
+                          inviteRelation === option.value ? null : option.value
+                        )
+                      }
+                    />
+                  ))}
+                </ChipWrap>
+              </Field>
+
+              {inviteRelation === "other" && (
+                <Input
+                  label="How are they related?"
+                  value={inviteNote}
+                  onChangeText={setInviteNote}
+                  placeholder="e.g. Godmother, family friend"
+                  maxLength={60}
+                />
+              )}
+
               <View style={styles.inlineForm}>
                 <Input
                   containerStyle={styles.flex}
@@ -431,6 +595,20 @@ export default function SettingsScreen() {
                 />
               </View>
 
+              <Button
+                label="Share an invite link instead"
+                icon="users"
+                variant="secondary"
+                fullWidth
+                loading={sharingLink}
+                onPress={handleShareLink}
+              />
+              <Text variant="footnote" tone="subtle">
+                A link works whatever email they sign up with, and expires after
+                two weeks. An emailed invite only reaches them if they use that
+                exact address.
+              </Text>
+
               <View style={styles.rows}>
                 {members.map((m, index) => (
                   <FadeInUp key={`m-${m.id}`} index={index}>
@@ -446,7 +624,11 @@ export default function SettingsScreen() {
                           {m.isYou ? " (you)" : ""}
                         </Text>
                         <Text variant="caption" tone="subtle" numberOfLines={1}>
-                          {m.email}
+                          {/* The relationship is the more useful of the two, so
+                              it leads and the address follows it. */}
+                          {[formatRelation(m.relation, m.relationNote), m.email]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </Text>
                       </View>
                       {m.role === "owner" ? (
@@ -480,7 +662,12 @@ export default function SettingsScreen() {
                           {i.email}
                         </Text>
                         <Text variant="caption" tone="subtle">
-                          Waiting for them to sign up with this email
+                          {[
+                            formatRelation(i.relation, i.relationNote),
+                            "Waiting for them to sign up with this email",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </Text>
                       </View>
                       <Button
@@ -498,6 +685,37 @@ export default function SettingsScreen() {
                     </View>
                   </FadeInUp>
                 ))}
+              </View>
+            </Card>
+          </View>
+
+          {/* ---------- Join a baby ---------- */}
+          <View style={styles.section}>
+            <SectionHeader title="Join a baby" />
+            <Card>
+              <Text variant="footnote" tone="subtle">
+                Got an invite code from another caregiver? Paste it here to get
+                access to their baby.
+              </Text>
+              <View style={styles.inlineForm}>
+                <Input
+                  containerStyle={styles.flex}
+                  label="Invite code"
+                  value={joinToken}
+                  onChangeText={setJoinToken}
+                  placeholder="Paste the code you were sent"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  onSubmitEditing={handleJoin}
+                />
+                <Button
+                  label="Join"
+                  variant="primary"
+                  loading={joining}
+                  disabled={!joinToken.trim()}
+                  onPress={handleJoin}
+                />
               </View>
             </Card>
           </View>
