@@ -37,6 +37,7 @@ import {
   dateToTimeOfDay,
   DEFAULT_TIME_OF_DAY,
   formatDays,
+  MONTHLY_TYPES,
   WEEKDAYS,
   REMINDER_TYPES,
   REMINDER_META,
@@ -306,7 +307,10 @@ export default function RemindersScreen() {
                       {name}
                     </Text>
                     <Text variant="caption" tone="subtle" tabular>
-                      {formatTimeOfDay(r.timeOfDay)} · {formatDays(r.daysOfWeek)}
+                      {formatTimeOfDay(r.timeOfDay)} ·{" "}
+                      {MONTHLY_TYPES.has(r.type)
+                        ? "Monthly"
+                        : formatDays(r.daysOfWeek)}
                     </Text>
                   </View>
                   <Switch
@@ -450,7 +454,20 @@ export default function RemindersScreen() {
               />
             )}
 
-            {/* Which days — nothing selected means every day. */}
+            {/* A vaccine reminder counts from the baby's date of birth, so
+                weekdays don't apply to it — it arrives once a month, on the
+                day they reach the next month of age, until that month's dose is
+                recorded. */}
+            {MONTHLY_TYPES.has(draft.type) ? (
+              <Field label="How often" helper="Once a month, at the time above.">
+                <Text variant="footnote" tone="subtle">
+                  Sent when your baby reaches each new month, and stops for that
+                  month as soon as you mark the vaccine as taken. Ends after 12
+                  months.
+                </Text>
+              </Field>
+            ) : (
+            /* Which days — nothing selected means every day. */
             <Field
               label="On these days"
               helper={
@@ -496,6 +513,7 @@ export default function RemindersScreen() {
                 })}
               </View>
             </Field>
+            )}
           </View>
         ) : null}
       </Sheet>

@@ -8,6 +8,7 @@ export type ReminderType =
   | "shower"
   | "vitamin"
   | "nailcut"
+  | "vaccine"
   | "custom";
 
 /** Mirrors api/src/lib/reminders.ts. */
@@ -23,8 +24,17 @@ export const REMINDER_TYPES: {
   { value: "shower", label: "Shower", icon: "🚿" },
   { value: "vitamin", label: "Vitamin", icon: "💊" },
   { value: "nailcut", label: "Nail Cut", icon: "💅" },
+  { value: "vaccine", label: "Vaccine", icon: "💉" },
   { value: "custom", label: "Custom", icon: "⏰" },
 ];
+
+/**
+ * Types that fire monthly rather than on chosen weekdays.
+ *
+ * A vaccine reminder counts from the baby's date of birth, so the weekday
+ * picker means nothing for it and the form hides it.
+ */
+export const MONTHLY_TYPES: ReadonlySet<ReminderType> = new Set(["vaccine"]);
 
 export const REMINDER_META = new Map(REMINDER_TYPES.map((t) => [t.value, t]));
 

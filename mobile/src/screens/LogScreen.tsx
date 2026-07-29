@@ -45,10 +45,8 @@ export default function LogScreen() {
     setFilter(route.params?.filter ?? null);
   }, [route.params?.filter]);
 
-  const { logs, loading, refresh, handleDelete, loadMore, loadingMore } = useLogs(
-    PAGE_SIZE,
-    { type: filter, paginate: true }
-  );
+  const { logs, loading, refresh, handleDelete, loadMore, loadingMore, hasMore } =
+    useLogs(PAGE_SIZE, { type: filter, paginate: true });
   const [refreshing, setRefreshing] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const enteredByName = account?.name || "Unknown";
@@ -129,6 +127,7 @@ export default function LogScreen() {
         onRefresh={onRefresh}
         onEndReached={loadMore}
         loadingMore={loadingMore}
+        hasMore={hasMore}
       />
 
       {activeBaby ? (

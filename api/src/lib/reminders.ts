@@ -13,6 +13,12 @@ export const REMINDER_TYPES = [
   { value: "shower", logType: "shower", label: "Shower", icon: "🚿" },
   { value: "vitamin", logType: "vitamin", label: "Vitamin", icon: "💊" },
   { value: "nailcut", logType: "nailcut", label: "Nail Cut", icon: "💅" },
+  /**
+   * The odd one out: monthly rather than weekly, anchored to the baby's date of
+   * birth rather than the calendar, and it goes quiet on its own once the dose
+   * for that month is recorded. See shouldFireVaccine.
+   */
+  { value: "vaccine", logType: null, label: "Vaccine", icon: "💉" },
   { value: "custom", logType: null, label: "Custom", icon: "⏰" },
 ] as const;
 
@@ -67,6 +73,12 @@ export function localMinutesOfDay(now: Date, tzOffsetMinutes: number | null): nu
 export function localDayKey(now: Date, tzOffsetMinutes: number | null): string {
   const local = new Date(now.getTime() + (tzOffsetMinutes ?? 0) * 60_000);
   return local.toISOString().slice(0, 10);
+}
+
+/** The caregiver's local calendar month at `now`, as YYYY-MM. */
+export function localMonthKey(now: Date, tzOffsetMinutes: number | null): string {
+  const local = new Date(now.getTime() + (tzOffsetMinutes ?? 0) * 60_000);
+  return local.toISOString().slice(0, 7);
 }
 
 /* -------------------------------------------------------------------------- */

@@ -16,6 +16,7 @@ import { isInstantLog } from "../lib/activities";
 import { useTheme } from "../design/ThemeProvider";
 import {
   useActivityTone,
+  useActivityTones,
   ACTIVITY_LABEL,
   DIAPER_META,
   CONDITION_META,
@@ -292,6 +293,23 @@ interface Props {
   /** Fetch the next page — wired to the list reaching its end. */
   onEndReached?: () => void;
   loadingMore?: boolean;
+  /**
+   * Whether more pages exist. Used to suppress the totals on the last day
+   * shown, which is the one page boundaries cut in half.
+   */
+  hasMore?: boolean;
+}
+
+/** What a day added up to, for the summary beside its date header. */
+interface DayTotals {
+  sleepMinutes: number;
+  feedCount: number;
+  feedMinutes: number;
+  bottleMl: number;
+  pumpMl: number;
+  diaperCount: number;
+  /** Everything else, counted together — habits, showers, vitamins. */
+  otherCount: number;
 }
 
 /** One row's worth of derived display state, computed once per list rather than
@@ -301,7 +319,136 @@ interface PreparedRow {
   dateLabel: string;
   /** First entry of its calendar day, so it carries the date header. */
   showHeader: boolean;
+  /** Set only on the row that carries the header, and only when the day is
+   *  whole — see `items`. */
+  totals: DayTotals | null;
   gapMinutes: number | null;
+}
+
+/**
+ * A day's entries, added up.
+ *
+ * Every log is credited to the day it *started*, which is the day it appears
+ * under. An overnight sleep therefore counts entirely towards the evening it
+ * began rather than being split across midnight — splitting reads better in a
+ * chart, but this is a list of entries and a total that disagrees with the rows
+ * beneath it is worse than one that's simply defined.
+ */
+function totalsFor(logs: LogEntry[]): DayTotals {
+  const totals: DayTotals = {
+    sleepMinutes: 0,
+    feedCount: 0,
+    feedMinutes: 0,
+    bottleMl: 0,
+    pumpMl: 0,
+    diaperCount: 0,
+    otherCount: 0,
+  };
+  for (const log of logs) {
+    const mins = log.durationMinutes ?? 0;
+    switch (log.type) {
+      case "sleep":
+        totals.sleepMinutes += mins;
+        break;
+      case "feed":
+        totals.feedCount += 1;
+        totals.feedMinutes += mins;
+        totals.bottleMl += log.amountMl ?? 0;
+        break;
+      case "pump":
+        totals.pumpMl += log.amountMl ?? 0;
+        break;
+      case "diaper":
+        totals.diaperCount += 1;
+        break;
+      default:
+        totals.otherCount += 1;
+    }
+  }
+  return totals;
+}
+
+/**
+ * A day's tallies, beside its date.
+ *
+ * Only what actually happened: a day with no pumping says nothing about
+ * pumping, rather than carrying a row of zeroes for every activity the app
+ * supports. It reads as a sentence about the day instead of a form.
+ */
+function DayTotalsRow({ totals }: { totals: DayTotals }) {
+  const units = useUnits();
+  const tones = useActivityTones();
+
+  const parts: { key: string; emoji: string; text: string; color: string }[] = [];
+  if (totals.sleepMinutes > 0) {
+    parts.push({
+      key: "sleep",
+      emoji: tones.sleep.emoji,
+      text: formatDuration(totals.sleepMinutes),
+      color: tones.sleep.text,
+    });
+  }
+  if (totals.feedCount > 0) {
+    // Feeds are counted, with the timed or measured total after it when there
+    // is one — "6 · 1h 20m" says more than either number alone.
+    const detail =
+      totals.feedMinutes > 0
+        ? formatDuration(totals.feedMinutes)
+        : totals.bottleMl > 0
+          ? units.formatVolume(totals.bottleMl)
+          : null;
+    parts.push({
+      key: "feed",
+      emoji: tones.feed.emoji,
+      text: detail ? `${totals.feedCount} · ${detail}` : `${totals.feedCount}`,
+      color: tones.feed.text,
+    });
+  }
+  if (totals.pumpMl > 0) {
+    parts.push({
+      key: "pump",
+      emoji: tones.pump.emoji,
+      text: units.formatVolume(totals.pumpMl),
+      color: tones.pump.text,
+    });
+  }
+  if (totals.diaperCount > 0) {
+    parts.push({
+      key: "diaper",
+      emoji: tones.diaper.emoji,
+      text: `${totals.diaperCount}`,
+      color: tones.diaper.text,
+    });
+  }
+  if (totals.otherCount > 0) {
+    parts.push({
+      key: "other",
+      emoji: "✅",
+      text: `${totals.otherCount}`,
+      color: tones.vitamin.text,
+    });
+  }
+
+  if (parts.length === 0) return null;
+
+  return (
+    <View
+      style={styles.totalsRow}
+      accessible
+      accessibilityLabel={`Day total: ${parts
+        .map((p) => `${p.key} ${p.text}`)
+        .join(", ")}`}
+    >
+      {parts.map((part) => (
+        <View key={part.key} style={styles.totalsItem}>
+          <Emoji size={11}>{part.emoji}</Emoji>
+          <Text variant="caption" tabular style={{ color: part.color }}>
+            {part.text}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 /**
@@ -328,6 +475,7 @@ export default function LogsList({
   onRefresh,
   onEndReached,
   loadingMore = false,
+  hasMore = false,
 }: Props) {
   const t = useTheme();
   const [pendingDelete, setPendingDelete] = useState<LogEntry | null>(null);
@@ -350,18 +498,45 @@ export default function LogsList({
   // that has already been fetched would show "nothing here" for any activity
   // whose most recent entry falls outside the rows loaded so far.
   const items = useMemo<PreparedRow[]>(() => {
+    // Bucket by day first, so the header row can carry that day's totals.
+    const byDay = new Map<string, LogEntry[]>();
+    for (const log of logs) {
+      const key = formatDateLabel(log.startTime);
+      const bucket = byDay.get(key);
+      if (bucket) bucket.push(log);
+      else byDay.set(key, [log]);
+    }
+
+    /*
+     * The last day on screen is the one a page boundary cuts through: more of
+     * it may be waiting on the next fetch, so its total would be an
+     * understatement presented as fact. It gets no summary until the rest of
+     * the history has arrived, at which point the day is whole.
+     */
+    const dayKeys = [...byDay.keys()];
+    const incompleteDay = hasMore ? dayKeys[dayKeys.length - 1] : null;
+
     let lastDate = "";
     return logs.map((log) => {
       const dateLabel = formatDateLabel(log.startTime);
       const showHeader = dateLabel !== lastDate;
       lastDate = dateLabel;
-      return { log, dateLabel, showHeader, gapMinutes: gaps.get(log.id) ?? null };
+      return {
+        log,
+        dateLabel,
+        showHeader,
+        totals:
+          showHeader && dateLabel !== incompleteDay
+            ? totalsFor(byDay.get(dateLabel) ?? [])
+            : null,
+        gapMinutes: gaps.get(log.id) ?? null,
+      };
     });
-  }, [logs, gaps]);
+  }, [logs, gaps, hasMore]);
 
   const renderItem = useCallback(
     ({ item, index }: ListRenderItemInfo<PreparedRow>) => {
-      const { log, dateLabel, showHeader, gapMinutes } = item;
+      const { log, dateLabel, showHeader, totals, gapMinutes } = item;
 
       const row = (
         <LogRow
@@ -374,14 +549,16 @@ export default function LogsList({
       const content = (
         <>
           {showHeader && (
-            <Text
-              variant="overline"
-              tone="subtle"
-              style={styles.dateHeader}
-              accessibilityRole="header"
-            >
-              {dateLabel}
-            </Text>
+            <View style={styles.dateHeader}>
+              <Text
+                variant="overline"
+                tone="subtle"
+                accessibilityRole="header"
+              >
+                {dateLabel}
+              </Text>
+              {totals ? <DayTotalsRow totals={totals} /> : null}
+            </View>
           )}
           {onDelete ? (
             <SwipeableRow onDelete={() => setPendingDelete(log)}>
@@ -532,8 +709,12 @@ const styles = StyleSheet.create({
     paddingTop: space.xl,
     paddingBottom: space.xs,
     paddingLeft: space.xxs,
-    letterSpacing: 1.4,
+    gap: space.xs,
   },
+  // Wraps rather than truncating: a busy day has more tallies than fit on one
+  // line, and dropping the diapers off the end would be arbitrary.
+  totalsRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  totalsItem: { flexDirection: "row", alignItems: "center", gap: space.xxs },
   noMatches: { paddingVertical: space.xxl },
   footerSpinner: { paddingVertical: space.lg },
   row: {
