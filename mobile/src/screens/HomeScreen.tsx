@@ -136,7 +136,7 @@ export default function HomeScreen() {
             logs={logs}
             feedTimer={feedTimer}
             sleepTimer={sleepTimer}
-            onOpenLog={(filter) => navigation.navigate("Log", { filter })}
+            onOpenLog={(filter) => navigation.navigate("Activity", { filter })}
             onOpenInsights={() => navigation.navigate("Analytics")}
           />
         )}

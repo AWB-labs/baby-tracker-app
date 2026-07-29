@@ -24,7 +24,7 @@ export default function LogScreen() {
   const { logs, loading, refresh, handleDelete } = useLogs("all");
   const [refreshing, setRefreshing] = useState(false);
   const [showManual, setShowManual] = useState(false);
-  const route = useRoute<RouteProp<TabParamList, "Log">>();
+  const route = useRoute<RouteProp<TabParamList, "Activity">>();
   const filter = route.params?.filter ?? null;
   const enteredByName = account?.name || "Unknown";
 
@@ -64,7 +64,7 @@ export default function LogScreen() {
 
   const header = (
     <ScreenHeader
-      title="Log"
+      title="Activity"
       subtitle={`Everything, newest first${activeBaby ? ` · ${activeBaby.name}` : ""}`}
       actions={
         <>

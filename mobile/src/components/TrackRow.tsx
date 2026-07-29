@@ -122,9 +122,13 @@ export default function TrackRow({
         type,
         side: timer.activeSide,
         diaperStatus: type === "diaper" ? diaperStatus : null,
+        // A finished pump is measured, not annotated: the useful thing to
+        // capture is how much came out, so that sheet asks for millilitres
+        // where every other activity asks for a note.
+        amountMl: type === "pump" && amountValid ? amountValue : null,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
-        comments: note.trim() || null,
+        comments: type === "pump" ? null : note.trim() || null,
         enteredByName,
         pauseTimeline: timeline.length > 0 ? timeline : null,
       });
@@ -138,8 +142,8 @@ export default function TrackRow({
       setSaving(false);
     }
   }, [
-    babyId, type, timer, diaperStatus, note, enteredByName,
-    onLogSaved, toast, label, reset,
+    babyId, type, timer, diaperStatus, note, amountValid, amountValue,
+    enteredByName, onLogSaved, toast, label, reset,
   ]);
 
   const saveAmount = useCallback(async () => {
@@ -600,7 +604,14 @@ function TrackSheet({
               label="Save"
               variant="primary"
               loading={saving}
-              disabled={shown === "amount" && !amountValid}
+              // A blank pump amount is fine — a half-typed one is not.
+              disabled={
+                (shown === "amount" && !amountValid) ||
+                (shown === "note" &&
+                  type === "pump" &&
+                  amount.length > 0 &&
+                  !amountValid)
+              }
               onPress={shown === "amount" ? onSaveAmount : onSaveSession}
               style={styles.flex}
             />
@@ -636,6 +647,25 @@ function TrackSheet({
         <Input
           label="How much?"
           suffix={units.volume}
+          value={amount}
+          onChangeText={onChangeAmount}
+          placeholder={units.system === "metric" ? "120" : "4"}
+          keyboardType="decimal-pad"
+          autoFocus
+          error={
+            amount.length > 0 && !amountValid
+              ? "Enter an amount greater than zero."
+              : null
+          }
+        />
+      ) : type === "pump" ? (
+        /* Finishing a pump asks for the yield rather than a note — that number
+           is the point of the session, and burying it behind a manual entry
+           afterwards is how it goes unrecorded. */
+        <Input
+          label="How much did you pump?"
+          suffix={units.volume}
+          helper="Leave it blank if you didn't measure."
           value={amount}
           onChangeText={onChangeAmount}
           placeholder={units.system === "metric" ? "120" : "4"}

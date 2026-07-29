@@ -17,7 +17,7 @@ import SettingsScreen from "../screens/SettingsScreen";
 /**
  * Five destinations, the platform maximum for a bottom bar.
  *
- * Log is the entry timeline ("what happened"); Analytics merges growth and
+ * Activity is the entry timeline ("what happened"); Analytics merges growth and
  * activity trends ("how are things going"); Medical covers vaccines, illness
  * and medication; Account holds settings — in the bar rather than behind the
  * Today header, so it's reachable from anywhere and the header keeps its width
@@ -26,7 +26,7 @@ import SettingsScreen from "../screens/SettingsScreen";
 export type TabParamList = {
   Today: undefined;
   /** Snapshot cards deep-link here with an activity filter pre-applied. */
-  Log: { filter?: string } | undefined;
+  Activity: { filter?: string } | undefined;
   Analytics: undefined;
   Medical: undefined;
   Account: undefined;
@@ -124,7 +124,7 @@ export default function AppTabs() {
       screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Today" component={HomeScreen} />
-      <Tab.Screen name="Log" component={LogScreen} />
+      <Tab.Screen name="Activity" component={LogScreen} />
       <Tab.Screen name="Analytics" component={InsightsScreen} />
       <Tab.Screen name="Medical" component={HealthScreen} />
       <Tab.Screen name="Account" component={SettingsScreen} />

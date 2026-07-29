@@ -40,6 +40,7 @@ import StatCard from "../components/StatCard";
 import { formatMinutes } from "../utils/formatDuration";
 import { formatDateLabel } from "../utils/formatTime";
 import { overlapMinutes } from "../lib/dayMath";
+import { findRhythms, describeRhythm, MIN_DAYS } from "../lib/rhythms";
 import { createLog, type LogEntry } from "../api/logs";
 
 /* -------------------------------------------------------------------------- */
@@ -161,6 +162,76 @@ function onDateWithCurrentClock(day: Date): Date {
  * where the Log answers "what happened". Individual measurements are edited
  * from the Log tab like any other entry.
  */
+/**
+ * Which activities are worth describing as a routine, and the verb each one
+ * takes so the sentence reads naturally. A nappy change has no rhythm worth
+ * reporting — they happen whenever they happen — so it isn't listed.
+ */
+const RHYTHM_ACTIVITIES: { type: string; verb: string; emoji: string }[] = [
+  { type: "sleep", verb: "Sleeps", emoji: "😴" },
+  { type: "feed", verb: "Feeds", emoji: "🤱" },
+  { type: "pump", verb: "Pumping", emoji: "🍼" },
+  { type: "shower", verb: "Showers", emoji: "🚿" },
+  { type: "bath", verb: "Baths", emoji: "🛁" },
+  { type: "vitamin", verb: "Vitamin", emoji: "💊" },
+];
+
+/**
+ * "Sleeps between 9:00 and 10:30 PM for about 2h."
+ *
+ * Learned from the baby's own history rather than configured: once an activity
+ * has happened on a few separate days at a consistent hour, that hour is worth
+ * saying out loud. Activities without enough history simply don't appear, so
+ * the section grows into usefulness instead of showing empty rows.
+ */
+function DailyRhythms({ logs }: { logs: LogEntry[] }) {
+  const t = useTheme();
+
+  const found = useMemo(
+    () =>
+      RHYTHM_ACTIVITIES.map((activity) => ({
+        ...activity,
+        rhythms: findRhythms(logs, activity.type),
+      })).filter((a) => a.rhythms.length > 0),
+    [logs]
+  );
+
+  if (found.length === 0) return null;
+
+  return (
+    <View style={styles.section}>
+      <SectionHeader title="Daily rhythm" />
+      <Card style={styles.rhythmCard}>
+        {found.map((activity, activityIndex) => (
+          <View key={activity.type} style={styles.rhythmGroup}>
+            {activityIndex > 0 ? (
+              <View style={[styles.rhythmRule, { backgroundColor: t.border }]} />
+            ) : null}
+            {activity.rhythms.map((rhythm, i) => {
+              const { lead, detail } = describeRhythm(activity.verb, rhythm);
+              return (
+                <View key={`${activity.type}-${i}`} style={styles.rhythmRow}>
+                  <Emoji size={18}>{activity.emoji}</Emoji>
+                  <View style={styles.flex}>
+                    <Text variant="subheadStrong">{lead}</Text>
+                    <Text variant="caption" tone="subtle">
+                      {detail}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </Card>
+      <Text variant="footnote" tone="subtle">
+        Averages from the last few weeks. A pattern appears once it has happened
+        on at least {MIN_DAYS} separate days.
+      </Text>
+    </View>
+  );
+}
+
 export default function InsightsScreen() {
   const t = useTheme();
   const tones = useActivityTones();
@@ -341,7 +412,7 @@ export default function InsightsScreen() {
   return (
     <Screen refreshing={refreshing} onRefresh={onRefresh}>
       <ScreenHeader
-        title="Insights"
+        title="Analytics"
         subtitle={`Growth & patterns · ${activeBaby.name}`}
         actions={<BabySwitcher />}
       />
@@ -350,6 +421,7 @@ export default function InsightsScreen() {
         <SkeletonList rows={4} />
       ) : (
         <>
+          <DailyRhythms logs={logs} />
           {/* ------------------------------------------------------ growth */}
           <View style={styles.section}>
             <SectionHeader
@@ -766,6 +838,10 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { alignItems: "center" },
   section: { gap: space.sm },
+  rhythmCard: { gap: space.sm },
+  rhythmGroup: { gap: space.sm },
+  rhythmRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  rhythmRule: { height: StyleSheet.hairlineWidth, marginVertical: space.xxs },
   cards: { gap: space.md },
   rowCenter: { flexDirection: "row", alignItems: "center", gap: space.sm },
   actions: { flexDirection: "row", gap: space.sm },
