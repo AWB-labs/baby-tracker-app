@@ -528,20 +528,26 @@ export default function InsightsScreen() {
                     <Text variant="caption" tone="subtle" tabular style={styles.barVal}>
                       {bar.minutes > 0 ? formatMinutes(bar.minutes) : ""}
                     </Text>
-                    <View
-                      style={[
-                        styles.bar,
-                        {
-                          height: `${Math.max(
-                            4,
-                            (bar.minutes / maxSleep) * 100
-                          )}%` as DimensionValue,
-                          backgroundColor: bar.isToday
-                            ? tones.sleep.main
-                            : tones.sleep.border,
-                        },
-                      ]}
-                    />
+                    {/* The track is what the bar's percentage is measured
+                        against. Sizing the bar against the whole column left
+                        the tallest one no room for its own labels, which then
+                        overflowed upward across the card header. */}
+                    <View style={styles.barTrack}>
+                      <View
+                        style={[
+                          styles.bar,
+                          {
+                            height: `${Math.max(
+                              4,
+                              (bar.minutes / maxSleep) * 100
+                            )}%` as DimensionValue,
+                            backgroundColor: bar.isToday
+                              ? tones.sleep.main
+                              : tones.sleep.border,
+                          },
+                        ]}
+                      />
+                    </View>
                     <Text variant="caption" tone="subtle">
                       {bar.label}
                     </Text>
@@ -865,18 +871,25 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: space.xs,
   },
+  // No fixed height: the row is as tall as a column needs, which is the track
+  // plus the label above it and the day beneath.
   bars: {
     flexDirection: "row",
     alignItems: "flex-end",
     gap: space.sm,
-    height: 132,
   },
   barCol: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "flex-end",
     gap: space.xs,
-    height: "100%",
+  },
+  // The bar is sized as a percentage, so it needs a parent with a height of its
+  // own. This is that parent, and it holds nothing else.
+  barTrack: {
+    width: "100%",
+    height: 110,
+    alignItems: "center",
+    justifyContent: "flex-end",
   },
   barVal: { fontSize: 10 },
   bar: {

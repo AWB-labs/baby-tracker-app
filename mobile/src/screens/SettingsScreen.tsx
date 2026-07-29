@@ -22,6 +22,7 @@ import {
   Chip,
   ChipWrap,
   Segmented,
+  Sheet,
   SkeletonList,
   FadeInUp,
   ConfirmDialog,
@@ -40,6 +41,7 @@ import {
   claimInvite,
   setMemberRelation,
   formatRelation,
+  relationEmoji,
   RELATIONS,
   type BabyMember,
   type PendingInvite,
@@ -122,6 +124,9 @@ export default function SettingsScreen() {
   const [inviteRelation, setInviteRelation] = useState<string | null>(null);
   const [inviteNote, setInviteNote] = useState("");
   const [sharingLink, setSharingLink] = useState(false);
+  const [showAddCaregiver, setShowAddCaregiver] = useState(false);
+  const [showMyRelation, setShowMyRelation] = useState(false);
+  const [myRelationNote, setMyRelationNote] = useState("");
   const [joinToken, setJoinToken] = useState("");
   const [joining, setJoining] = useState(false);
   const [savingRelation, setSavingRelation] = useState(false);
@@ -203,6 +208,7 @@ export default function SettingsScreen() {
       setInviteEmail("");
       setInviteRelation(null);
       setInviteNote("");
+      setShowAddCaregiver(false);
       await load();
     } catch (err) {
       toast.showError(err);
@@ -240,6 +246,7 @@ export default function SettingsScreen() {
       });
       setInviteRelation(null);
       setInviteNote("");
+      setShowAddCaregiver(false);
     } catch (err) {
       toast.showError(err);
     } finally {
@@ -255,11 +262,17 @@ export default function SettingsScreen() {
    * is what the caregiver list below actually renders. Keeping them in step is
    * why this isn't just a settings PATCH.
    */
-  const handleSaveMyRelation = async (relation: string | null) => {
+  const handleSaveMyRelation = async (
+    relation: string | null,
+    noteOverride?: string
+  ) => {
     if (!activeBaby || !account) return;
-    // "Other" needs a note, and there's nowhere to type one from a chip row, so
-    // it's handled by the same field the invite form uses.
-    const note = relation === "other" ? account.relationNote ?? null : null;
+    // Only "other" carries a note; anything else clears it, so switching away
+    // from Other doesn't leave stale text attached.
+    const note =
+      relation === "other"
+        ? (noteOverride ?? myRelationNote).trim() || null
+        : null;
     setSavingRelation(true);
     try {
       const updated = await updateSettings({ relation, relationNote: note });
@@ -516,98 +529,44 @@ export default function SettingsScreen() {
                 Everyone here can see and add entries for {activeBaby.name}.
               </Text>
 
-              {/* Anyone who signed up before onboarding asked this has no
-                  relationship set, so this is where they fill it in. */}
-              <Field label={`You are ${activeBaby.name}'s…`}>
-                <ChipWrap>
-                  {RELATIONS.map((option) => (
-                    <Chip
-                      key={option.value}
-                      label={option.label}
-                      emoji={option.emoji}
-                      selected={account?.relation === option.value}
-                      disabled={savingRelation}
-                      onPress={() =>
-                        handleSaveMyRelation(
-                          account?.relation === option.value ? null : option.value
-                        )
-                      }
-                    />
-                  ))}
-                </ChipWrap>
-              </Field>
-
-              <Divider style={styles.divider} />
-
-              {/* Who they are is asked once, up front, and applies to whichever
-                  way you send it — so the list below reads as people rather
-                  than as a column of addresses. */}
-              <Field
-                label="Who are they?"
-                helper="Optional. It doesn't change what they can see or do."
+              {/* One line, not a grid. This is set once and rarely changed, so
+                  it states the answer and hides the nine options behind a tap —
+                  two full chip grids on one card drowned everything else. */}
+              <Pressable
+                onPress={() => {
+                  // Seed from the account so reopening shows what's saved
+                  // rather than an empty field that would clear it on blur.
+                  setMyRelationNote(account?.relationNote ?? "");
+                  setShowMyRelation(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`You are ${activeBaby.name}'s ${
+                  formatRelation(
+                    account?.relation ?? null,
+                    account?.relationNote ?? null
+                  ) ?? "— not set"
+                }. Tap to change.`}
+                style={({ pressed }) => [
+                  styles.pickerRow,
+                  { borderColor: t.border, opacity: pressed ? PRESSED_OPACITY : 1 },
+                ]}
               >
-                <ChipWrap>
-                  {RELATIONS.map((option) => (
-                    <Chip
-                      key={option.value}
-                      label={option.label}
-                      emoji={option.emoji}
-                      selected={inviteRelation === option.value}
-                      onPress={() =>
-                        setInviteRelation(
-                          inviteRelation === option.value ? null : option.value
-                        )
-                      }
-                    />
-                  ))}
-                </ChipWrap>
-              </Field>
-
-              {inviteRelation === "other" && (
-                <Input
-                  label="How are they related?"
-                  value={inviteNote}
-                  onChangeText={setInviteNote}
-                  placeholder="e.g. Godmother, family friend"
-                  maxLength={60}
-                />
-              )}
-
-              <View style={styles.inlineForm}>
-                <Input
-                  containerStyle={styles.flex}
-                  label="Add by email"
-                  value={inviteEmail}
-                  onChangeText={setInviteEmail}
-                  placeholder="family@email.com"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoCorrect={false}
-                  returnKeyType="done"
-                  onSubmitEditing={handleInvite}
-                />
-                <Button
-                  label="Add"
-                  icon="userPlus"
-                  variant="primary"
-                  loading={inviting}
-                  onPress={handleInvite}
-                />
-              </View>
-
-              <Button
-                label="Share an invite link instead"
-                icon="users"
-                variant="secondary"
-                fullWidth
-                loading={sharingLink}
-                onPress={handleShareLink}
-              />
-              <Text variant="footnote" tone="subtle">
-                A link works whatever email they sign up with, and expires after
-                two weeks. An emailed invite only reaches them if they use that
-                exact address.
-              </Text>
+                <Emoji size={18}>
+                  {relationEmoji(account?.relation ?? null) ?? "🧑"}
+                </Emoji>
+                <View style={styles.flex}>
+                  <Text variant="caption" tone="muted">
+                    You are {activeBaby.name}'s
+                  </Text>
+                  <Text variant="subheadStrong">
+                    {formatRelation(
+                      account?.relation ?? null,
+                      account?.relationNote ?? null
+                    ) ?? "Not set"}
+                  </Text>
+                </View>
+                <Icon name="chevronRight" size="sm" color={t.textSubtle} />
+              </Pressable>
 
               <View style={styles.rows}>
                 {members.map((m, index) => (
@@ -686,6 +645,17 @@ export default function SettingsScreen() {
                   </FadeInUp>
                 ))}
               </View>
+
+              {/* The whole add flow lives in a sheet. Inline, its email field,
+                  relationship grid and link button pushed the list of people
+                  this card is actually about off the bottom of the screen. */}
+              <Button
+                label="Add a caregiver"
+                icon="userPlus"
+                variant="primary"
+                fullWidth
+                onPress={() => setShowAddCaregiver(true)}
+              />
             </Card>
           </View>
 
@@ -1044,6 +1014,134 @@ export default function SettingsScreen() {
         </>
       )}
 
+      {/* ---------- Your relationship ---------- */}
+      <Sheet
+        visible={showMyRelation}
+        onClose={() => setShowMyRelation(false)}
+        title={`You are ${activeBaby.name}'s…`}
+        subtitle="How other caregivers will recognise you. It doesn't change what anyone can see or do."
+        footer={
+          <Button
+            label="Done"
+            variant="primary"
+            fullWidth
+            onPress={() => setShowMyRelation(false)}
+          />
+        }
+      >
+        <ChipWrap>
+          {RELATIONS.map((option) => (
+            <Chip
+              key={option.value}
+              label={option.label}
+              emoji={option.emoji}
+              selected={account?.relation === option.value}
+              disabled={savingRelation}
+              onPress={() =>
+                handleSaveMyRelation(
+                  account?.relation === option.value ? null : option.value
+                )
+              }
+            />
+          ))}
+        </ChipWrap>
+        {account?.relation === "other" && (
+          <Input
+            label="How are you related?"
+            value={myRelationNote}
+            onChangeText={setMyRelationNote}
+            onBlur={() => handleSaveMyRelation("other", myRelationNote)}
+            placeholder="e.g. Godmother, family friend"
+            maxLength={60}
+          />
+        )}
+      </Sheet>
+
+      {/* ---------- Add a caregiver ---------- */}
+      <Sheet
+        visible={showAddCaregiver}
+        onClose={() => setShowAddCaregiver(false)}
+        title="Add a caregiver"
+        subtitle={`They'll be able to see and add entries for ${activeBaby.name}.`}
+        footer={
+          <View style={styles.sheetActions}>
+            <Button
+              label="Cancel"
+              variant="ghost"
+              onPress={() => setShowAddCaregiver(false)}
+              style={styles.flex}
+            />
+            <Button
+              label="Send invite"
+              variant="primary"
+              loading={inviting}
+              disabled={!inviteEmail.trim()}
+              onPress={handleInvite}
+              style={styles.flex}
+            />
+          </View>
+        }
+      >
+        <Input
+          label="Their email"
+          value={inviteEmail}
+          onChangeText={setInviteEmail}
+          placeholder="family@email.com"
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoCorrect={false}
+          returnKeyType="done"
+          onSubmitEditing={handleInvite}
+        />
+
+        <Field
+          label="Who are they?"
+          helper="Optional. It doesn't change what they can see or do."
+        >
+          <ChipWrap>
+            {RELATIONS.map((option) => (
+              <Chip
+                key={option.value}
+                label={option.label}
+                emoji={option.emoji}
+                selected={inviteRelation === option.value}
+                onPress={() =>
+                  setInviteRelation(
+                    inviteRelation === option.value ? null : option.value
+                  )
+                }
+              />
+            ))}
+          </ChipWrap>
+        </Field>
+
+        {inviteRelation === "other" && (
+          <Input
+            label="How are they related?"
+            value={inviteNote}
+            onChangeText={setInviteNote}
+            placeholder="e.g. Godmother, family friend"
+            maxLength={60}
+          />
+        )}
+
+        <Divider style={styles.divider} />
+
+        <Button
+          label="Share an invite link instead"
+          icon="users"
+          variant="secondary"
+          fullWidth
+          loading={sharingLink}
+          onPress={handleShareLink}
+        />
+        <Text variant="footnote" tone="subtle">
+          A link works whatever email they sign up with and expires after two
+          weeks. An emailed invite only reaches them if they use that exact
+          address.
+        </Text>
+      </Sheet>
+
       <ConfirmDialog
         visible={pendingRemoval !== null}
         icon={
@@ -1122,6 +1220,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   divider: { marginVertical: space.lg },
+  sheetActions: { flexDirection: "row", gap: space.sm },
+  // A tappable summary row: states the current answer, hides the options.
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    paddingVertical: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   timeBtn: {
     flexDirection: "row",
     alignItems: "center",
