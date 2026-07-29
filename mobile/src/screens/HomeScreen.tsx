@@ -182,18 +182,21 @@ export default function HomeScreen() {
         >
           {/* Measured at natural size so the fold knows how far "open" is. */}
           <View onLayout={(e) => setSnapshotH(e.nativeEvent.layout.height)}>
-            {/* What's happening right now — four doors, not banners. */}
-            {!loading && (
-              <Snapshot
-                logs={logs}
-                feedTimer={feedTimer}
-                sleepTimer={sleepTimer}
-                onOpenLog={(filter) =>
-                  navigation.navigate("Activity", { filter })
-                }
-                onOpenInsights={() => navigation.navigate("Analytics")}
-              />
-            )}
+            {/* What's happening right now — four doors, not banners.
+                Rendered from the first frame, placeholders and all: withheld
+                until data arrived, the hero changed height the moment it
+                landed, and the fold above measures nothing so the collapse
+                couldn't work at all until then. */}
+            <Snapshot
+              logs={logs}
+              loading={loading}
+              feedTimer={feedTimer}
+              sleepTimer={sleepTimer}
+              onOpenLog={(filter) =>
+                navigation.navigate("Activity", { filter })
+              }
+              onOpenInsights={() => navigation.navigate("Analytics")}
+            />
           </View>
         </Animated.View>
       </LinearGradient>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useTheme } from "../design/ThemeProvider";
 import { useActivityTone, DIAPER_META } from "../design/activity";
@@ -13,6 +13,8 @@ import type { UseTimerResult } from "../hooks/useTimer";
 
 interface Props {
   logs: LogEntry[];
+  /** True while the first fetch for this baby is still in flight. */
+  loading?: boolean;
   feedTimer: UseTimerResult;
   sleepTimer: UseTimerResult;
   /** Open the Log tab, optionally pre-filtered to one activity. */
@@ -46,12 +48,20 @@ function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
  */
 export default function Snapshot({
   logs,
+  loading = false,
   feedTimer,
   sleepTimer,
   onOpenLog,
   onOpenInsights,
 }: Props) {
   const t = useTheme();
+  /*
+   * Only the very first load holds the cards back. A poll or a pull-to-refresh
+   * arrives with the previous numbers still on screen, and blanking those to
+   * placeholders every thirty seconds would be worse than briefly showing a
+   * value that is a moment out of date.
+   */
+  const pending = loading && logs.length === 0;
   const feedTone = useActivityTone("feed");
   const sleepTone = useActivityTone("sleep");
   const diaperTone = useActivityTone("diaper");
@@ -95,6 +105,7 @@ export default function Snapshot({
     <View style={styles.grid}>
       {/* ---------------------------------------------------------- feed */}
       <SnapshotCard
+        pending={pending}
         emoji={feedTone.emoji}
         label={feedTimer.isActive ? "Feed" : "Last feed"}
         value={
@@ -137,6 +148,7 @@ export default function Snapshot({
 
       {/* --------------------------------------------------------- sleep */}
       <SnapshotCard
+        pending={pending}
         emoji={sleepTone.emoji}
         label={sleepTimer.isActive ? "Sleep" : "Last sleep"}
         value={
@@ -184,6 +196,7 @@ export default function Snapshot({
 
       {/* -------------------------------------------------------- diaper */}
       <SnapshotCard
+        pending={pending}
         emoji={diaperTone.emoji}
         label="Last diaper"
         value={lastDiaper ? formatRelativeTime(lastDiaper.startTime) : "None yet"}
@@ -210,6 +223,7 @@ export default function Snapshot({
 
       {/* --------------------------------------------------------- today */}
       <SnapshotCard
+        pending={pending}
         emoji="✨"
         label="Today"
         value={todayLine}
@@ -231,6 +245,7 @@ function SnapshotCard({
   valueSmall = false,
   sub,
   live = null,
+  pending = false,
   accessibilityLabel,
   onPress,
 }: {
@@ -241,10 +256,20 @@ function SnapshotCard({
   valueSmall?: boolean;
   sub: string | null;
   live?: string | null;
+  /** First fetch still in flight: hold the card's shape, not its content. */
+  pending?: boolean;
   accessibilityLabel: string;
   onPress: () => void;
 }) {
   const t = useTheme();
+  // A placeholder rather than "None yet", which would be a claim about data we
+  // haven't loaded — and rather than nothing, which would change the card's
+  // height the instant it arrived.
+  if (pending) {
+    value = "—";
+    sub = " ";
+    live = null;
+  }
   return (
     <PressableCard
       onPress={onPress}

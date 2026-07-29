@@ -29,7 +29,7 @@ import {
 /**
  * Streaks need more history than the home screen's cheap 50-row fetch holds
  * (a 30-day vitamin streak is 30 days of logs). Habit entries are sparse, so
- * one deeper fetch on mount â€” not polled â€” covers it.
+ * one deeper fetch on mount — not polled — covers it.
  */
 const STREAK_FETCH_LIMIT = 400;
 
@@ -44,7 +44,7 @@ interface Props {
 /**
  * Once-a-day routines, now the family's own list.
  *
- * Each tile is one tap to mark done for today. A ðŸ”¥ streak makes the routine
+ * Each tile is one tap to mark done for today. A 🔥 streak makes the routine
  * worth keeping; a broken one says "Missed" in words and colour rather than
  * silently resetting, so yesterday's slip is visible without being scolding.
  * Which habits appear, and in what order, is chosen in the customize sheet.
@@ -202,7 +202,7 @@ export default function Habits({
     setNewHabitEmoji(HABIT_EMOJI_CHOICES[0]);
   }, [newHabitName, newHabitEmoji, habits, addHabit, toast]);
 
-  // Catalogue habits the family hasn't added yet â€” the "Add a habit" list.
+  // Catalogue habits the family hasn't added yet — the "Add a habit" list.
   const available = HABIT_CATALOG.filter(
     (c) => !habits.some((h) => h.key === c.key)
   );
@@ -240,7 +240,7 @@ export default function Habits({
           ]}
         >
           <Text variant="subhead" style={{ color: t.accentText }}>
-            No habits yet â€” tap to add some
+            No habits yet — tap to add some
           </Text>
         </Pressable>
       ) : (
@@ -318,7 +318,7 @@ export default function Habits({
                       fontWeight: "700",
                     }}
                   >
-                    {busy ? "Savingâ€¦" : habit.label}
+                    {busy ? "Saving…" : habit.label}
                   </Text>
                   {state === "missed" ? (
                     <View
@@ -333,7 +333,7 @@ export default function Habits({
                     <View
                       style={[styles.stateChip, { backgroundColor: t.warningSoft }]}
                     >
-                      <Emoji size={11}>ðŸ”¥</Emoji>
+                      <Emoji size={11}>🔥</Emoji>
                       <Text variant="caption" tabular style={{ color: t.warning }}>
                         {stat.streak}
                       </Text>
@@ -373,17 +373,17 @@ export default function Habits({
           <SectionHeader title="On Today" />
           {habits.length === 0 ? (
             <Text variant="subhead" tone="subtle" style={styles.custEmptyLine}>
-              None yet â€” add one below.
+              None yet — add one below.
             </Text>
           ) : (
             habits.map((habit, index) => {
               const stat = stats.get(habit.key);
               const caption = stat?.doneToday
-                ? `Done today Â· ðŸ”¥ ${stat.streak}-day streak`
+                ? `Done today · 🔥 ${stat.streak}-day streak`
                 : stat && stat.streak > 0
-                  ? `ðŸ”¥ ${stat.streak}-day streak`
+                  ? `🔥 ${stat.streak}-day streak`
                   : stat?.missed
-                    ? "Missed yesterday Â· streak reset"
+                    ? "Missed yesterday · streak reset"
                     : "No streak yet";
               return (
                 <View
@@ -431,7 +431,7 @@ export default function Habits({
         {/* The catalogue can't anticipate every routine — physio exercises,
             eye drops, a particular stretch — so a family can name their own.
             It logs as a generic habit entry carrying that name. */}
-        <View style={styles.custList}>
+        <View style={styles.custForm}>
           <SectionHeader title="Make your own" />
           <Input
             label="Habit name"
@@ -551,6 +551,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
   },
   custList: {},
+  // The list sections need no gap — their rows carry their own padding and
+  // dividers — but a form of stacked controls does, or the heading, field,
+  // icons and button run together into one block.
+  custForm: { gap: space.md, paddingTop: space.md, paddingBottom: space.lg },
   custEmptyLine: { paddingVertical: space.sm },
   custItem: {
     flexDirection: "row",
