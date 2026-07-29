@@ -53,6 +53,7 @@ model Baby {
   invites   BabyInvite[]
   reminders Reminder[]
   logs      ActivityLog[]
+  vaccines  Vaccine[]
 }
 
 /// Who may read and write a baby's logs. This is the only source of truth for
@@ -62,6 +63,12 @@ model BabyMember {
   babyId    Int
   accountId Int
   role      String   @default("member") // owner | member
+  /// How this person is related to the baby — mother, father, sister… Purely
+  /// descriptive: it never affects access, which `role` alone decides. Null on
+  /// everyone who joined before it was asked for.
+  relation     String?
+  /// Free text for relation = "other", e.g. "Nanny". Ignored otherwise.
+  relationNote String?
   createdAt DateTime @default(now())
 
   baby    Baby    @relation(fields: [babyId], references: [id], onDelete: Cascade)
@@ -71,41 +78,85 @@ model BabyMember {
   @@index([accountId])
 }
 
-/// A caregiver invited by an email address that has no account yet. Claimed and
-/// turned into a BabyMember the moment that email signs up.
+/// A caregiver who has been invited but isn't a member yet.
+///
+/// Two flavours share this table:
+///   - email invite — `email` set, `token` null. Claimed automatically when that
+///     exact address signs up or signs in.
+///   - link invite  — `token` set, `email` null. Claimed by whoever opens the
+///     link while signed in, whatever address they used. This is why `email` is
+///     nullable: a link has no addressee until someone accepts it.
 model BabyInvite {
   id                 Int      @id @default(autoincrement())
   babyId             Int
-  email              String
+  email              String?
+  /// Unguessable claim code for a link invite. Null on email invites.
+  token              String?  @unique
   role               String   @default("member")
+  relation           String?
+  relationNote       String?
+  /// Link invites expire so a forwarded message can't grant access forever.
+  /// Null on email invites, which are addressed and so can wait indefinitely.
+  expiresAt          DateTime?
   invitedByAccountId Int
   createdAt          DateTime @default(now())
 
   baby      Baby    @relation(fields: [babyId], references: [id], onDelete: Cascade)
   invitedBy Account @relation("InviteSender", fields: [invitedByAccountId], references: [id], onDelete: Cascade)
 
+  // Postgres allows many NULLs in a unique index, so link invites (email null)
+  // don't collide with each other while email invites stay one-per-address.
   @@unique([babyId, email])
   @@index([email])
 }
 
-/// "Remind me to feed every 3h." Owned by one caregiver so each can mute
-/// independently, but evaluated against the baby's shared activity log — a feed
-/// logged by anyone resets everybody's feed reminder.
+/// One month of the immunisation schedule for a baby, months 1–12.
+///
+/// A row exists only once the month has been touched — the schedule itself is
+/// fixed and lives in the client, so an untouched month needs no storage. Taken
+/// is `givenAt != null` rather than a separate flag, because a dose that was
+/// given always has a date and one that wasn't never does.
+model Vaccine {
+  id          Int      @id @default(autoincrement())
+  babyId      Int
+  /// Age in months, 1–12. Odd months are mandatory, even months optional.
+  monthNumber Int
+  givenAt     DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  baby Baby @relation(fields: [babyId], references: [id], onDelete: Cascade)
+
+  @@unique([babyId, monthNumber])
+  @@index([babyId])
+}
+
+/// "Remind me to give vitamins at 9am on weekdays." Owned by one caregiver so
+/// each can mute independently, but attached to a shared baby.
 model Reminder {
   id              Int       @id @default(autoincrement())
   babyId          Int
   accountId       Int
   type            String // feed|pump|sleep|diaper|shower|vitamin|nailcut|custom
   label           String? // shown instead of the type's name, required for custom
-  intervalMinutes Int
+  /// Deprecated. Reminders fire at a time of day now (see `timeOfDay`); nothing
+  /// reads this. Kept nullable rather than dropped so existing rows survive, and
+  /// so the old value is still there if a schedule ever needs explaining.
+  intervalMinutes Int?
+  /// Minutes after local midnight, 0–1439 — 540 is 9:00am. The caregiver's
+  /// midnight, not the server's: see tzOffsetMinutes. Existing rows default to
+  /// 9am, which is what an interval reminder becomes when it is converted.
+  timeOfDay       Int       @default(540)
   /// Which days this may fire on, as sorted comma-separated weekday numbers
   /// (0 = Sunday … 6 = Saturday) — "1,2,3,4,5" for weekdays only. Null means
   /// every day, which is what every reminder created before this existed is.
   daysOfWeek      String?
-  /// The device's UTC offset in minutes when the days were chosen, so "Tuesday"
-  /// means the caregiver's Tuesday rather than the server's. Null falls back to
-  /// UTC. Stored rather than derived because the server has no other way to
-  /// know where the account is.
+  /// The device's UTC offset in minutes when the reminder was set, so both
+  /// "Tuesday" and "9am" mean the caregiver's rather than the server's. Null
+  /// falls back to UTC. Stored rather than derived because the server has no
+  /// other way to know where the account is. Now always recorded, not just when
+  /// days are restricted — a time of day is meaningless without it.
   tzOffsetMinutes Int?
   enabled         Boolean   @default(true)
   lastNotifiedAt  DateTime?

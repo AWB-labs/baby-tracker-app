@@ -33,17 +33,41 @@ export function reminderLogType(value: string): string | null {
   return BY_VALUE.get(value as ReminderType)?.logType ?? null;
 }
 
-/** "3h 30m" / "45m" — used in the notification body. */
-export function formatInterval(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h > 0 && m > 0) return `${h}h ${m}m`;
-  if (h > 0) return `${h}h`;
-  return `${m}m`;
+/* -------------------------------------------------------------------------- */
+/* Time of day                                                                */
+/* -------------------------------------------------------------------------- */
+
+/** Minutes after midnight, so 0 is 00:00 and 1439 is 23:59. */
+export const MIN_TIME_OF_DAY = 0;
+export const MAX_TIME_OF_DAY = 24 * 60 - 1;
+
+/** "9:00 AM" — used in the notification body and the reminder list. */
+export function formatTimeOfDay(minutes: number): string {
+  const total = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  const h24 = Math.floor(total / 60);
+  const m = total % 60;
+  const suffix = h24 < 12 ? "AM" : "PM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
-export const MIN_INTERVAL_MINUTES = 5;
-export const MAX_INTERVAL_MINUTES = 60 * 24 * 7;
+/**
+ * The caregiver's local wall clock at `now`, as minutes after their midnight.
+ *
+ * Everything about a scheduled reminder is local: 9am means 9am where the
+ * parent is, so both the day check and the time check read the same shifted
+ * clock rather than the server's.
+ */
+export function localMinutesOfDay(now: Date, tzOffsetMinutes: number | null): number {
+  const local = new Date(now.getTime() + (tzOffsetMinutes ?? 0) * 60_000);
+  return local.getUTCHours() * 60 + local.getUTCMinutes();
+}
+
+/** The caregiver's local calendar day at `now`, as YYYY-MM-DD. */
+export function localDayKey(now: Date, tzOffsetMinutes: number | null): string {
+  const local = new Date(now.getTime() + (tzOffsetMinutes ?? 0) * 60_000);
+  return local.toISOString().slice(0, 10);
+}
 
 /* -------------------------------------------------------------------------- */
 /* Days of the week                                                           */

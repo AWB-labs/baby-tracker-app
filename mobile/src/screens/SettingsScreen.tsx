@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Switch, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Switch, View } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme, useThemeContext, type Appearance } from "../design/ThemeProvider";
 import { space, radius, DISABLED_OPACITY, PRESSED_OPACITY } from "../design/tokens";
 import { REMINDER_EMOJI } from "../design/activity";
@@ -43,7 +44,10 @@ import {
   createReminder,
   updateReminder,
   deleteReminder,
-  formatInterval,
+  formatTimeOfDay,
+  timeOfDayToDate,
+  dateToTimeOfDay,
+  DEFAULT_TIME_OF_DAY,
   formatDays,
   WEEKDAYS,
   REMINDER_TYPES,
@@ -114,8 +118,8 @@ export default function SettingsScreen() {
   // New-reminder form
   const [newType, setNewType] = useState<ReminderType>("feed");
   const [newLabel, setNewLabel] = useState("");
-  const [newHours, setNewHours] = useState("3");
-  const [newMinutes, setNewMinutes] = useState("0");
+  const [newTime, setNewTime] = useState(DEFAULT_TIME_OF_DAY);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   // Empty means every day — the common case, so it's also the default.
   const [newDays, setNewDays] = useState<number[]>([]);
   const [addingReminder, setAddingReminder] = useState(false);
@@ -211,12 +215,6 @@ export default function SettingsScreen() {
 
   const handleAddReminder = async () => {
     if (!activeBaby) return;
-    const hours = parseInt(newHours || "0", 10);
-    const minutes = parseInt(newMinutes || "0", 10);
-    if (isNaN(hours) || isNaN(minutes) || hours * 60 + minutes < 5) {
-      toast.error("Choose an interval of at least 5 minutes.");
-      return;
-    }
     if (newType === "custom" && !newLabel.trim()) {
       toast.error("Give your custom reminder a name.");
       return;
@@ -227,17 +225,18 @@ export default function SettingsScreen() {
         babyId: activeBaby.id,
         type: newType,
         label: newLabel.trim() || null,
-        hours,
-        minutes,
+        timeOfDay: newTime,
         daysOfWeek: newDays.length > 0 ? newDays : null,
       });
       setReminders((prev) => [...prev, created]);
       setNewLabel("");
       setNewDays([]);
       toast.success(
-        created.daysOfWeek
-          ? `You'll be reminded every ${formatInterval(created.intervalMinutes)} on ${formatDays(created.daysOfWeek).toLowerCase()}.`
-          : `You'll be reminded every ${formatInterval(created.intervalMinutes)}.`
+        `You'll be reminded at ${formatTimeOfDay(created.timeOfDay)} ${
+          created.daysOfWeek
+            ? `on ${formatDays(created.daysOfWeek).toLowerCase()}`
+            : "every day"
+        }.`
       );
     } catch (err) {
       toast.showError(err);
@@ -592,11 +591,8 @@ export default function SettingsScreen() {
                               {name}
                             </Text>
                             <Text variant="caption" tone="subtle">
-                              Every {formatInterval(r.intervalMinutes)}
-                              {meta?.watchesActivity ? " since the last one" : ""}
-                              {r.daysOfWeek
-                                ? ` · ${formatDays(r.daysOfWeek)}`
-                                : ""}
+                              {formatTimeOfDay(r.timeOfDay)}
+                              {` · ${formatDays(r.daysOfWeek)}`}
                             </Text>
                           </View>
                           <Switch
@@ -647,27 +643,38 @@ export default function SettingsScreen() {
                   />
                 )}
 
-                <View style={styles.intervalRow}>
-                  <Input
-                    containerStyle={styles.flex}
-                    label="Every · hours"
-                    value={newHours}
-                    onChangeText={setNewHours}
-                    keyboardType="number-pad"
-                    placeholder="0"
+                {/* A wall-clock time rather than an interval: "every 3 hours"
+                    drifts through the night, whereas a parent thinks in terms
+                    of the vitamin they give at breakfast. */}
+                <Field label="At this time">
+                  <Pressable
+                    onPress={() => setShowTimePicker(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Reminder time: ${formatTimeOfDay(newTime)}`}
+                    style={({ pressed }) => [
+                      styles.timeBtn,
+                      {
+                        backgroundColor: t.accentSofter,
+                        borderColor: t.borderStrong,
+                        opacity: pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Emoji size={16}>🕘</Emoji>
+                    <Text variant="bodyStrong">{formatTimeOfDay(newTime)}</Text>
+                  </Pressable>
+                </Field>
+                {showTimePicker && (
+                  <DateTimePicker
+                    value={timeOfDayToDate(newTime)}
+                    mode="time"
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={(_, picked) => {
+                      setShowTimePicker(Platform.OS === "ios");
+                      if (picked) setNewTime(dateToTimeOfDay(picked));
+                    }}
                   />
-                  <Input
-                    containerStyle={styles.flex}
-                    label="…and minutes"
-                    value={newMinutes}
-                    onChangeText={setNewMinutes}
-                    keyboardType="number-pad"
-                    placeholder="0"
-                  />
-                </View>
-                <Text variant="footnote" tone="subtle">
-                  At least 5 minutes in total.
-                </Text>
+                )}
 
                 {/* Nothing selected means every day, so the common case needs
                     no interaction at all — you only touch this to narrow it. */}
@@ -897,7 +904,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   divider: { marginVertical: space.lg },
-  intervalRow: { flexDirection: "row", gap: space.sm },
+  timeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    paddingHorizontal: space.md,
+    minHeight: 48,
+  },
   // Seven tiles that must fit one line on the narrowest phone, so they flex
   // rather than carrying a fixed width.
   dayRow: { flexDirection: "row", gap: space.xs },

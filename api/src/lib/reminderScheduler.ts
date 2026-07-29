@@ -1,36 +1,64 @@
 import prisma from "./prisma";
 import { sendPushNotifications, PushMessage } from "./push";
 import {
-  formatInterval,
   isAllowedDay,
-  reminderLogType,
+  localDayKey,
+  localMinutesOfDay,
   reminderMeta,
 } from "./reminders";
 
 const TICK_MS = 60_000;
 
 /**
- * Decide whether a reminder is due.
+ * How late a reminder may still be delivered, in minutes.
  *
- * The anchor is the last time the watched activity happened for the baby —
- * shared across caregivers, so anyone logging a feed pushes everyone's feed
- * reminder forward. With no such activity yet we count from when the reminder
- * was created, otherwise a brand-new reminder would fire immediately.
+ * Ticks arrive on a schedule that can slip — the external cron runs every 30
+ * minutes and GitHub's scheduler is explicitly best-effort — so "fire the
+ * moment we notice it's past 9am" has to tolerate some lateness. It must not
+ * tolerate unlimited lateness: if the ticker were down all morning, a 9am
+ * vitamin reminder arriving at 8pm is worse than not arriving, because the
+ * obvious reading of it is that the dose is still owed.
+ */
+const FIRE_WINDOW_MINUTES = 180;
+
+/**
+ * Decide whether a scheduled reminder is due.
+ *
+ * Everything is judged on the caregiver's local clock, not the server's: 9am
+ * means 9am where the parent is, and "already sent today" means their today.
+ * Three conditions, all of which must hold:
+ *
+ *   - today is one of the reminder's days
+ *   - their local time is at or past the scheduled time, but not more than
+ *     FIRE_WINDOW_MINUTES past it
+ *   - nothing has been sent for this reminder on their current local day
  *
  * Pure and exported so the timing rules can be tested without a database.
  */
 export function shouldFire(input: {
-  anchor: Date;
-  intervalMinutes: number;
+  timeOfDay: number;
+  daysOfWeek: string | null;
+  tzOffsetMinutes: number | null;
   lastNotifiedAt: Date | null;
   now: Date;
 }): boolean {
-  const { anchor, intervalMinutes, lastNotifiedAt, now } = input;
-  const due = new Date(anchor.getTime() + intervalMinutes * 60_000);
-  if (now < due) return false;
-  // Already notified for this window. Without this the reminder would fire
-  // again on every tick until someone logs the activity.
-  if (lastNotifiedAt && lastNotifiedAt >= due) return false;
+  const { timeOfDay, daysOfWeek, tzOffsetMinutes, lastNotifiedAt, now } = input;
+
+  if (!isAllowedDay({ daysOfWeek, tzOffsetMinutes, now })) return false;
+
+  const nowMinutes = localMinutesOfDay(now, tzOffsetMinutes);
+  if (nowMinutes < timeOfDay) return false;
+  if (nowMinutes - timeOfDay > FIRE_WINDOW_MINUTES) return false;
+
+  // One notification per local day. Without this the reminder would repeat on
+  // every tick for the whole of the firing window.
+  if (
+    lastNotifiedAt &&
+    localDayKey(lastNotifiedAt, tzOffsetMinutes) === localDayKey(now, tzOffsetMinutes)
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -46,7 +74,7 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
       accountId: true,
       type: true,
       label: true,
-      intervalMinutes: true,
+      timeOfDay: true,
       daysOfWeek: true,
       tzOffsetMinutes: true,
       lastNotifiedAt: true,
@@ -67,39 +95,12 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
     const tokens = reminder.account.pushTokens.map((t) => t.token);
     if (tokens.length === 0) continue;
 
-    // Checked before the anchor query below, so a reminder that's off today
-    // costs nothing. Deliberately does not stamp lastNotifiedAt: the countdown
-    // keeps running, so a weekdays-only reminder that comes due on Sunday
-    // fires first thing Monday rather than waiting a whole extra interval.
-    if (
-      !isAllowedDay({
-        daysOfWeek: reminder.daysOfWeek,
-        tzOffsetMinutes: reminder.tzOffsetMinutes,
-        now,
-      })
-    ) {
-      continue;
-    }
-
-    const logType = reminderLogType(reminder.type);
-
-    let anchor: Date;
-    if (logType) {
-      const last = await prisma.activityLog.findFirst({
-        where: { babyId: reminder.babyId, type: logType },
-        orderBy: { startTime: "desc" },
-        select: { startTime: true },
-      });
-      anchor = last?.startTime ?? reminder.createdAt;
-    } else {
-      // A custom reminder has no activity to watch, so each notification is
-      // itself the anchor for the next one.
-      anchor = reminder.lastNotifiedAt ?? reminder.createdAt;
-    }
-
+    // Purely a question about the clock now, so no per-reminder query: a tick
+    // is one read of the reminder table however many reminders exist.
     const due = shouldFire({
-      anchor,
-      intervalMinutes: reminder.intervalMinutes,
+      timeOfDay: reminder.timeOfDay,
+      daysOfWeek: reminder.daysOfWeek,
+      tzOffsetMinutes: reminder.tzOffsetMinutes,
       lastNotifiedAt: reminder.lastNotifiedAt,
       now,
     });
@@ -113,9 +114,7 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
       messages.push({
         to: token,
         title: `${icon} ${name} reminder`,
-        body: logType
-          ? `It has been ${formatInterval(reminder.intervalMinutes)} since ${reminder.baby.name}'s last ${name.toLowerCase()}.`
-          : `Reminder for ${reminder.baby.name}: ${name}.`,
+        body: `Time for ${reminder.baby.name}'s ${name.toLowerCase()}.`,
         data: { babyId: reminder.babyId, reminderId: reminder.id },
       });
     }
