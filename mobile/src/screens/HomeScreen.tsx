@@ -29,7 +29,6 @@ import {
 import Snapshot from "../components/Snapshot";
 import TrackRow, { type TrackType } from "../components/TrackRow";
 import Habits from "../components/Habits";
-import Foods from "../components/Foods";
 import BabySwitcher from "../components/BabySwitcher";
 import ManualEntryModal from "../components/ManualEntryModal";
 import { greetingFor, formatBabyAge } from "../lib/greeting";
@@ -189,8 +188,10 @@ export default function HomeScreen() {
                 logs={logs}
                 feedTimer={feedTimer}
                 sleepTimer={sleepTimer}
-                onOpenLog={(filter) => navigation.navigate("Log", { filter })}
-                onOpenInsights={() => navigation.navigate("Insights")}
+                onOpenLog={(filter) =>
+                  navigation.navigate("Activity", { filter })
+                }
+                onOpenInsights={() => navigation.navigate("Analytics")}
               />
             )}
           </View>
@@ -256,7 +257,6 @@ export default function HomeScreen() {
         refreshKey={habitsRefreshKey}
       />
 
-      <Foods babyId={activeBaby.id} />
       </Animated.ScrollView>
 
       <ManualEntryModal

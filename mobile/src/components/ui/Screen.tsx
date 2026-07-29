@@ -37,6 +37,29 @@ export interface ScreenProps {
   contentStyle?: StyleProp<ViewStyle>;
 }
 
+/**
+ * The padding `Screen` puts on its scrolling content.
+ *
+ * Exported because a screen with too many rows to mount at once has to swap the
+ * ScrollView for a virtualized list, and that list's content container must
+ * carry exactly this chrome — the tab bar floats *above* the content, so the
+ * clearance belongs to the content, not to the viewport. Deriving it here keeps
+ * one definition instead of a second set of magic numbers that drifts.
+ */
+export function screenContentPadding(presentation: "tab" | "modal" = "tab") {
+  return {
+    paddingHorizontal: space.lg,
+    paddingTop: space.sm,
+    // The tab bar floats above content, so a tab screen reserves the pill's
+    // full footprint — its inset from the bottom edge plus its height — and
+    // then a gap, otherwise the last row sits behind the chrome.
+    paddingBottom:
+      presentation === "modal"
+        ? space.giant
+        : tabBar.margin + tabBar.height + space.lg,
+  };
+}
+
 export function Screen({
   children,
   scroll = true,
@@ -51,13 +74,7 @@ export function Screen({
   const edges = bleedTop ? ([] as const) : (["top"] as const);
   const topPad = bleedTop ? { paddingTop: 0 } : null;
 
-  // The tab bar floats above content, so a tab screen reserves the pill's full
-  // footprint — its inset from the bottom edge plus its height — and then a
-  // gap, otherwise the last row sits behind the chrome.
-  const paddingBottom =
-    presentation === "modal"
-      ? space.giant
-      : tabBar.margin + tabBar.height + space.lg;
+  const pad = screenContentPadding(presentation);
 
   const handle = grabber ? (
     <View style={styles.grabberWrap}>
@@ -75,7 +92,7 @@ export function Screen({
   if (!scroll) {
     return (
       <SafeAreaView edges={edges} style={[styles.flex, { backgroundColor: t.bg }]}>
-        <View style={[styles.content, { paddingBottom }, topPad, contentStyle]}>
+        <View style={[styles.content, pad, topPad, contentStyle]}>
           {body}
         </View>
       </SafeAreaView>
@@ -85,7 +102,7 @@ export function Screen({
   return (
     <SafeAreaView edges={edges} style={[styles.flex, { backgroundColor: t.bg }]}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom }, topPad, contentStyle]}
+        contentContainerStyle={[styles.content, pad, topPad, contentStyle]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -169,11 +186,8 @@ export function ScreenHeader({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: {
-    paddingHorizontal: space.lg,
-    paddingTop: space.sm,
-    gap: space.lg,
-  },
+  // Padding lives in screenContentPadding() so a virtualized list can reuse it.
+  content: { gap: space.lg },
   // Negative top margin pulls the handle up into the screen's own top padding,
   // so it sits at the very edge the way a sheet's does.
   grabberWrap: { alignItems: "center", marginTop: -space.xxs },

@@ -40,9 +40,11 @@ async function claimPendingInvites(
   accountId: number,
   email: string
 ): Promise<number> {
+  // Addressed invites only. A link invite carries no email and is redeemed by
+  // whoever opens it (POST /babies/invites/claim), not by signing up.
   const invites = await prisma.babyInvite.findMany({
     where: { email },
-    select: { id: true, babyId: true, role: true },
+    select: { id: true, babyId: true, role: true, relation: true, relationNote: true },
   });
   if (invites.length === 0) return 0;
 
@@ -52,6 +54,10 @@ async function claimPendingInvites(
         babyId: i.babyId,
         accountId,
         role: i.role,
+        // The person who sent the invite already said who this is; asking again
+        // at signup would be asking the wrong person twice.
+        relation: i.relation,
+        relationNote: i.relationNote,
       })),
       skipDuplicates: true,
     }),

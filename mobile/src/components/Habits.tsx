@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius, DISABLED_OPACITY, PRESSED_OPACITY } from "../design/tokens";
@@ -9,6 +9,7 @@ import {
   SectionHeader,
   Button,
   IconButton,
+  Input,
   Sheet,
   FadeInUp,
 } from "./ui";
@@ -18,7 +19,9 @@ import {
   loadHabits,
   saveHabits,
   computeHabitStats,
+  makeCustomHabit,
   HABIT_CATALOG,
+  HABIT_EMOJI_CHOICES,
   type HabitDef,
   type HabitStats,
 } from "../lib/habits";
@@ -26,7 +29,7 @@ import {
 /**
  * Streaks need more history than the home screen's cheap 50-row fetch holds
  * (a 30-day vitamin streak is 30 days of logs). Habit entries are sparse, so
- * one deeper fetch on mount — not polled — covers it.
+ * one deeper fetch on mount â€” not polled â€” covers it.
  */
 const STREAK_FETCH_LIMIT = 400;
 
@@ -41,7 +44,7 @@ interface Props {
 /**
  * Once-a-day routines, now the family's own list.
  *
- * Each tile is one tap to mark done for today. A 🔥 streak makes the routine
+ * Each tile is one tap to mark done for today. A ðŸ”¥ streak makes the routine
  * worth keeping; a broken one says "Missed" in words and colour rather than
  * silently resetting, so yesterday's slip is visible without being scolding.
  * Which habits appear, and in what order, is chosen in the customize sheet.
@@ -60,6 +63,8 @@ export default function Habits({
   const [history, setHistory] = useState<LogEntry[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
   const [showCustomize, setShowCustomize] = useState(false);
+  const [newHabitName, setNewHabitName] = useState("");
+  const [newHabitEmoji, setNewHabitEmoji] = useState(HABIT_EMOJI_CHOICES[0]);
 
   // Per-baby config from the device.
   useEffect(() => {
@@ -93,7 +98,7 @@ export default function Habits({
   const stats = useMemo(() => {
     const map = new Map<string, HabitStats>();
     for (const habit of habits) {
-      map.set(habit.type, computeHabitStats(history, habit.type));
+      map.set(habit.key, computeHabitStats(history, habit));
     }
     return map;
   }, [habits, history]);
@@ -102,18 +107,22 @@ export default function Habits({
 
   const handleLog = useCallback(
     async (habit: HabitDef) => {
-      const stat = stats.get(habit.type);
+      const stat = stats.get(habit.key);
       if (saving) return;
-      setSaving(habit.type);
+      setSaving(habit.key);
       const now = new Date();
       try {
         if (stat?.doneToday) {
           // Tapping a done habit undoes it: remove today's entry so a slipped
-          // finger isn't a locked-in tick until midnight.
+          // finger isn't a locked-in tick until midnight. Matching mirrors
+          // computeHabitStats — custom habits share the "habit" type and are
+          // told apart by the name in comments.
           const today = now.toDateString();
           const entry = history.find(
             (l) =>
-              l.type === habit.type &&
+              (habit.custom
+                ? l.type === "habit" && l.comments === habit.label
+                : l.type === habit.type) &&
               new Date(l.startTime).toDateString() === today
           );
           if (entry) await deleteLog(entry.id);
@@ -124,6 +133,9 @@ export default function Habits({
           await createLog({
             babyId,
             type: habit.type,
+            // A custom habit's name is what identifies it, both to the streak
+            // maths and to anyone reading the entry in the Activity tab.
+            comments: habit.custom ? habit.label : null,
             startTime: now.toISOString(),
             endTime: now.toISOString(),
             enteredByName,
@@ -151,22 +163,22 @@ export default function Habits({
 
   const addHabit = useCallback(
     (def: HabitDef) => {
-      if (habits.some((h) => h.type === def.type)) return;
+      if (habits.some((h) => h.key === def.key)) return;
       persist([...habits, { ...def, enabled: true }]);
     },
     [habits, persist]
   );
 
   const removeHabit = useCallback(
-    (type: string) => {
-      persist(habits.filter((h) => h.type !== type));
+    (key: string) => {
+      persist(habits.filter((h) => h.key !== key));
     },
     [habits, persist]
   );
 
   const moveHabit = useCallback(
-    (type: string, dir: -1 | 1) => {
-      const index = habits.findIndex((h) => h.type === type);
+    (key: string, dir: -1 | 1) => {
+      const index = habits.findIndex((h) => h.key === key);
       const target = index + dir;
       if (index < 0 || target < 0 || target >= habits.length) return;
       const next = [...habits];
@@ -176,9 +188,23 @@ export default function Habits({
     [habits, persist]
   );
 
-  // Catalogue habits the family hasn't added yet — the "Add a habit" list.
+  /** Invent one that isn't in the catalogue at all. */
+  const addCustomHabit = useCallback(() => {
+    const name = newHabitName.trim();
+    if (!name) return;
+    const def = makeCustomHabit(name, newHabitEmoji);
+    if (habits.some((h) => h.key === def.key)) {
+      toast.error(`You already have a habit called ${name}.`);
+      return;
+    }
+    addHabit(def);
+    setNewHabitName("");
+    setNewHabitEmoji(HABIT_EMOJI_CHOICES[0]);
+  }, [newHabitName, newHabitEmoji, habits, addHabit, toast]);
+
+  // Catalogue habits the family hasn't added yet â€” the "Add a habit" list.
   const available = HABIT_CATALOG.filter(
-    (c) => !habits.some((h) => h.type === c.type)
+    (c) => !habits.some((h) => h.key === c.key)
   );
 
   // Wait for the device config before drawing, so removed habits don't flash
@@ -214,7 +240,7 @@ export default function Habits({
           ]}
         >
           <Text variant="subhead" style={{ color: t.accentText }}>
-            No habits yet — tap to add some
+            No habits yet â€” tap to add some
           </Text>
         </Pressable>
       ) : (
@@ -224,12 +250,12 @@ export default function Habits({
           contentContainerStyle={styles.tileRow}
         >
           {enabled.map((habit, index) => {
-            const stat = stats.get(habit.type) ?? {
+            const stat = stats.get(habit.key) ?? {
               doneToday: false,
               streak: 0,
               missed: false,
             };
-            const busy = saving === habit.type;
+            const busy = saving === habit.key;
             const state = stat.doneToday
               ? "done"
               : stat.missed
@@ -245,7 +271,7 @@ export default function Habits({
                   }. Log ${habit.label.toLowerCase()} for today`;
 
             return (
-              <FadeInUp key={habit.type} index={index}>
+              <FadeInUp key={habit.key} index={index}>
                 <Pressable
                   onPress={() => handleLog(habit)}
                   disabled={saving !== null}
@@ -292,7 +318,7 @@ export default function Habits({
                       fontWeight: "700",
                     }}
                   >
-                    {busy ? "Saving…" : habit.label}
+                    {busy ? "Savingâ€¦" : habit.label}
                   </Text>
                   {state === "missed" ? (
                     <View
@@ -307,7 +333,7 @@ export default function Habits({
                     <View
                       style={[styles.stateChip, { backgroundColor: t.warningSoft }]}
                     >
-                      <Emoji size={11}>🔥</Emoji>
+                      <Emoji size={11}>ðŸ”¥</Emoji>
                       <Text variant="caption" tabular style={{ color: t.warning }}>
                         {stat.streak}
                       </Text>
@@ -347,21 +373,21 @@ export default function Habits({
           <SectionHeader title="On Today" />
           {habits.length === 0 ? (
             <Text variant="subhead" tone="subtle" style={styles.custEmptyLine}>
-              None yet — add one below.
+              None yet â€” add one below.
             </Text>
           ) : (
             habits.map((habit, index) => {
-              const stat = stats.get(habit.type);
+              const stat = stats.get(habit.key);
               const caption = stat?.doneToday
-                ? `Done today · 🔥 ${stat.streak}-day streak`
+                ? `Done today Â· ðŸ”¥ ${stat.streak}-day streak`
                 : stat && stat.streak > 0
-                  ? `🔥 ${stat.streak}-day streak`
+                  ? `ðŸ”¥ ${stat.streak}-day streak`
                   : stat?.missed
-                    ? "Missed yesterday · streak reset"
+                    ? "Missed yesterday Â· streak reset"
                     : "No streak yet";
               return (
                 <View
-                  key={habit.type}
+                  key={habit.key}
                   style={[styles.custItem, index > 0 && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth }]}
                 >
                   <View style={[styles.custEmoji, { backgroundColor: t.accentSoft }]}>
@@ -379,7 +405,7 @@ export default function Habits({
                     variant="ghost"
                     size="sm"
                     disabled={index === 0}
-                    onPress={() => moveHabit(habit.type, -1)}
+                    onPress={() => moveHabit(habit.key, -1)}
                   />
                   <IconButton
                     icon="chevronDown"
@@ -387,14 +413,14 @@ export default function Habits({
                     variant="ghost"
                     size="sm"
                     disabled={index === habits.length - 1}
-                    onPress={() => moveHabit(habit.type, 1)}
+                    onPress={() => moveHabit(habit.key, 1)}
                   />
                   <IconButton
                     icon="trash"
                     label={`Remove ${habit.label}`}
                     variant="ghost"
                     size="sm"
-                    onPress={() => removeHabit(habit.type)}
+                    onPress={() => removeHabit(habit.key)}
                   />
                 </View>
               );
@@ -402,12 +428,59 @@ export default function Habits({
           )}
         </View>
 
+        {/* The catalogue can't anticipate every routine — physio exercises,
+            eye drops, a particular stretch — so a family can name their own.
+            It logs as a generic habit entry carrying that name. */}
+        <View style={styles.custList}>
+          <SectionHeader title="Make your own" />
+          <Input
+            label="Habit name"
+            value={newHabitName}
+            onChangeText={setNewHabitName}
+            placeholder="e.g. Physio exercises"
+            maxLength={30}
+            returnKeyType="done"
+            onSubmitEditing={addCustomHabit}
+          />
+          <View style={styles.emojiRow}>
+            {HABIT_EMOJI_CHOICES.map((choice) => {
+              const selected = newHabitEmoji === choice;
+              return (
+                <Pressable
+                  key={choice}
+                  onPress={() => setNewHabitEmoji(choice)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`Icon ${choice}`}
+                  style={({ pressed }) => [
+                    styles.emojiChoice,
+                    {
+                      backgroundColor: selected ? t.accent : t.accentSofter,
+                      borderColor: selected ? t.accent : t.borderStrong,
+                      opacity: pressed ? PRESSED_OPACITY : 1,
+                    },
+                  ]}
+                >
+                  <Emoji size={18}>{choice}</Emoji>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Button
+            label="Add this habit"
+            variant="secondary"
+            fullWidth
+            disabled={!newHabitName.trim()}
+            onPress={addCustomHabit}
+          />
+        </View>
+
         {available.length > 0 && (
           <View style={styles.custList}>
             <SectionHeader title="Add a habit" />
             {available.map((def, index) => (
               <Pressable
-                key={def.type}
+                key={def.key}
                 onPress={() => addHabit(def)}
                 accessibilityRole="button"
                 accessibilityLabel={`Add ${def.label}`}
@@ -493,6 +566,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   custMid: { flex: 1, minWidth: 0, gap: 1 },
+  // Wraps to as many rows as it needs; each choice is a 44pt touch target.
+  emojiRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
+  emojiChoice: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   addBadge: {
     width: 32,
     height: 32,

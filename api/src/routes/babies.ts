@@ -23,7 +23,8 @@ const hexColor = z
   .regex(/^#[0-9a-fA-F]{6}$/, "Pick a colour like #ff6b95.");
 
 const createBabySchema = z.object({
-  name: z.string().min(1),
+  // Optional: a baby who isn't named yet becomes "Baby" until they are.
+  name: z.string().max(60).optional().nullable(),
   gender: z.enum(["girl", "boy"]),
   dob: z.string().optional().nullable(),
   avatarEmoji: z.string().max(8).optional().nullable(),
@@ -46,17 +47,33 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
     req.body
   );
 
+  // Onboarding asks who you are before it asks about the baby, so the answer is
+  // on the account and is stamped onto the membership here.
+  const creator = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: { relation: true, relationNote: true },
+  });
+
   // The creator is a member like anyone else, just with the owner role — so
   // there is exactly one way to check access everywhere else.
   const baby = await prisma.baby.create({
     data: {
       ownerAccountId: accountId,
-      name,
+      // Naming a baby can wait — plenty aren't named on day one, and being
+      // stopped at the first screen over it is a poor welcome.
+      name: name?.trim() || "Baby",
       gender,
       dob: dob ? new Date(dob) : null,
       avatarEmoji: avatarEmoji ?? null,
       avatarColor: avatarColor ?? null,
-      members: { create: { accountId, role: "owner" } },
+      members: {
+        create: {
+          accountId,
+          role: "owner",
+          relation: creator?.relation ?? null,
+          relationNote: creator?.relationNote ?? null,
+        },
+      },
     },
     select: BABY_SELECT,
   });

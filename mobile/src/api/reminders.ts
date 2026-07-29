@@ -15,17 +15,15 @@ export const REMINDER_TYPES: {
   value: ReminderType;
   label: string;
   icon: string;
-  /** Null means the reminder simply repeats rather than watching an activity. */
-  watchesActivity: boolean;
 }[] = [
-  { value: "feed", label: "Feed", icon: "🤱", watchesActivity: true },
-  { value: "pump", label: "Pump", icon: "🍼", watchesActivity: true },
-  { value: "sleep", label: "Sleep", icon: "😴", watchesActivity: true },
-  { value: "diaper", label: "Diaper", icon: "🩲", watchesActivity: true },
-  { value: "shower", label: "Shower", icon: "🚿", watchesActivity: true },
-  { value: "vitamin", label: "Vitamin", icon: "💊", watchesActivity: true },
-  { value: "nailcut", label: "Nail Cut", icon: "💅", watchesActivity: true },
-  { value: "custom", label: "Custom", icon: "⏰", watchesActivity: false },
+  { value: "feed", label: "Feed", icon: "🤱" },
+  { value: "pump", label: "Pump", icon: "🍼" },
+  { value: "sleep", label: "Sleep", icon: "😴" },
+  { value: "diaper", label: "Diaper", icon: "🩲" },
+  { value: "shower", label: "Shower", icon: "🚿" },
+  { value: "vitamin", label: "Vitamin", icon: "💊" },
+  { value: "nailcut", label: "Nail Cut", icon: "💅" },
+  { value: "custom", label: "Custom", icon: "⏰" },
 ];
 
 export const REMINDER_META = new Map(REMINDER_TYPES.map((t) => [t.value, t]));
@@ -35,7 +33,8 @@ export interface Reminder {
   babyId: number;
   type: ReminderType;
   label: string | null;
-  intervalMinutes: number;
+  /** Minutes after local midnight — 540 is 9:00 AM. */
+  timeOfDay: number;
   /** Weekday numbers (0 = Sunday) this may fire on. Null means every day. */
   daysOfWeek: number[] | null;
   tzOffsetMinutes: number | null;
@@ -88,8 +87,7 @@ export async function createReminder(data: {
   babyId: number;
   type: ReminderType;
   label?: string | null;
-  hours: number;
-  minutes: number;
+  timeOfDay: number;
   daysOfWeek?: number[] | null;
 }): Promise<Reminder> {
   const res = await apiClient.post<Reminder>("/reminders", {
@@ -104,14 +102,15 @@ export async function updateReminder(
   data: {
     label?: string | null;
     enabled?: boolean;
-    hours?: number;
-    minutes?: number;
+    timeOfDay?: number;
     daysOfWeek?: number[] | null;
   }
 ): Promise<Reminder> {
   const res = await apiClient.patch<Reminder>(`/reminders/${id}`, {
     ...data,
-    ...(data.daysOfWeek !== undefined
+    // The offset travels with any change to *when* it fires, since the server
+    // reads the time and the days on the caregiver's clock.
+    ...(data.timeOfDay !== undefined || data.daysOfWeek !== undefined
       ? { tzOffsetMinutes: localUtcOffsetMinutes() }
       : {}),
   });
@@ -122,11 +121,27 @@ export async function deleteReminder(id: number): Promise<void> {
   await apiClient.delete(`/reminders/${id}`);
 }
 
-/** 195 -> "3h 15m" */
-export function formatInterval(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h > 0 && m > 0) return `${h}h ${m}m`;
-  if (h > 0) return `${h}h`;
-  return `${m}m`;
+/** 540 -> "9:00 AM" */
+export function formatTimeOfDay(minutes: number): string {
+  const total = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  const h24 = Math.floor(total / 60);
+  const m = total % 60;
+  const suffix = h24 < 12 ? "AM" : "PM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
+
+/** A Date carrying today's date and the reminder's time, for the time picker. */
+export function timeOfDayToDate(minutes: number): Date {
+  const d = new Date();
+  d.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return d;
+}
+
+/** The inverse: what the picker gives back, as minutes after midnight. */
+export function dateToTimeOfDay(d: Date): number {
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+/** 9:00 AM — a reasonable default for a new reminder. */
+export const DEFAULT_TIME_OF_DAY = 9 * 60;

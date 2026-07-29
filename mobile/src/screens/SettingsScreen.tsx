@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, Share, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useTheme, useThemeContext, type Appearance } from "../design/ThemeProvider";
@@ -22,6 +22,7 @@ import {
   Chip,
   ChipWrap,
   Segmented,
+  Sheet,
   SkeletonList,
   FadeInUp,
   ConfirmDialog,
@@ -35,13 +36,19 @@ import {
   addMember,
   removeMember,
   cancelInvite,
+  createInviteLink,
+  claimInvite,
+  setMemberRelation,
+  formatRelation,
+  relationEmoji,
+  RELATIONS,
   type BabyMember,
   type PendingInvite,
 } from "../api/members";
 import { getReminders, type Reminder } from "../api/reminders";
 import { updateBaby } from "../api/babies";
 import DobField from "../components/DobField";
-import type { UnitSystem } from "../api/settings";
+import { updateSettings, type UnitSystem } from "../api/settings";
 import type { AccountStackParamList } from "../navigation/AppTabs";
 
 const GENDER_OPTIONS: { value: "girl" | "boy"; label: string }[] = [
@@ -99,6 +106,16 @@ export default function SettingsScreen() {
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
+  // Chosen once and applied to whichever way the invite goes out.
+  const [inviteRelation, setInviteRelation] = useState<string | null>(null);
+  const [inviteNote, setInviteNote] = useState("");
+  const [sharingLink, setSharingLink] = useState(false);
+  const [showAddCaregiver, setShowAddCaregiver] = useState(false);
+  const [showMyRelation, setShowMyRelation] = useState(false);
+  const [myRelationNote, setMyRelationNote] = useState("");
+  const [joinToken, setJoinToken] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [savingRelation, setSavingRelation] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
 
   const [savingField, setSavingField] = useState<string | null>(null);
@@ -152,16 +169,119 @@ export default function SettingsScreen() {
       return;
     }
     if (!activeBaby) return;
+    if (inviteRelation === "other" && !inviteNote.trim()) {
+      toast.error("Say how they're related.");
+      return;
+    }
     setInviting(true);
     try {
-      const result = await addMember(activeBaby.id, email);
+      const result = await addMember(
+        activeBaby.id,
+        email,
+        inviteRelation,
+        inviteRelation === "other" ? inviteNote.trim() : null
+      );
       toast.success(result.message);
       setInviteEmail("");
+      setInviteRelation(null);
+      setInviteNote("");
+      setShowAddCaregiver(false);
       await load();
     } catch (err) {
       toast.showError(err);
     } finally {
       setInviting(false);
+    }
+  };
+
+  /**
+   * Share a claim link instead of an address.
+   *
+   * An email invite only lands if that person signs up with the exact address
+   * typed, which is a poor bet when you're sending it over WhatsApp. The link
+   * works whatever address they use, so it goes out through the OS share sheet
+   * rather than being copied by hand.
+   */
+  const handleShareLink = async () => {
+    if (!activeBaby) return;
+    if (inviteRelation === "other" && !inviteNote.trim()) {
+      toast.error("Say how they're related.");
+      return;
+    }
+    setSharingLink(true);
+    try {
+      const link = await createInviteLink(
+        activeBaby.id,
+        inviteRelation,
+        inviteRelation === "other" ? inviteNote.trim() : null
+      );
+      await Share.share({
+        message:
+          `Join me on Baby Tracker to help look after ${activeBaby.name}.\n\n` +
+          `Sign up, then go to Account → Join a baby and paste this code:\n\n${link.token}\n\n` +
+          `It expires in ${link.expiresInDays} days.`,
+      });
+      setInviteRelation(null);
+      setInviteNote("");
+      setShowAddCaregiver(false);
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setSharingLink(false);
+    }
+  };
+
+  /**
+   * Change your own relationship.
+   *
+   * Written to both places it matters: the account, which is what a baby you
+   * create next will inherit, and your membership of the baby on screen, which
+   * is what the caregiver list below actually renders. Keeping them in step is
+   * why this isn't just a settings PATCH.
+   */
+  const handleSaveMyRelation = async (
+    relation: string | null,
+    noteOverride?: string
+  ) => {
+    if (!activeBaby || !account) return;
+    // Only "other" carries a note; anything else clears it, so switching away
+    // from Other doesn't leave stale text attached.
+    const note =
+      relation === "other"
+        ? (noteOverride ?? myRelationNote).trim() || null
+        : null;
+    setSavingRelation(true);
+    try {
+      const updated = await updateSettings({ relation, relationNote: note });
+      setAccount({ ...account, ...updated });
+      await setMemberRelation(activeBaby.id, account.id, relation, note);
+      await load();
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setSavingRelation(false);
+    }
+  };
+
+  /** Redeem a code someone shared with you. */
+  const handleJoin = async () => {
+    const token = joinToken.trim();
+    if (!token) return;
+    setJoining(true);
+    try {
+      const result = await claimInvite(token);
+      toast.success(
+        result.status === "joined"
+          ? `You've joined ${result.babyName}.`
+          : `You already have access to ${result.babyName}.`
+      );
+      setJoinToken("");
+      await refreshBabies();
+      await load();
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -187,6 +307,8 @@ export default function SettingsScreen() {
       toast.showError(err);
     }
   };
+
+  // --- Reminders ---
 
   // --- Preferences ---
 
@@ -296,27 +418,44 @@ export default function SettingsScreen() {
                 Everyone here can see and add entries for {activeBaby.name}.
               </Text>
 
-              <View style={styles.inlineForm}>
-                <Input
-                  containerStyle={styles.flex}
-                  label="Add by email"
-                  value={inviteEmail}
-                  onChangeText={setInviteEmail}
-                  placeholder="family@email.com"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoCorrect={false}
-                  returnKeyType="done"
-                  onSubmitEditing={handleInvite}
-                />
-                <Button
-                  label="Add"
-                  icon="userPlus"
-                  variant="primary"
-                  loading={inviting}
-                  onPress={handleInvite}
-                />
-              </View>
+              {/* One line, not a grid. This is set once and rarely changed, so
+                  it states the answer and hides the nine options behind a tap —
+                  two full chip grids on one card drowned everything else. */}
+              <Pressable
+                onPress={() => {
+                  // Seed from the account so reopening shows what's saved
+                  // rather than an empty field that would clear it on blur.
+                  setMyRelationNote(account?.relationNote ?? "");
+                  setShowMyRelation(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`You are ${activeBaby.name}'s ${
+                  formatRelation(
+                    account?.relation ?? null,
+                    account?.relationNote ?? null
+                  ) ?? "— not set"
+                }. Tap to change.`}
+                style={({ pressed }) => [
+                  styles.pickerRow,
+                  { borderColor: t.border, opacity: pressed ? PRESSED_OPACITY : 1 },
+                ]}
+              >
+                <Emoji size={18}>
+                  {relationEmoji(account?.relation ?? null) ?? "🧑"}
+                </Emoji>
+                <View style={styles.flex}>
+                  <Text variant="caption" tone="muted">
+                    You are {activeBaby.name}'s
+                  </Text>
+                  <Text variant="subheadStrong">
+                    {formatRelation(
+                      account?.relation ?? null,
+                      account?.relationNote ?? null
+                    ) ?? "Not set"}
+                  </Text>
+                </View>
+                <Icon name="chevronRight" size="sm" color={t.textSubtle} />
+              </Pressable>
 
               <View style={styles.rows}>
                 {members.map((m, index) => (
@@ -333,7 +472,11 @@ export default function SettingsScreen() {
                           {m.isYou ? " (you)" : ""}
                         </Text>
                         <Text variant="caption" tone="subtle" numberOfLines={1}>
-                          {m.email}
+                          {/* The relationship is the more useful of the two, so
+                              it leads and the address follows it. */}
+                          {[formatRelation(m.relation, m.relationNote), m.email]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </Text>
                       </View>
                       {m.role === "owner" ? (
@@ -367,7 +510,12 @@ export default function SettingsScreen() {
                           {i.email}
                         </Text>
                         <Text variant="caption" tone="subtle">
-                          Waiting for them to sign up with this email
+                          {[
+                            formatRelation(i.relation, i.relationNote),
+                            "Waiting for them to sign up with this email",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </Text>
                       </View>
                       <Button
@@ -385,6 +533,48 @@ export default function SettingsScreen() {
                     </View>
                   </FadeInUp>
                 ))}
+              </View>
+
+              {/* The whole add flow lives in a sheet. Inline, its email field,
+                  relationship grid and link button pushed the list of people
+                  this card is actually about off the bottom of the screen. */}
+              <Button
+                label="Add a caregiver"
+                icon="userPlus"
+                variant="primary"
+                fullWidth
+                onPress={() => setShowAddCaregiver(true)}
+              />
+            </Card>
+          </View>
+
+          {/* ---------- Join a baby ---------- */}
+          <View style={styles.section}>
+            <SectionHeader title="Join a baby" />
+            <Card>
+              <Text variant="footnote" tone="subtle">
+                Got an invite code from another caregiver? Paste it here to get
+                access to their baby.
+              </Text>
+              <View style={styles.inlineForm}>
+                <Input
+                  containerStyle={styles.flex}
+                  label="Invite code"
+                  value={joinToken}
+                  onChangeText={setJoinToken}
+                  placeholder="Paste the code you were sent"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  onSubmitEditing={handleJoin}
+                />
+                <Button
+                  label="Join"
+                  variant="primary"
+                  loading={joining}
+                  disabled={!joinToken.trim()}
+                  onPress={handleJoin}
+                />
               </View>
             </Card>
           </View>
@@ -551,6 +741,134 @@ export default function SettingsScreen() {
         </>
       )}
 
+      {/* ---------- Your relationship ---------- */}
+      <Sheet
+        visible={showMyRelation}
+        onClose={() => setShowMyRelation(false)}
+        title={`You are ${activeBaby.name}'s…`}
+        subtitle="How other caregivers will recognise you. It doesn't change what anyone can see or do."
+        footer={
+          <Button
+            label="Done"
+            variant="primary"
+            fullWidth
+            onPress={() => setShowMyRelation(false)}
+          />
+        }
+      >
+        <ChipWrap>
+          {RELATIONS.map((option) => (
+            <Chip
+              key={option.value}
+              label={option.label}
+              emoji={option.emoji}
+              selected={account?.relation === option.value}
+              disabled={savingRelation}
+              onPress={() =>
+                handleSaveMyRelation(
+                  account?.relation === option.value ? null : option.value
+                )
+              }
+            />
+          ))}
+        </ChipWrap>
+        {account?.relation === "other" && (
+          <Input
+            label="How are you related?"
+            value={myRelationNote}
+            onChangeText={setMyRelationNote}
+            onBlur={() => handleSaveMyRelation("other", myRelationNote)}
+            placeholder="e.g. Godmother, family friend"
+            maxLength={60}
+          />
+        )}
+      </Sheet>
+
+      {/* ---------- Add a caregiver ---------- */}
+      <Sheet
+        visible={showAddCaregiver}
+        onClose={() => setShowAddCaregiver(false)}
+        title="Add a caregiver"
+        subtitle={`They'll be able to see and add entries for ${activeBaby.name}.`}
+        footer={
+          <View style={styles.sheetActions}>
+            <Button
+              label="Cancel"
+              variant="ghost"
+              onPress={() => setShowAddCaregiver(false)}
+              style={styles.flex}
+            />
+            <Button
+              label="Send invite"
+              variant="primary"
+              loading={inviting}
+              disabled={!inviteEmail.trim()}
+              onPress={handleInvite}
+              style={styles.flex}
+            />
+          </View>
+        }
+      >
+        <Input
+          label="Their email"
+          value={inviteEmail}
+          onChangeText={setInviteEmail}
+          placeholder="family@email.com"
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoCorrect={false}
+          returnKeyType="done"
+          onSubmitEditing={handleInvite}
+        />
+
+        <Field
+          label="Who are they?"
+          helper="Optional. It doesn't change what they can see or do."
+        >
+          <ChipWrap>
+            {RELATIONS.map((option) => (
+              <Chip
+                key={option.value}
+                label={option.label}
+                emoji={option.emoji}
+                selected={inviteRelation === option.value}
+                onPress={() =>
+                  setInviteRelation(
+                    inviteRelation === option.value ? null : option.value
+                  )
+                }
+              />
+            ))}
+          </ChipWrap>
+        </Field>
+
+        {inviteRelation === "other" && (
+          <Input
+            label="How are they related?"
+            value={inviteNote}
+            onChangeText={setInviteNote}
+            placeholder="e.g. Godmother, family friend"
+            maxLength={60}
+          />
+        )}
+
+        <Divider style={styles.divider} />
+
+        <Button
+          label="Share an invite link instead"
+          icon="users"
+          variant="secondary"
+          fullWidth
+          loading={sharingLink}
+          onPress={handleShareLink}
+        />
+        <Text variant="footnote" tone="subtle">
+          A link works whatever email they sign up with and expires after two
+          weeks. An emailed invite only reaches them if they use that exact
+          address.
+        </Text>
+      </Sheet>
+
       <ConfirmDialog
         visible={pendingRemoval !== null}
         icon={
@@ -599,6 +917,15 @@ const styles = StyleSheet.create({
   section: { gap: space.sm },
   flex: { flex: 1 },
   form: { gap: space.lg },
+  // The tappable card that opens the Reminders screen.
+  navRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   // The button sits level with the input box, below its label.
   inlineForm: {
     flexDirection: "row",
@@ -615,6 +942,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   rowBody: { flex: 1, minWidth: 0, gap: space.xxs },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    paddingBottom: space.sm,
+  },
   avatar: {
     width: 40,
     height: 40,
@@ -623,14 +956,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   divider: { marginVertical: space.lg },
-  // The tappable card that opens the Reminders screen.
-  navRow: {
+  sheetActions: { flexDirection: "row", gap: space.sm },
+  // A tappable summary row: states the current answer, hides the options.
+  pickerRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.md,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+    gap: space.sm,
+    paddingVertical: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  timeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    paddingHorizontal: space.md,
+    minHeight: 48,
+  },
+  // Seven tiles that must fit one line on the narrowest phone, so they flex
+  // rather than carrying a fixed width.
+  dayRow: { flexDirection: "row", gap: space.xs },
+  dayTile: {
+    flex: 1,
+    height: 44,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
   },
   swatchWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   swatch: {

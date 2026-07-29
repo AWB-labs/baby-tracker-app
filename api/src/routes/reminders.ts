@@ -7,8 +7,8 @@ import {
   isReminderType,
   serialiseDays,
   parseDays,
-  MIN_INTERVAL_MINUTES,
-  MAX_INTERVAL_MINUTES,
+  MIN_TIME_OF_DAY,
+  MAX_TIME_OF_DAY,
 } from "../lib/reminders";
 import { badRequest, conflict, notFound } from "../lib/httpError";
 import { parseOrThrow, parseId } from "../lib/validate";
@@ -20,7 +20,7 @@ const REMINDER_SELECT = {
   babyId: true,
   type: true,
   label: true,
-  intervalMinutes: true,
+  timeOfDay: true,
   daysOfWeek: true,
   tzOffsetMinutes: true,
   enabled: true,
@@ -38,33 +38,27 @@ function present<T extends StoredReminder>(reminder: T) {
   return { ...reminder, daysOfWeek: parseDays(reminder.daysOfWeek) };
 }
 
-// "every [x] hours and/or [minutes]" arrives as two fields and is stored as one.
-const intervalFields = {
-  hours: z.number().int().min(0).max(168).optional(),
-  minutes: z.number().int().min(0).max(59).optional(),
-};
-
 /**
- * Restrict a reminder to certain weekdays. An empty array or all seven days
- * both mean "no restriction", and null clears one that was set.
+ * When the reminder fires: a wall-clock time on chosen days.
+ *
+ * `timeOfDay` is minutes after local midnight, which the client computes from
+ * its own picker — sending an hour and a minute separately only invites the two
+ * to disagree. An empty day array or all seven both mean "no restriction", and
+ * null clears one that was set.
  */
-const dayFields = {
+const scheduleFields = {
+  timeOfDay: z.number().int().min(MIN_TIME_OF_DAY).max(MAX_TIME_OF_DAY).optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).nullable().optional(),
   // Minutes to ADD to UTC for the caregiver's local time, i.e. +180 for Cairo.
   tzOffsetMinutes: z.number().int().min(-840).max(840).nullable().optional(),
 };
-
-function totalMinutes(hours?: number, minutes?: number): number {
-  return (hours ?? 0) * 60 + (minutes ?? 0);
-}
 
 const createReminderSchema = z
   .object({
     babyId: z.number().int().positive(),
     type: z.string(),
     label: z.string().max(60).nullable().optional(),
-    ...intervalFields,
-    ...dayFields,
+    ...scheduleFields,
   })
   .superRefine((data, ctx) => {
     if (!isReminderType(data.type)) {
@@ -77,48 +71,20 @@ const createReminderSchema = z
         path: ["label"],
       });
     }
-    const total = totalMinutes(data.hours, data.minutes);
-    if (total < MIN_INTERVAL_MINUTES) {
+    if (data.timeOfDay === undefined) {
       ctx.addIssue({
         code: "custom",
-        message: `Choose an interval of at least ${MIN_INTERVAL_MINUTES} minutes`,
-        path: ["minutes"],
-      });
-    }
-    if (total > MAX_INTERVAL_MINUTES) {
-      ctx.addIssue({
-        code: "custom",
-        message: "That interval is too long",
-        path: ["hours"],
+        message: "Choose a time for this reminder",
+        path: ["timeOfDay"],
       });
     }
   });
 
-const updateReminderSchema = z
-  .object({
-    label: z.string().max(60).nullable().optional(),
-    enabled: z.boolean().optional(),
-    ...intervalFields,
-    ...dayFields,
-  })
-  .superRefine((data, ctx) => {
-    if (data.hours === undefined && data.minutes === undefined) return;
-    const total = totalMinutes(data.hours, data.minutes);
-    if (total < MIN_INTERVAL_MINUTES) {
-      ctx.addIssue({
-        code: "custom",
-        message: `Choose an interval of at least ${MIN_INTERVAL_MINUTES} minutes`,
-        path: ["minutes"],
-      });
-    }
-    if (total > MAX_INTERVAL_MINUTES) {
-      ctx.addIssue({
-        code: "custom",
-        message: "That interval is too long",
-        path: ["hours"],
-      });
-    }
-  });
+const updateReminderSchema = z.object({
+  label: z.string().max(60).nullable().optional(),
+  enabled: z.boolean().optional(),
+  ...scheduleFields,
+});
 
 /** GET /reminders?babyId=X — this caregiver's own reminders for that baby */
 router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
@@ -140,7 +106,7 @@ router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
 router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
 
-  const { babyId, type, label, hours, minutes, daysOfWeek, tzOffsetMinutes } =
+  const { babyId, type, label, timeOfDay, daysOfWeek, tzOffsetMinutes } =
     parseOrThrow(createReminderSchema, req.body);
 
   await requireBabyAccess(accountId, babyId);
@@ -163,19 +129,17 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
     );
   }
 
-  const days = serialiseDays(daysOfWeek);
-
   const reminder = await prisma.reminder.create({
     data: {
       babyId,
       accountId,
       type,
       label: label?.trim() || null,
-      intervalMinutes: totalMinutes(hours, minutes),
-      daysOfWeek: days,
-      // Only meaningful alongside a day restriction, so don't store a location
-      // for a reminder that fires every day regardless.
-      tzOffsetMinutes: days ? (tzOffsetMinutes ?? null) : null,
+      timeOfDay: timeOfDay!,
+      daysOfWeek: serialiseDays(daysOfWeek),
+      // Always stored now, whether or not days are restricted: a time of day
+      // can't be evaluated without knowing whose clock it is.
+      tzOffsetMinutes: tzOffsetMinutes ?? null,
     },
     select: REMINDER_SELECT,
   });
@@ -187,7 +151,7 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
 router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
   const id = parseId(req.params.id, "reminder");
-  const { label, enabled, hours, minutes, daysOfWeek, tzOffsetMinutes } =
+  const { label, enabled, timeOfDay, daysOfWeek, tzOffsetMinutes } =
     parseOrThrow(updateReminderSchema, req.body);
 
   // Reminders are personal, so ownership is the whole check.
@@ -201,17 +165,15 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
   const data: Record<string, unknown> = {};
   if (label !== undefined) data.label = label?.trim() || null;
   if (enabled !== undefined) data.enabled = enabled;
-  if (hours !== undefined || minutes !== undefined) {
-    data.intervalMinutes = totalMinutes(hours, minutes);
-    // A new interval starts a new countdown, otherwise a reminder shortened
-    // below the time already elapsed would fire on the very next tick.
+  if (timeOfDay !== undefined) {
+    data.timeOfDay = timeOfDay;
+    // Moving the time clears today's delivery record, so a reminder pushed from
+    // 9am to 6pm still arrives this evening rather than counting as already
+    // sent for the day.
     data.lastNotifiedAt = null;
   }
-  if (daysOfWeek !== undefined) {
-    const days = serialiseDays(daysOfWeek);
-    data.daysOfWeek = days;
-    data.tzOffsetMinutes = days ? (tzOffsetMinutes ?? null) : null;
-  }
+  if (daysOfWeek !== undefined) data.daysOfWeek = serialiseDays(daysOfWeek);
+  if (tzOffsetMinutes !== undefined) data.tzOffsetMinutes = tzOffsetMinutes ?? null;
 
   if (existing.type === "custom" && data.label === null) {
     throw badRequest("Give this reminder a name.", "label_required");

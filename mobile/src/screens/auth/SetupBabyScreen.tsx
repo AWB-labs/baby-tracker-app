@@ -35,12 +35,11 @@ export default function SetupBabyScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
-    if (!babyName.trim()) {
-      toast.error("Enter a name for your baby.");
-      return;
-    }
     setLoading(true);
     try {
+      // No name is fine — plenty of babies aren't named on day one, and being
+      // stopped at the first screen over it is a poor welcome. The server falls
+      // back to "Baby" until there's something to call them.
       const baby = await addBaby({ name: babyName.trim(), gender, dob });
       await setActiveBaby(baby);
       await refreshBabies();
@@ -74,6 +73,7 @@ export default function SetupBabyScreen() {
         <View style={styles.form}>
           <Input
             label="Baby's name"
+            helper="Optional — you can add it later."
             value={babyName}
             onChangeText={setBabyName}
             placeholder="e.g. Touti"

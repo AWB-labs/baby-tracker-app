@@ -2,7 +2,8 @@ import { Router, Response } from "express";
 import { z } from "zod";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import prisma from "../lib/prisma";
-import { notFound } from "../lib/httpError";
+import { badRequest, notFound } from "../lib/httpError";
+import { isRelation } from "../lib/relations";
 import { parseOrThrow } from "../lib/validate";
 
 const router = Router();
@@ -11,9 +12,15 @@ export const SETTINGS_SELECT = {
   unitSystem: true,
   themeColor: true,
   notificationsEnabled: true,
+  relation: true,
+  relationNote: true,
 } as const;
 
 const updateSettingsSchema = z.object({
+  // Asked during onboarding, before any baby exists; editable afterwards from
+  // Account. Validated against the shared list rather than taken as free text.
+  relation: z.string().max(40).nullable().optional(),
+  relationNote: z.string().max(60).nullable().optional(),
   unitSystem: z.enum(["metric", "imperial"]).optional(),
   themeColor: z
     .string()
@@ -45,6 +52,16 @@ router.patch("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
 
   const updates = parseOrThrow(updateSettingsSchema, req.body);
+
+  if (updates.relation !== undefined) {
+    if (updates.relation && !isRelation(updates.relation)) {
+      throw badRequest("That isn't a relationship we recognise.", "bad_relation");
+    }
+    // The note only means anything alongside "other"; carrying it on a
+    // Grandmother would put stale text on screen the moment they switch.
+    updates.relationNote =
+      updates.relation === "other" ? updates.relationNote?.trim() || null : null;
+  }
 
   const account = await prisma.account.update({
     where: { id: accountId },

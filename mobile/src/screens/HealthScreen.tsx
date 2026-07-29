@@ -25,6 +25,7 @@ import { useLogs } from "../hooks/useLogs";
 import { useBaby } from "../context/BabyContext";
 import { useAuth } from "../context/AuthContext";
 import BabySwitcher from "../components/BabySwitcher";
+import VaccineSchedule from "../components/VaccineSchedule";
 import SwipeableRow from "../components/SwipeableRow";
 import EditLogModal from "../components/EditLogModal";
 import { LogRow } from "../components/LogsList";
@@ -159,7 +160,7 @@ export default function HealthScreen() {
         <EmptyState
           icon="health"
           title="No baby selected"
-          body="Choose a baby to record illness, temperature and medication."
+          body="Choose a baby to track vaccines, illness and medication."
         />
         <View style={styles.center}>
           <BabySwitcher />
@@ -173,9 +174,18 @@ export default function HealthScreen() {
   return (
     <Screen refreshing={refreshing} onRefresh={onRefresh}>
       <ScreenHeader
-        title="Health"
-        subtitle={`Track illness & medication · ${activeBaby.name}`}
+        title="Medical"
+        subtitle={`Vaccines, illness & medication · ${activeBaby.name}`}
         actions={<BabySwitcher />}
+      />
+
+      {/* Vaccines lead the screen: the schedule is the thing with deadlines,
+          and it's what a parent opens this tab to check. Illness and medication
+          are a history you consult, so they sit below it. */}
+      <VaccineSchedule
+        babyId={activeBaby.id}
+        babyName={activeBaby.name}
+        dob={activeBaby.dob}
       />
 
       <Button
@@ -191,7 +201,7 @@ export default function HealthScreen() {
       />
 
       <View style={styles.section}>
-        <SectionHeader title="Health history" />
+        <SectionHeader title="Illness & medication" />
         {loading ? (
           <SkeletonList rows={3} />
         ) : healthLogs.length === 0 ? (

@@ -5,6 +5,7 @@ import {
   RefreshControl,
   StyleSheet,
   View,
+  type ListRenderItemInfo,
 } from "react-native";
 import type { LogEntry } from "../api/logs";
 import { formatTime, formatDateLabel } from "../utils/formatTime";
@@ -12,7 +13,6 @@ import { formatDuration, formatGapLabel } from "../utils/formatDuration";
 import { dayOffset, shortDate } from "../lib/dayMath";
 import { isInstantLog } from "../lib/activities";
 import { useTheme } from "../design/ThemeProvider";
-import { Icon } from "../design/icons";
 import {
   useActivityTone,
   ACTIVITY_LABEL,
@@ -20,9 +20,19 @@ import {
   CONDITION_META,
   MEASURE_EMOJI,
 } from "../design/activity";
-import { space, radius, tabBar } from "../design/tokens";
+import { space, radius } from "../design/tokens";
 import { useUnits } from "../context/SettingsContext";
-import { Text, Emoji, Chip, ChipRow, ConfirmDialog } from "./ui";
+import {
+  Text,
+  Emoji,
+  Chip,
+  ChipRow,
+  FadeInUp,
+  ConfirmDialog,
+  EmptyState,
+  SkeletonList,
+  screenContentPadding,
+} from "./ui";
 import SwipeableRow from "./SwipeableRow";
 import PauseTimelineIndicator from "./PauseTimelineIndicator";
 import EditLogModal from "./EditLogModal";
@@ -100,11 +110,9 @@ export interface LogRowProps {
   /** Minutes since the previous log of the same type, when worth showing. */
   gapMinutes?: number | null;
   onEdit?: (log: LogEntry) => void;
-  /** A tap-to-delete that never depends on the swipe landing. */
-  onDelete?: (log: LogEntry) => void;
 }
 
-export function LogRow({ log, gapMinutes, onEdit, onDelete }: LogRowProps) {
+export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
   const t = useTheme();
   const tone = useActivityTone(log.type);
   const units = useUnits();
@@ -231,46 +239,26 @@ export function LogRow({ log, gapMinutes, onEdit, onDelete }: LogRowProps) {
           <Text variant="caption" tone="subtle">
             by {log.enteredByName}
           </Text>
-          <View style={styles.footerActions}>
-            {onEdit && (
-              <Pressable
-                onPress={() => onEdit(log)}
-                accessibilityRole="button"
-                accessibilityLabel={`Edit this ${label.toLowerCase()} entry`}
-                // The pill is only ~26pt tall, so the shared 8pt slop (sized for
-                // the 36pt controls elsewhere) leaves it short of the 44pt floor.
-                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-                style={({ pressed }) => [
-                  styles.editBtn,
-                  {
-                    backgroundColor: t.accentSofter,
-                    borderColor: t.border,
-                    opacity: pressed ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <Emoji size={13}>✏️</Emoji>
-              </Pressable>
-            )}
-            {onDelete && (
-              <Pressable
-                onPress={() => onDelete(log)}
-                accessibilityRole="button"
-                accessibilityLabel={`Delete this ${label.toLowerCase()} entry`}
-                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-                style={({ pressed }) => [
-                  styles.editBtn,
-                  {
-                    backgroundColor: t.dangerSoft,
-                    borderColor: t.dangerBorder,
-                    opacity: pressed ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <Icon name="trash" size="sm" color={t.danger} />
-              </Pressable>
-            )}
-          </View>
+          {onEdit && (
+            <Pressable
+              onPress={() => onEdit(log)}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit this ${label.toLowerCase()} entry`}
+              // The pill is only ~26pt tall, so the shared 8pt slop (sized for
+              // the 36pt controls elsewhere) leaves it short of the 44pt floor.
+              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+              style={({ pressed }) => [
+                styles.editBtn,
+                {
+                  backgroundColor: t.accentSofter,
+                  borderColor: t.border,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Emoji size={13}>✏️</Emoji>
+            </Pressable>
+          )}
         </View>
       </View>
     </View>
@@ -283,6 +271,8 @@ export function LogRow({ log, gapMinutes, onEdit, onDelete }: LogRowProps) {
 
 interface Props {
   logs: LogEntry[];
+  /** True while the first fetch for this baby is still in flight. */
+  loading?: boolean;
   onDelete?: (id: number) => void;
   onEdit?: () => void | Promise<void>;
   /**
@@ -291,24 +281,42 @@ interface Props {
    * switch chips freely afterwards.
    */
   initialFilter?: string | null;
-  /** Pull-to-refresh, owned here because the FlatList owns the scrolling. */
+  /** The screen's header, scrolled with the rows rather than pinned above them. */
+  header?: React.ReactNode;
   refreshing?: boolean;
   onRefresh?: () => void;
 }
 
-/** One list item, with its date header precomputed so rows never depend on
- *  their neighbours at render time — a FlatList renders rows independently. */
-interface ListItem {
+/** One row's worth of derived display state, computed once per list rather than
+ *  per render — see `items` below. */
+interface PreparedRow {
   log: LogEntry;
-  header: string | null;
+  dateLabel: string;
+  /** First entry of its calendar day, so it carries the date header. */
+  showHeader: boolean;
+  gapMinutes: number | null;
 }
+
+/**
+ * How many rows get an entrance animation.
+ *
+ * The list is virtualized, so rows mount and unmount as they scroll past. Fading
+ * every one of them in would re-run the animation each time a row came back into
+ * the window, which reads as flicker rather than as arrival. Only the first
+ * screenful animates — that's where the entrance is actually seen.
+ */
+const ANIMATED_ROWS = 8;
+
+const keyExtractor = (item: PreparedRow) => String(item.log.id);
 
 export default function LogsList({
   logs,
+  loading = false,
   onDelete,
   onEdit,
   initialFilter = null,
-  refreshing = false,
+  header,
+  refreshing,
   onRefresh,
 }: Props) {
   const t = useTheme();
@@ -321,95 +329,137 @@ export default function LogsList({
   const [pendingDelete, setPendingDelete] = useState<LogEntry | null>(null);
   const [editLog, setEditLog] = useState<LogEntry | null>(null);
 
+  /**
+   * Filtering, gap lookup and the date-header runs are resolved up front.
+   *
+   * The date header used to be decided by a `lastDate` variable carried across a
+   * `.map`, which a virtualized list cannot reproduce: rows render individually
+   * and out of order, so "is this a new day" has to be a property of the row,
+   * not of the loop that drew it.
+   */
+  // Gaps are measured against the unfiltered history — the time since the last
+  // feed doesn't change because the list is currently showing only nappies — so
+  // this is keyed on `logs` alone and survives a chip tap.
   const gaps = useMemo(() => computeGaps(logs), [logs]);
 
-  // Precompute rows + their date headers once per change, not per render.
-  const items = useMemo<ListItem[]>(() => {
+  const items = useMemo<PreparedRow[]>(() => {
     const source = filter ? logs.filter((l) => l.type === filter) : logs;
     let lastDate = "";
     return source.map((log) => {
       const dateLabel = formatDateLabel(log.startTime);
-      const header = dateLabel !== lastDate ? dateLabel : null;
+      const showHeader = dateLabel !== lastDate;
       lastDate = dateLabel;
-      return { log, header };
+      return { log, dateLabel, showHeader, gapMinutes: gaps.get(log.id) ?? null };
     });
-  }, [logs, filter]);
-
-  const askDelete = useCallback((log: LogEntry) => setPendingDelete(log), []);
+  }, [logs, filter, gaps]);
 
   const renderItem = useCallback(
-    ({ item }: { item: ListItem }) => {
+    ({ item, index }: ListRenderItemInfo<PreparedRow>) => {
+      const { log, dateLabel, showHeader, gapMinutes } = item;
+
       const row = (
         <LogRow
-          log={item.log}
-          gapMinutes={gaps.get(item.log.id)}
+          log={log}
+          gapMinutes={gapMinutes}
           onEdit={onEdit ? setEditLog : undefined}
-          onDelete={onDelete ? askDelete : undefined}
         />
       );
-      return (
-        <View style={styles.itemWrap}>
-          {item.header && (
+
+      const content = (
+        <>
+          {showHeader && (
             <Text
               variant="overline"
               tone="subtle"
               style={styles.dateHeader}
               accessibilityRole="header"
             >
-              {item.header}
+              {dateLabel}
             </Text>
           )}
           {onDelete ? (
-            <SwipeableRow onDelete={() => askDelete(item.log)}>
+            <SwipeableRow onDelete={() => setPendingDelete(log)}>
               {row}
             </SwipeableRow>
           ) : (
             row
           )}
-        </View>
+        </>
+      );
+
+      return index < ANIMATED_ROWS ? (
+        <FadeInUp index={index}>{content}</FadeInUp>
+      ) : (
+        <View>{content}</View>
       );
     },
-    [gaps, onEdit, onDelete, askDelete]
+    [onDelete, onEdit]
   );
 
-  if (logs.length === 0) return null;
+  const listHeader = (
+    <View style={styles.header}>
+      {header}
+      {logs.length > 0 && (
+        <ChipRow>
+          {FILTERS.map((value) => (
+            <Chip
+              key={value ?? "all"}
+              label={value ? ACTIVITY_LABEL[value] : "All"}
+              emoji={value ? FILTER_EMOJI[value] : undefined}
+              selected={filter === value}
+              onPress={() => setFilter(value)}
+            />
+          ))}
+        </ChipRow>
+      )}
+    </View>
+  );
+
+  const listEmpty = loading ? (
+    <SkeletonList rows={5} />
+  ) : logs.length === 0 ? (
+    <EmptyState
+      icon="history"
+      title="Nothing logged yet"
+      body="Once a feed, nap or diaper is logged on Today it lands here, newest first."
+    />
+  ) : (
+    <View style={styles.noMatches}>
+      <Text variant="subhead" tone="subtle" center>
+        Nothing here for that filter yet.
+      </Text>
+    </View>
+  );
 
   return (
-    <View style={styles.list}>
+    <>
       {/*
-       * Virtualized: real families carry hundreds of entries, and mounting
-       * every row at once was what made this tab slow to open and quick to
-       * die under memory pressure. The FlatList mounts a screenful and
-       * recycles the rest.
-       */}
+        A FlatList, not a mapped ScrollView. Every row carries a gesture handler,
+        an animated value and an SVG icon, so mounting a full history at once ran
+        to tens of thousands of native views and took the app down. Windowing
+        keeps roughly a screenful alive at a time regardless of how many entries
+        the account has.
+      */}
       <FlatList
         data={items}
-        keyExtractor={(item) => String(item.log.id)}
         renderItem={renderItem}
-        ListHeaderComponent={
-          <ChipRow style={styles.chips}>
-            {FILTERS.map((value) => (
-              <Chip
-                key={value ?? "all"}
-                label={value ? ACTIVITY_LABEL[value] : "All"}
-                emoji={value ? FILTER_EMOJI[value] : undefined}
-                selected={filter === value}
-                onPress={() => setFilter(value)}
-              />
-            ))}
-          </ChipRow>
-        }
-        ListEmptyComponent={
-          <View style={styles.noMatches}>
-            <Text variant="subhead" tone="subtle" center>
-              Nothing here for that filter yet.
-            </Text>
-          </View>
-        }
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        // The screen hands over its full height; without this the list sizes to
+        // its content and spills past the bottom of the screen instead of
+        // scrolling inside it.
+        style={styles.fill}
+        contentContainerStyle={[screenContentPadding(), styles.listContent]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={7}
         refreshControl={
           onRefresh ? (
             <RefreshControl
-              refreshing={refreshing}
+              refreshing={!!refreshing}
               onRefresh={onRefresh}
               tintColor={t.accent}
               colors={[t.accent]}
@@ -417,12 +467,6 @@ export default function LogsList({
             />
           ) : undefined
         }
-        showsVerticalScrollIndicator={false}
-        initialNumToRender={10}
-        maxToRenderPerBatch={10}
-        windowSize={7}
-        removeClippedSubviews
-        contentContainerStyle={styles.listContent}
       />
 
       <ConfirmDialog
@@ -450,20 +494,17 @@ export default function LogsList({
           onSaved={() => onEdit?.()}
         />
       )}
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  // flex:1 so the FlatList gets a bounded viewport to virtualize within —
-  // inside an unbounded container it would render everything anyway.
-  list: { flex: 1 },
-  listContent: {
-    gap: space.sm,
-    paddingBottom: tabBar.margin + tabBar.height + space.lg,
-  },
-  itemWrap: { gap: space.xxs },
-  chips: { paddingBottom: space.xs },
+  fill: { flex: 1 },
+  // Matches the gap Screen's ScrollView gave the rows before they were windowed.
+  listContent: { gap: space.sm },
+  // The header block keeps the screen header and the filter chips a full step
+  // apart, the spacing Screen's own content gap used to provide.
+  header: { gap: space.lg },
   dateHeader: {
     paddingTop: space.xl,
     paddingBottom: space.xs,
@@ -520,7 +561,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: space.xxs,
   },
-  footerActions: { flexDirection: "row", gap: space.sm },
   editBtn: {
     paddingHorizontal: space.md,
     paddingVertical: space.xs,

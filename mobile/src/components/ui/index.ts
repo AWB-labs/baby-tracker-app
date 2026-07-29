@@ -10,7 +10,7 @@ export type { CardProps, PressableCardProps } from "./Card";
 export { Input, Field } from "./Input";
 export type { InputProps, FieldProps } from "./Input";
 
-export { Screen, ScreenHeader } from "./Screen";
+export { Screen, ScreenHeader, screenContentPadding } from "./Screen";
 export type { ScreenProps, ScreenHeaderProps } from "./Screen";
 
 export { Sheet } from "./Sheet";

@@ -5,6 +5,7 @@ import "dotenv/config";
 import "express-async-errors";
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import { ZodError } from "zod";
 
 import authRouter from "./routes/auth";
@@ -12,6 +13,7 @@ import meRouter from "./routes/me";
 import babiesRouter from "./routes/babies";
 import membersRouter from "./routes/members";
 import logsRouter from "./routes/logs";
+import vaccinesRouter from "./routes/vaccines";
 import profilesRouter from "./routes/profiles";
 import settingsRouter from "./routes/settings";
 import remindersRouter from "./routes/reminders";
@@ -21,10 +23,27 @@ import { AppError, friendlyPrismaMessage } from "./lib/httpError";
 const app = express();
 
 app.use(cors());
+// A log response is thousands of near-identical JSON objects, which gzip cuts by
+// roughly an order of magnitude. Mounted before the routes so it covers every
+// one of them, and it matters most on the phone: these bodies are fetched over
+// mobile data, and the hosting tier bills for outbound bandwidth.
+app.use(compression());
 app.use(express.json());
 
-// Health check
-app.get("/health", (_req, res) => res.json({ ok: true }));
+/**
+ * Health check, and which build is answering.
+ *
+ * The commit is here because "is my change live?" was repeatedly guessed at by
+ * probing for a route that only exists in the new code — which conflates a
+ * missing deploy with a genuine 404. Vercel injects the SHA at build time; it
+ * reads "local" anywhere else.
+ */
+app.get("/health", (_req, res) =>
+  res.json({
+    ok: true,
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+  })
+);
 
 // Routes
 app.use("/auth", authRouter);
@@ -33,6 +52,7 @@ app.use("/babies", babiesRouter);
 // Caregiver management hangs off a baby: /babies/:babyId/members
 app.use("/babies", membersRouter);
 app.use("/logs", logsRouter);
+app.use("/vaccines", vaccinesRouter);
 app.use("/profiles", profilesRouter);
 app.use("/settings", settingsRouter);
 app.use("/reminders", remindersRouter);

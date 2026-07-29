@@ -1,12 +1,14 @@
 /**
- * One-way migration: baby-tracker-website  ->  baby-tracker-app
+ * One-way sync: baby-tracker-website  ->  baby-tracker-app
  *
- * Copies every ActivityLog row from the website's database into the app's
- * database, under a named account and a new baby.
+ * Copies ActivityLog rows from the website's database into the app's
+ * database, under a named account and baby. Safe to re-run: a baby that
+ * already has logs is topped up with only what's new since the last run,
+ * instead of being re-imported wholesale.
  *
  * Run it from D:/baby-tracker-app/api (it uses that workspace's Prisma client):
- *     node migrate-to-app.js              # dry run, writes nothing
- *     node migrate-to-app.js --confirm    # actually writes
+ *     node migrate-from-website.js              # dry run, writes nothing
+ *     node migrate-from-website.js --confirm    # actually writes
  *
  * The target account must already exist — sign up in the app first. This script
  * never creates accounts and never handles a password.
@@ -92,36 +94,48 @@ const source = new PrismaClient({ datasources: { db: { url: SOURCE_URL } } });
   }
   console.log(`Account: #${account.id} ${account.name} <${account.email}>`);
 
-  // -- 2. adopt an empty baby, or refuse to run twice ------------------------
+  // -- 2. adopt the existing baby, or create a fresh one ---------------------
   // Signing up lands on the app's "create your baby" screen when the account
-  // has none, so Amina may already exist by the time this runs. An empty one is
-  // adopted and filled; one that already has logs is left alone, because a
-  // second run would duplicate every row.
+  // has none, so Amina may already exist by the time this runs.
   const existing = await target.baby.findFirst({
     where: { ownerAccountId: account.id, name: BABY_NAME },
     select: { id: true, name: true, gender: true, _count: { select: { logs: true } } },
   });
-  if (existing && existing._count.logs > 0) {
-    console.error(
-      `\nBaby "${existing.name}" (#${existing.id}) already has ${existing._count.logs} logs.\n` +
-        `Nothing was changed. Delete the baby in the app if you want a clean re-import.`
+  const startingCount = existing ? existing._count.logs : 0;
+
+  // Incremental cursor: every past run preserved the source row's createdAt
+  // verbatim (step 4 below), so the newest createdAt already in the target is
+  // exactly the newest source row that existed as of that run. Pulling only
+  // rows after it means a re-run tops up instead of duplicating the baby.
+  let cutoff = null;
+  if (existing && startingCount > 0) {
+    const sinceLast = await target.activityLog.aggregate({
+      where: { babyId: existing.id },
+      _max: { createdAt: true },
+    });
+    cutoff = sinceLast._max.createdAt;
+    console.log(
+      `Found baby #${existing.id} "${existing.name}" with ${startingCount} logs already — ` +
+        `incremental sync from ${cutoff.toISOString()}`
     );
-    process.exit(1);
-  }
-  if (existing) {
+  } else if (existing) {
     console.log(`Found empty baby #${existing.id} "${existing.name}" (${existing.gender}) — will fill it`);
   }
 
   // -- 3. read the source ----------------------------------------------------
-  const rows = await source.$queryRawUnsafe(`
-    SELECT id, type, side, "amountMl", "diaperStatus", "weightKg", "heightCm",
-           "healthCondition", medication, dose, "feverCelsius",
-           "startTime", "endTime", "durationMinutes", comments,
-           "enteredByName", "pauseTimelineJson", "createdAt"
-    FROM "ActivityLog"
-    ORDER BY id ASC
-  `);
-  console.log(`Source rows: ${rows.length}`);
+  const SELECT_COLUMNS = `
+    id, type, side, "amountMl", "diaperStatus", "weightKg", "heightCm",
+    "healthCondition", medication, dose, "feverCelsius",
+    "startTime", "endTime", "durationMinutes", comments,
+    "enteredByName", "pauseTimelineJson", "createdAt"
+  `;
+  const rows = cutoff
+    ? await source.$queryRawUnsafe(
+        `SELECT ${SELECT_COLUMNS} FROM "ActivityLog" WHERE "createdAt" > $1::timestamp ORDER BY id ASC`,
+        cutoff
+      )
+    : await source.$queryRawUnsafe(`SELECT ${SELECT_COLUMNS} FROM "ActivityLog" ORDER BY id ASC`);
+  console.log(`Source rows: ${rows.length}${cutoff ? " (new since last sync)" : ""}`);
 
   // -- 4. map + normalise ----------------------------------------------------
   let healed = 0;
@@ -180,14 +194,20 @@ const source = new PrismaClient({ datasources: { db: { url: SOURCE_URL } } });
   console.log(`By type: ${JSON.stringify(byType)}`);
   if (skipped.length) console.log(`Skipped detail: ${JSON.stringify(skipped.slice(0, 20))}`);
 
+  if (cutoff && data.length === 0) {
+    console.log("\nAlready up to date — no new rows since the last sync.");
+    await target.$disconnect();
+    await source.$disconnect();
+    return;
+  }
+
   if (!CONFIRM) {
-    console.log(
-      `\nDry run complete. Would ${
-        existing
-          ? `fill existing baby #${existing.id} "${existing.name}"`
-          : `create baby "${BABY_NAME}" (${BABY_GENDER})`
-      } on account #${account.id} with ${data.length} logs.`
-    );
+    const action = !existing
+      ? `create baby "${BABY_NAME}" (${BABY_GENDER}) with ${data.length} logs`
+      : cutoff
+      ? `add ${data.length} new logs to baby #${existing.id} "${existing.name}" (${startingCount} already there)`
+      : `fill existing baby #${existing.id} "${existing.name}" with ${data.length} logs`;
+    console.log(`\nDry run complete. Would ${action} on account #${account.id}.`);
     await target.$disconnect();
     await source.$disconnect();
     return;
@@ -248,14 +268,17 @@ const source = new PrismaClient({ datasources: { db: { url: SOURCE_URL } } });
     select: { role: true },
   });
 
+  const expected = startingCount + data.length;
   console.log("\n--- verification ---");
-  console.log(`rows in target for baby #${baby.id}: ${finalCount} (expected ${data.length})`);
+  console.log(
+    `rows in target for baby #${baby.id}: ${finalCount} (expected ${expected} = ${startingCount} already there + ${data.length} new)`
+  );
   console.log(`by type: ${JSON.stringify(
     Object.fromEntries(finalByType.map((t) => [t.type, t._count._all]))
   )}`);
   console.log(`date range: ${range._min.startTime?.toISOString()} -> ${range._max.startTime?.toISOString()}`);
   console.log(`owner membership: ${memberOk ? memberOk.role : "MISSING"}`);
-  console.log(finalCount === data.length && memberOk ? "\nOK" : "\nMISMATCH — check above");
+  console.log(finalCount === expected && memberOk ? "\nOK" : "\nMISMATCH — check above");
 
   await target.$disconnect();
   await source.$disconnect();

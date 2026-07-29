@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, StyleSheet, Switch, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Switch, View } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius, PRESSED_OPACITY } from "../design/tokens";
@@ -31,7 +32,10 @@ import {
   createReminder,
   updateReminder,
   deleteReminder,
-  formatInterval,
+  formatTimeOfDay,
+  timeOfDayToDate,
+  dateToTimeOfDay,
+  DEFAULT_TIME_OF_DAY,
   formatDays,
   WEEKDAYS,
   REMINDER_TYPES,
@@ -40,15 +44,14 @@ import {
   type ReminderType,
 } from "../api/reminders";
 
-/** The frequencies parents actually pick, one tap each. */
-const QUICK_INTERVALS: { label: string; hours: number; minutes: number }[] = [
-  { label: "1h", hours: 1, minutes: 0 },
-  { label: "2h", hours: 2, minutes: 0 },
-  { label: "3h", hours: 3, minutes: 0 },
-  { label: "4h", hours: 4, minutes: 0 },
-  { label: "6h", hours: 6, minutes: 0 },
-  { label: "12h", hours: 12, minutes: 0 },
-  { label: "24h", hours: 24, minutes: 0 },
+/** One-tap picks for the times parents actually choose. */
+const QUICK_TIMES: { label: string; minutes: number }[] = [
+  { label: "7 AM", minutes: 7 * 60 },
+  { label: "9 AM", minutes: 9 * 60 },
+  { label: "12 PM", minutes: 12 * 60 },
+  { label: "3 PM", minutes: 15 * 60 },
+  { label: "7 PM", minutes: 19 * 60 },
+  { label: "9 PM", minutes: 21 * 60 },
 ];
 
 interface Draft {
@@ -56,8 +59,7 @@ interface Draft {
   editing: Reminder | null;
   type: ReminderType;
   label: string;
-  hours: string;
-  minutes: string;
+  timeOfDay: number;
   days: number[];
 }
 
@@ -65,8 +67,7 @@ const FRESH_DRAFT: Draft = {
   editing: null,
   type: "feed",
   label: "",
-  hours: "3",
-  minutes: "0",
+  timeOfDay: DEFAULT_TIME_OF_DAY,
   days: [],
 };
 
@@ -75,9 +76,9 @@ const FRESH_DRAFT: Draft = {
  *
  * The old design inlined the whole editor into the Account page — a permanent
  * wall of inputs under the list. Here the screen is the list (what will nudge
- * you, when, on which days, each with its own switch), and creating or editing
- * happens in a sheet: pick what → pick how often (one tap for the common
- * frequencies) → optionally narrow the days. Three decisions, in order.
+ * you, at what time, on which days, each with its own switch), and creating or
+ * editing happens in a sheet: pick what → pick when (one tap for the common
+ * times, or the wheel for exact) → optionally narrow the days.
  */
 export default function RemindersScreen() {
   const t = useTheme();
@@ -92,6 +93,7 @@ export default function RemindersScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [showWheel, setShowWheel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Reminder | null>(null);
 
@@ -129,26 +131,24 @@ export default function RemindersScreen() {
     }
   };
 
-  const openAdd = () => setDraft({ ...FRESH_DRAFT });
+  const openAdd = () => {
+    setShowWheel(false);
+    setDraft({ ...FRESH_DRAFT });
+  };
 
-  const openEdit = (r: Reminder) =>
+  const openEdit = (r: Reminder) => {
+    setShowWheel(false);
     setDraft({
       editing: r,
       type: r.type,
       label: r.label ?? "",
-      hours: String(Math.floor(r.intervalMinutes / 60)),
-      minutes: String(r.intervalMinutes % 60),
+      timeOfDay: r.timeOfDay,
       days: r.daysOfWeek ?? [],
     });
+  };
 
   const handleSave = async () => {
     if (!draft || !activeBaby) return;
-    const hours = parseInt(draft.hours || "0", 10);
-    const minutes = parseInt(draft.minutes || "0", 10);
-    if (isNaN(hours) || isNaN(minutes) || hours * 60 + minutes < 5) {
-      toast.error("Choose an interval of at least 5 minutes.");
-      return;
-    }
     if (draft.type === "custom" && !draft.label.trim()) {
       toast.error("Give your custom reminder a name.");
       return;
@@ -158,8 +158,7 @@ export default function RemindersScreen() {
       if (draft.editing) {
         const updated = await updateReminder(draft.editing.id, {
           label: draft.label.trim() || null,
-          hours,
-          minutes,
+          timeOfDay: draft.timeOfDay,
           daysOfWeek: draft.days.length > 0 ? draft.days : null,
         });
         setReminders((prev) =>
@@ -171,16 +170,15 @@ export default function RemindersScreen() {
           babyId: activeBaby.id,
           type: draft.type,
           label: draft.label.trim() || null,
-          hours,
-          minutes,
+          timeOfDay: draft.timeOfDay,
           daysOfWeek: draft.days.length > 0 ? draft.days : null,
         });
         setReminders((prev) => [...prev, created]);
         toast.success(
-          `You'll be reminded every ${formatInterval(created.intervalMinutes)}${
+          `You'll be reminded at ${formatTimeOfDay(created.timeOfDay)}${
             created.daysOfWeek
               ? ` on ${formatDays(created.daysOfWeek).toLowerCase()}`
-              : ""
+              : " every day"
           }.`
         );
       }
@@ -224,8 +222,6 @@ export default function RemindersScreen() {
       toast.showError(err);
     }
   };
-
-  const draftMeta = draft ? REMINDER_META.get(draft.type) : null;
 
   return (
     <Screen refreshing={refreshing} onRefresh={onRefresh}>
@@ -274,7 +270,7 @@ export default function RemindersScreen() {
         <EmptyState
           icon="bell"
           title="No reminders yet"
-          body="Add one and we'll nudge you when it's been too long — every few hours for feeds, once a day for vitamins, whatever fits."
+          body="Add one and we'll nudge you at the time you pick — a 9 AM vitamin, a 7 PM bath, whatever fits."
         />
       ) : (
         <View style={styles.list}>
@@ -286,8 +282,8 @@ export default function RemindersScreen() {
                 <Pressable
                   onPress={() => openEdit(r)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Edit the ${name} reminder — every ${formatInterval(
-                    r.intervalMinutes
+                  accessibilityLabel={`Edit the ${name} reminder — at ${formatTimeOfDay(
+                    r.timeOfDay
                   )}, ${formatDays(r.daysOfWeek)}`}
                   style={({ pressed }) => [
                     styles.row,
@@ -309,10 +305,8 @@ export default function RemindersScreen() {
                     <Text variant="subheadStrong" numberOfLines={1}>
                       {name}
                     </Text>
-                    <Text variant="caption" tone="subtle">
-                      Every {formatInterval(r.intervalMinutes)}
-                      {meta?.watchesActivity ? " since the last one" : ""}
-                      {` · ${formatDays(r.daysOfWeek)}`}
+                    <Text variant="caption" tone="subtle" tabular>
+                      {formatTimeOfDay(r.timeOfDay)} · {formatDays(r.daysOfWeek)}
                     </Text>
                   </View>
                   <Switch
@@ -344,9 +338,7 @@ export default function RemindersScreen() {
         onClose={() => setDraft(null)}
         title={draft?.editing ? "Edit reminder" : "New reminder"}
         subtitle={
-          draft?.editing
-            ? undefined
-            : "What, how often, and on which days."
+          draft?.editing ? undefined : "What, at what time, on which days."
         }
         footer={
           <View style={styles.sheetFooter}>
@@ -405,54 +397,58 @@ export default function RemindersScreen() {
               />
             )}
 
-            {/* How often — one tap for the usual answers. */}
-            <Field
-              label="How often"
-              helper={
-                draftMeta?.watchesActivity
-                  ? "Counted from the last time it was logged."
-                  : "Repeats on its own schedule."
-              }
-            >
+            {/* When — one tap for the usual times, the wheel for exact. */}
+            <Field label="At what time">
               <ChipWrap>
-                {QUICK_INTERVALS.map((q) => (
+                {QUICK_TIMES.map((q) => (
                   <Chip
                     key={q.label}
                     label={q.label}
-                    selected={
-                      parseInt(draft.hours || "0", 10) === q.hours &&
-                      parseInt(draft.minutes || "0", 10) === q.minutes
-                    }
+                    selected={draft.timeOfDay === q.minutes}
                     onPress={() =>
-                      setDraft({
-                        ...draft,
-                        hours: String(q.hours),
-                        minutes: String(q.minutes),
-                      })
+                      setDraft({ ...draft, timeOfDay: q.minutes })
                     }
                   />
                 ))}
               </ChipWrap>
             </Field>
 
-            <View style={styles.intervalRow}>
-              <Input
-                containerStyle={styles.flex}
-                label="Hours"
-                value={draft.hours}
-                onChangeText={(hours) => setDraft({ ...draft, hours })}
-                keyboardType="number-pad"
-                placeholder="0"
+            <Pressable
+              onPress={() => setShowWheel((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={`Reminder time: ${formatTimeOfDay(draft.timeOfDay)}. Opens the exact time picker.`}
+              style={({ pressed }) => [
+                styles.timeRow,
+                {
+                  backgroundColor: t.accentSofter,
+                  borderColor: t.borderStrong,
+                  opacity: pressed ? PRESSED_OPACITY : 1,
+                },
+              ]}
+            >
+              <Emoji size={16}>⏰</Emoji>
+              <Text variant="bodyStrong" tabular style={{ color: t.accentText }}>
+                {formatTimeOfDay(draft.timeOfDay)}
+              </Text>
+              <Text variant="caption" tone="subtle">
+                tap for exact time
+              </Text>
+            </Pressable>
+
+            {showWheel && (
+              <DateTimePicker
+                value={timeOfDayToDate(draft.timeOfDay)}
+                mode="time"
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                onChange={(_e, date) => {
+                  if (Platform.OS !== "ios") setShowWheel(false);
+                  if (date)
+                    setDraft((d) =>
+                      d ? { ...d, timeOfDay: dateToTimeOfDay(date) } : d
+                    );
+                }}
               />
-              <Input
-                containerStyle={styles.flex}
-                label="Minutes"
-                value={draft.minutes}
-                onChangeText={(minutes) => setDraft({ ...draft, minutes })}
-                keyboardType="number-pad"
-                placeholder="0"
-              />
-            </View>
+            )}
 
             {/* Which days — nothing selected means every day. */}
             <Field
@@ -555,7 +551,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   form: { gap: space.lg },
-  intervalRow: { flexDirection: "row", gap: space.md },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    height: 48,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+  },
   dayRow: { flexDirection: "row", gap: space.xs },
   dayTile: {
     flex: 1,

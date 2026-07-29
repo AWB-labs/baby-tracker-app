@@ -10,6 +10,10 @@ const INSTANT_TYPES: ReadonlySet<string> = new Set([
   "nailcut",
   "growth",
   "health",
+  // A family-invented habit. One type for all of them, distinguished by the
+  // name the family gave it, which rides along in `comments` — the alternative
+  // is widening this enum every time somebody thinks of a new routine.
+  "habit",
   // Once-a-day habits — logged as a single moment, never timed.
   "tummy",
   "sunlight",
