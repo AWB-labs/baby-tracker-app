@@ -30,8 +30,20 @@ app.use(cors());
 app.use(compression());
 app.use(express.json());
 
-// Health check
-app.get("/health", (_req, res) => res.json({ ok: true }));
+/**
+ * Health check, and which build is answering.
+ *
+ * The commit is here because "is my change live?" was repeatedly guessed at by
+ * probing for a route that only exists in the new code — which conflates a
+ * missing deploy with a genuine 404. Vercel injects the SHA at build time; it
+ * reads "local" anywhere else.
+ */
+app.get("/health", (_req, res) =>
+  res.json({
+    ok: true,
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+  })
+);
 
 // Routes
 app.use("/auth", authRouter);
