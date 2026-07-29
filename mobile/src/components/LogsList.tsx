@@ -1,5 +1,12 @@
-import React, { useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  View,
+  type ListRenderItemInfo,
+} from "react-native";
 import type { LogEntry } from "../api/logs";
 import { formatTime, formatDateLabel } from "../utils/formatTime";
 import { formatDuration, formatGapLabel } from "../utils/formatDuration";
@@ -15,7 +22,17 @@ import {
 } from "../design/activity";
 import { space, radius } from "../design/tokens";
 import { useUnits } from "../context/SettingsContext";
-import { Text, Emoji, Chip, ChipRow, FadeInUp, ConfirmDialog } from "./ui";
+import {
+  Text,
+  Emoji,
+  Chip,
+  ChipRow,
+  FadeInUp,
+  ConfirmDialog,
+  EmptyState,
+  SkeletonList,
+  screenContentPadding,
+} from "./ui";
 import SwipeableRow from "./SwipeableRow";
 import PauseTimelineIndicator from "./PauseTimelineIndicator";
 import EditLogModal from "./EditLogModal";
@@ -254,6 +271,8 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
 
 interface Props {
   logs: LogEntry[];
+  /** True while the first fetch for this baby is still in flight. */
+  loading?: boolean;
   onDelete?: (id: number) => void;
   onEdit?: () => void | Promise<void>;
   /**
@@ -262,9 +281,45 @@ interface Props {
    * switch chips freely afterwards.
    */
   initialFilter?: string | null;
+  /** The screen's header, scrolled with the rows rather than pinned above them. */
+  header?: React.ReactNode;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }
 
-export default function LogsList({ logs, onDelete, onEdit, initialFilter = null }: Props) {
+/** One row's worth of derived display state, computed once per list rather than
+ *  per render — see `items` below. */
+interface PreparedRow {
+  log: LogEntry;
+  dateLabel: string;
+  /** First entry of its calendar day, so it carries the date header. */
+  showHeader: boolean;
+  gapMinutes: number | null;
+}
+
+/**
+ * How many rows get an entrance animation.
+ *
+ * The list is virtualized, so rows mount and unmount as they scroll past. Fading
+ * every one of them in would re-run the animation each time a row came back into
+ * the window, which reads as flicker rather than as arrival. Only the first
+ * screenful animates — that's where the entrance is actually seen.
+ */
+const ANIMATED_ROWS = 8;
+
+const keyExtractor = (item: PreparedRow) => String(item.log.id);
+
+export default function LogsList({
+  logs,
+  loading = false,
+  onDelete,
+  onEdit,
+  initialFilter = null,
+  header,
+  refreshing,
+  onRefresh,
+}: Props) {
+  const t = useTheme();
   const [filter, setFilter] = useState<string | null>(initialFilter);
 
   // Re-apply when a new deep link arrives while the tab is already mounted.
@@ -274,70 +329,145 @@ export default function LogsList({ logs, onDelete, onEdit, initialFilter = null 
   const [pendingDelete, setPendingDelete] = useState<LogEntry | null>(null);
   const [editLog, setEditLog] = useState<LogEntry | null>(null);
 
+  /**
+   * Filtering, gap lookup and the date-header runs are resolved up front.
+   *
+   * The date header used to be decided by a `lastDate` variable carried across a
+   * `.map`, which a virtualized list cannot reproduce: rows render individually
+   * and out of order, so "is this a new day" has to be a property of the row,
+   * not of the loop that drew it.
+   */
+  // Gaps are measured against the unfiltered history — the time since the last
+  // feed doesn't change because the list is currently showing only nappies — so
+  // this is keyed on `logs` alone and survives a chip tap.
   const gaps = useMemo(() => computeGaps(logs), [logs]);
-  const filtered = filter ? logs.filter((l) => l.type === filter) : logs;
 
-  if (logs.length === 0) return null;
+  const items = useMemo<PreparedRow[]>(() => {
+    const source = filter ? logs.filter((l) => l.type === filter) : logs;
+    let lastDate = "";
+    return source.map((log) => {
+      const dateLabel = formatDateLabel(log.startTime);
+      const showHeader = dateLabel !== lastDate;
+      lastDate = dateLabel;
+      return { log, dateLabel, showHeader, gapMinutes: gaps.get(log.id) ?? null };
+    });
+  }, [logs, filter, gaps]);
 
-  let lastDate = "";
+  const renderItem = useCallback(
+    ({ item, index }: ListRenderItemInfo<PreparedRow>) => {
+      const { log, dateLabel, showHeader, gapMinutes } = item;
+
+      const row = (
+        <LogRow
+          log={log}
+          gapMinutes={gapMinutes}
+          onEdit={onEdit ? setEditLog : undefined}
+        />
+      );
+
+      const content = (
+        <>
+          {showHeader && (
+            <Text
+              variant="overline"
+              tone="subtle"
+              style={styles.dateHeader}
+              accessibilityRole="header"
+            >
+              {dateLabel}
+            </Text>
+          )}
+          {onDelete ? (
+            <SwipeableRow onDelete={() => setPendingDelete(log)}>
+              {row}
+            </SwipeableRow>
+          ) : (
+            row
+          )}
+        </>
+      );
+
+      return index < ANIMATED_ROWS ? (
+        <FadeInUp index={index}>{content}</FadeInUp>
+      ) : (
+        <View>{content}</View>
+      );
+    },
+    [onDelete, onEdit]
+  );
+
+  const listHeader = (
+    <View style={styles.header}>
+      {header}
+      {logs.length > 0 && (
+        <ChipRow>
+          {FILTERS.map((value) => (
+            <Chip
+              key={value ?? "all"}
+              label={value ? ACTIVITY_LABEL[value] : "All"}
+              emoji={value ? FILTER_EMOJI[value] : undefined}
+              selected={filter === value}
+              onPress={() => setFilter(value)}
+            />
+          ))}
+        </ChipRow>
+      )}
+    </View>
+  );
+
+  const listEmpty = loading ? (
+    <SkeletonList rows={5} />
+  ) : logs.length === 0 ? (
+    <EmptyState
+      icon="history"
+      title="Nothing logged yet"
+      body="Once a feed, nap or diaper is logged on Today it lands here, newest first."
+    />
+  ) : (
+    <View style={styles.noMatches}>
+      <Text variant="subhead" tone="subtle" center>
+        Nothing here for that filter yet.
+      </Text>
+    </View>
+  );
 
   return (
-    <View style={styles.list}>
-      <ChipRow>
-        {FILTERS.map((value) => (
-          <Chip
-            key={value ?? "all"}
-            label={value ? ACTIVITY_LABEL[value] : "All"}
-            emoji={value ? FILTER_EMOJI[value] : undefined}
-            selected={filter === value}
-            onPress={() => setFilter(value)}
-          />
-        ))}
-      </ChipRow>
-
-      {filtered.length === 0 ? (
-        <View style={styles.noMatches}>
-          <Text variant="subhead" tone="subtle" center>
-            Nothing here for that filter yet.
-          </Text>
-        </View>
-      ) : (
-        filtered.map((log, index) => {
-          const dateLabel = formatDateLabel(log.startTime);
-          const showHeader = dateLabel !== lastDate;
-          lastDate = dateLabel;
-
-          const row = (
-            <LogRow
-              log={log}
-              gapMinutes={gaps.get(log.id)}
-              onEdit={onEdit ? setEditLog : undefined}
+    <>
+      {/*
+        A FlatList, not a mapped ScrollView. Every row carries a gesture handler,
+        an animated value and an SVG icon, so mounting a full history at once ran
+        to tens of thousands of native views and took the app down. Windowing
+        keeps roughly a screenful alive at a time regardless of how many entries
+        the account has.
+      */}
+      <FlatList
+        data={items}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        // The screen hands over its full height; without this the list sizes to
+        // its content and spills past the bottom of the screen instead of
+        // scrolling inside it.
+        style={styles.fill}
+        contentContainerStyle={[screenContentPadding(), styles.listContent]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={!!refreshing}
+              onRefresh={onRefresh}
+              tintColor={t.accent}
+              colors={[t.accent]}
+              progressBackgroundColor={t.surface}
             />
-          );
-
-          return (
-            <FadeInUp key={log.id} index={index}>
-              {showHeader && (
-                <Text
-                  variant="overline"
-                  tone="subtle"
-                  style={styles.dateHeader}
-                  accessibilityRole="header"
-                >
-                  {dateLabel}
-                </Text>
-              )}
-              {onDelete ? (
-                <SwipeableRow onDelete={() => setPendingDelete(log)}>
-                  {row}
-                </SwipeableRow>
-              ) : (
-                row
-              )}
-            </FadeInUp>
-          );
-        })
-      )}
+          ) : undefined
+        }
+      />
 
       <ConfirmDialog
         visible={pendingDelete !== null}
@@ -364,12 +494,17 @@ export default function LogsList({ logs, onDelete, onEdit, initialFilter = null 
           onSaved={() => onEdit?.()}
         />
       )}
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  list: { gap: space.sm },
+  fill: { flex: 1 },
+  // Matches the gap Screen's ScrollView gave the rows before they were windowed.
+  listContent: { gap: space.sm },
+  // The header block keeps the screen header and the filter chips a full step
+  // apart, the spacing Screen's own content gap used to provide.
+  header: { gap: space.lg },
   dateHeader: {
     paddingTop: space.xl,
     paddingBottom: space.xs,

@@ -5,6 +5,7 @@ import "dotenv/config";
 import "express-async-errors";
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import { ZodError } from "zod";
 
 import authRouter from "./routes/auth";
@@ -21,6 +22,11 @@ import { AppError, friendlyPrismaMessage } from "./lib/httpError";
 const app = express();
 
 app.use(cors());
+// A log response is thousands of near-identical JSON objects, which gzip cuts by
+// roughly an order of magnitude. Mounted before the routes so it covers every
+// one of them, and it matters most on the phone: these bodies are fetched over
+// mobile data, and the hosting tier bills for outbound bandwidth.
+app.use(compression());
 app.use(express.json());
 
 // Health check
