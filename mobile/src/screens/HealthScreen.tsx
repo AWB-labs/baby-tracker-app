@@ -61,7 +61,12 @@ export default function HealthScreen() {
   const units = useUnits();
   const { activeBaby } = useBaby();
   const { account } = useAuth();
-  const { logs, loading, refresh, handleDelete } = useLogs("all");
+  // Only health entries, filtered in the query. This screen was downloading
+  // every feed, nap and nappy the account had ever recorded in order to throw
+  // all of them away and keep the fourteen it wanted.
+  const { logs, loading, refresh, handleDelete } = useLogs("all", {
+    type: "health",
+  });
 
   const [showForm, setShowForm] = useState(false);
   const [condition, setCondition] = useState<HealthCondition | null>(null);
@@ -78,6 +83,8 @@ export default function HealthScreen() {
   const [pendingDelete, setPendingDelete] = useState<LogEntry | null>(null);
   const [editLog, setEditLog] = useState<LogEntry | null>(null);
 
+  // The query already restricts this to health entries; the guard stays only
+  // so a stale response from before a baby switch can't slip a stray row in.
   const healthLogs = useMemo(
     () => logs.filter((l) => l.type === "health"),
     [logs]

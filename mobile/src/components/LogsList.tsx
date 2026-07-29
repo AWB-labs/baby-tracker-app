@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -276,15 +277,21 @@ interface Props {
   onDelete?: (id: number) => void;
   onEdit?: () => void | Promise<void>;
   /**
-   * Filter applied from outside — a snapshot card deep-linking into the Log
-   * pre-filtered to its activity. Later changes re-apply; the user can still
-   * switch chips freely afterwards.
+   * The active activity filter, owned by the screen.
+   *
+   * Controlled rather than internal because it decides what gets *fetched* now,
+   * not just what gets shown: the list is paged, so filtering has to happen in
+   * the query or a chip would search only the rows already downloaded.
    */
-  initialFilter?: string | null;
+  filter?: string | null;
+  onFilterChange?: (filter: string | null) => void;
   /** The screen's header, scrolled with the rows rather than pinned above them. */
   header?: React.ReactNode;
   refreshing?: boolean;
   onRefresh?: () => void;
+  /** Fetch the next page — wired to the list reaching its end. */
+  onEndReached?: () => void;
+  loadingMore?: boolean;
 }
 
 /** One row's worth of derived display state, computed once per list rather than
@@ -314,18 +321,15 @@ export default function LogsList({
   loading = false,
   onDelete,
   onEdit,
-  initialFilter = null,
+  filter = null,
+  onFilterChange,
   header,
   refreshing,
   onRefresh,
+  onEndReached,
+  loadingMore = false,
 }: Props) {
   const t = useTheme();
-  const [filter, setFilter] = useState<string | null>(initialFilter);
-
-  // Re-apply when a new deep link arrives while the tab is already mounted.
-  React.useEffect(() => {
-    setFilter(initialFilter);
-  }, [initialFilter]);
   const [pendingDelete, setPendingDelete] = useState<LogEntry | null>(null);
   const [editLog, setEditLog] = useState<LogEntry | null>(null);
 
@@ -342,16 +346,18 @@ export default function LogsList({
   // this is keyed on `logs` alone and survives a chip tap.
   const gaps = useMemo(() => computeGaps(logs), [logs]);
 
+  // No filtering here: the chips re-query the server now. Narrowing a page
+  // that has already been fetched would show "nothing here" for any activity
+  // whose most recent entry falls outside the rows loaded so far.
   const items = useMemo<PreparedRow[]>(() => {
-    const source = filter ? logs.filter((l) => l.type === filter) : logs;
     let lastDate = "";
-    return source.map((log) => {
+    return logs.map((log) => {
       const dateLabel = formatDateLabel(log.startTime);
       const showHeader = dateLabel !== lastDate;
       lastDate = dateLabel;
       return { log, dateLabel, showHeader, gapMinutes: gaps.get(log.id) ?? null };
     });
-  }, [logs, filter, gaps]);
+  }, [logs, gaps]);
 
   const renderItem = useCallback(
     ({ item, index }: ListRenderItemInfo<PreparedRow>) => {
@@ -399,7 +405,10 @@ export default function LogsList({
   const listHeader = (
     <View style={styles.header}>
       {header}
-      {logs.length > 0 && (
+      {/* Shown whenever a filter is on, even with nothing to show: the chips
+          are the only way back to "All", and hiding them on an empty result
+          would strand you there. */}
+      {(logs.length > 0 || filter) && (
         <ChipRow>
           {FILTERS.map((value) => (
             <Chip
@@ -407,7 +416,7 @@ export default function LogsList({
               label={value ? ACTIVITY_LABEL[value] : "All"}
               emoji={value ? FILTER_EMOJI[value] : undefined}
               selected={filter === value}
-              onPress={() => setFilter(value)}
+              onPress={() => onFilterChange?.(value)}
             />
           ))}
         </ChipRow>
@@ -415,21 +424,30 @@ export default function LogsList({
     </View>
   );
 
+  // With the filter in the query, an empty result means the server has nothing
+  // of that type — not that the loaded page happened to miss it.
   const listEmpty = loading ? (
     <SkeletonList rows={5} />
-  ) : logs.length === 0 ? (
+  ) : filter ? (
+    <View style={styles.noMatches}>
+      <Text variant="subhead" tone="subtle" center>
+        No {(ACTIVITY_LABEL[filter] ?? filter).toLowerCase()} entries yet.
+      </Text>
+    </View>
+  ) : (
     <EmptyState
       icon="history"
       title="Nothing logged yet"
       body="Once a feed, nap or diaper is logged on Today it lands here, newest first."
     />
-  ) : (
-    <View style={styles.noMatches}>
-      <Text variant="subhead" tone="subtle" center>
-        Nothing here for that filter yet.
-      </Text>
-    </View>
   );
+
+  /** A spinner only while a page is actually in flight. */
+  const listFooter = loadingMore ? (
+    <View style={styles.footerSpinner}>
+      <ActivityIndicator color={t.accent} />
+    </View>
+  ) : null;
 
   return (
     <>
@@ -446,6 +464,11 @@ export default function LogsList({
         keyExtractor={keyExtractor}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={listEmpty}
+        ListFooterComponent={listFooter}
+        onEndReached={onEndReached}
+        // Half a screen's warning. Firing at the very bottom means waiting for
+        // a round trip with nothing left to read.
+        onEndReachedThreshold={0.5}
         // The screen hands over its full height; without this the list sizes to
         // its content and spills past the bottom of the screen instead of
         // scrolling inside it.
@@ -512,6 +535,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
   },
   noMatches: { paddingVertical: space.xxl },
+  footerSpinner: { paddingVertical: space.lg },
   row: {
     flexDirection: "row",
     alignItems: "flex-start",

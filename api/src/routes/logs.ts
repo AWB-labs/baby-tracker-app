@@ -123,20 +123,43 @@ const createLogSchema = z
     }
   });
 
-// GET /logs?babyId=X&limit=200
+/**
+ * GET /logs?babyId=X&limit=100&cursor=<id>&type=health
+ *
+ * Paginated by keyset rather than by offset: `cursor` is the id of the last row
+ * the client already has, and the next page starts after it. An OFFSET grows
+ * more expensive the deeper you scroll, and it silently duplicates or skips
+ * rows when something is logged while you're reading.
+ *
+ * The response is still a bare array. There is no envelope to unpack and no
+ * `nextCursor` to thread through, because the client already holds it — it's
+ * the last item's id — and "there may be more" is just a full page. That also
+ * means an older build calling this without a cursor gets exactly what it
+ * always did.
+ *
+ * `type` filters server-side, which is what makes a tab like Medical cheap:
+ * fourteen health entries instead of every row the account has ever written.
+ */
 router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
   const babyId = parseId(req.query.babyId, "baby");
   const limit = req.query.limit === "all" ? undefined : parseInt((req.query.limit as string) || "200");
+  const type = typeof req.query.type === "string" ? req.query.type : undefined;
+  const cursor = req.query.cursor ? parseId(req.query.cursor, "entry") : undefined;
 
   await requireBabyAccess(accountId, babyId);
 
   // Scoped by baby, not by author: every caregiver sees the same timeline, so
   // a feed logged by one parent is visible to the other.
   const logs = await prisma.activityLog.findMany({
-    where: { babyId },
-    orderBy: { startTime: "desc" },
+    where: { babyId, ...(type ? { type } : {}) },
+    // id breaks ties on startTime. Without it two entries logged in the same
+    // minute have no defined order, and a cursor can't point at "after this
+    // one" when the database is free to disagree about which one that is.
+    orderBy: [{ startTime: "desc" }, { id: "desc" }],
     take: limit,
+    // skip:1 steps past the cursor row itself, which the client already has.
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     select: LOG_SELECT,
   });
 

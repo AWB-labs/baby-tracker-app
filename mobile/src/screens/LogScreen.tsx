@@ -11,6 +11,16 @@ import ManualEntryModal from "../components/ManualEntryModal";
 import type { TabParamList } from "../navigation/AppTabs";
 
 /**
+ * Rows per request.
+ *
+ * Enough that the first screenful and a few flicks of scrolling arrive in one
+ * round trip, small enough that opening the tab isn't a download of the
+ * account's entire history — which for a baby with a year of entries was a
+ * megabyte of JSON before anything appeared.
+ */
+const PAGE_SIZE = 60;
+
+/**
  * The entry timeline — every log, newest first, filterable by activity.
  *
  * This tab answers "what happened"; Insights answers "how are things
@@ -21,11 +31,26 @@ import type { TabParamList } from "../navigation/AppTabs";
 export default function LogScreen() {
   const { activeBaby } = useBaby();
   const { account } = useAuth();
-  const { logs, loading, refresh, handleDelete } = useLogs("all");
+  const route = useRoute<RouteProp<TabParamList, "Activity">>();
+  /**
+   * The filter lives here, not in the list, because it decides what gets
+   * fetched: with the timeline paged, narrowing it client-side would search
+   * only the rows already downloaded and report "none" for any activity whose
+   * last entry is further back than that.
+   */
+  const [filter, setFilter] = useState<string | null>(route.params?.filter ?? null);
+
+  // A snapshot card deep-linking in while the tab is already mounted.
+  useEffect(() => {
+    setFilter(route.params?.filter ?? null);
+  }, [route.params?.filter]);
+
+  const { logs, loading, refresh, handleDelete, loadMore, loadingMore } = useLogs(
+    PAGE_SIZE,
+    { type: filter, paginate: true }
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [showManual, setShowManual] = useState(false);
-  const route = useRoute<RouteProp<TabParamList, "Activity">>();
-  const filter = route.params?.filter ?? null;
   const enteredByName = account?.name || "Unknown";
 
   // Each screen owns its own useLogs, and the tab stays mounted, so without
@@ -97,10 +122,13 @@ export default function LogScreen() {
         loading={loading}
         onDelete={handleDelete}
         onEdit={refresh}
-        initialFilter={filter}
+        filter={filter}
+        onFilterChange={setFilter}
         header={header}
         refreshing={refreshing}
         onRefresh={onRefresh}
+        onEndReached={loadMore}
+        loadingMore={loadingMore}
       />
 
       {activeBaby ? (

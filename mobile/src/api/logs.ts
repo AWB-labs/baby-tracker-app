@@ -26,12 +26,29 @@ export interface LogEntry {
   createdAt: string;
 }
 
+export interface FetchLogsOptions {
+  /** Only this activity type. Filtering on the server, not after the fact. */
+  type?: string | null;
+  /**
+   * Id of the last entry already held; the next page starts after it. Keyset
+   * rather than offset, so paging stays cheap however deep you scroll and
+   * doesn't shuffle when someone logs an entry while you're reading.
+   */
+  cursor?: number | null;
+}
+
 export async function fetchLogs(
   babyId: number,
-  limit: number | "all" = 200
+  limit: number | "all" = 200,
+  options: FetchLogsOptions = {}
 ): Promise<LogEntry[]> {
   const res = await apiClient.get<LogEntry[]>("/logs", {
-    params: { babyId, limit },
+    params: {
+      babyId,
+      limit,
+      ...(options.type ? { type: options.type } : {}),
+      ...(options.cursor ? { cursor: options.cursor } : {}),
+    },
   });
   return res.data;
 }
