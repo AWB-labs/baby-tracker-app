@@ -25,14 +25,36 @@ export type HabitType =
   | "massage"
   | "teeth"
   | "walk"
-  | "medicine";
+  | "medicine"
+  /** Every family-invented habit; its name is what tells them apart. */
+  | "habit";
 
 export interface HabitDef {
+  /**
+   * Identity within this baby's config. A catalogue habit uses its own type;
+   * a custom one gets a generated key, because all custom habits share the
+   * single "habit" server type and would otherwise collide.
+   */
+  key: string;
+  /** The server log type a tick is written as. */
   type: HabitType;
   label: string;
   emoji: string;
   enabled: boolean;
+  /**
+   * A habit the family made up. Its logs are type "habit" and are matched back
+   * to it by label, so renaming one starts its streak over — which is why the
+   * edit flow doesn't offer a rename.
+   */
+  custom?: boolean;
 }
+
+/** The emoji offered when inventing a habit. Deliberately a short list: a full
+ *  picker is a lot of screen for a decision that barely matters. */
+export const HABIT_EMOJI_CHOICES = [
+  "⭐", "🍼", "🧸", "📚", "🎵", "🧴", "🪥", "🚼",
+  "💧", "🌙", "🧦", "🩹", "🏃", "🎨", "🫧", "🌿",
+];
 
 /**
  * Every habit a family can add, in the order they appear in the "Add a habit"
@@ -40,24 +62,43 @@ export interface HabitDef {
  * tick syncs across caregivers like any other entry.
  */
 export const HABIT_CATALOG: HabitDef[] = [
-  { type: "vitamin", label: "Vitamin", emoji: "💊", enabled: true },
-  { type: "shower", label: "Shower", emoji: "🚿", enabled: true },
-  { type: "nailcut", label: "Nail Cut", emoji: "💅", enabled: true },
-  { type: "tummy", label: "Tummy Time", emoji: "🤸", enabled: true },
-  { type: "sunlight", label: "Sunlight", emoji: "☀️", enabled: true },
-  { type: "bath", label: "Bath", emoji: "🛁", enabled: true },
-  { type: "massage", label: "Massage", emoji: "💆", enabled: true },
-  { type: "teeth", label: "Brush Teeth", emoji: "🪥", enabled: true },
-  { type: "walk", label: "Walk", emoji: "🚶", enabled: true },
-  { type: "medicine", label: "Medicine", emoji: "💉", enabled: true },
+  { key: "vitamin", type: "vitamin", label: "Vitamin", emoji: "💊", enabled: true },
+  { key: "shower", type: "shower", label: "Shower", emoji: "🚿", enabled: true },
+  { key: "nailcut", type: "nailcut", label: "Nail Cut", emoji: "💅", enabled: true },
+  { key: "tummy", type: "tummy", label: "Tummy Time", emoji: "🤸", enabled: true },
+  { key: "sunlight", type: "sunlight", label: "Sunlight", emoji: "☀️", enabled: true },
+  { key: "bath", type: "bath", label: "Bath", emoji: "🛁", enabled: true },
+  { key: "massage", type: "massage", label: "Massage", emoji: "💆", enabled: true },
+  { key: "teeth", type: "teeth", label: "Brush Teeth", emoji: "🪥", enabled: true },
+  { key: "walk", type: "walk", label: "Walk", emoji: "🚶", enabled: true },
+  { key: "medicine", type: "medicine", label: "Medicine", emoji: "💉", enabled: true },
 ];
 
 /** What a brand-new baby starts with, before the family customizes. */
 export const DEFAULT_HABITS: HabitDef[] = [
-  { type: "vitamin", label: "Vitamin", emoji: "💊", enabled: true },
-  { type: "shower", label: "Shower", emoji: "🚿", enabled: true },
-  { type: "nailcut", label: "Nail Cut", emoji: "💅", enabled: true },
+  { key: "vitamin", type: "vitamin", label: "Vitamin", emoji: "💊", enabled: true },
+  { key: "shower", type: "shower", label: "Shower", emoji: "🚿", enabled: true },
+  { key: "nailcut", type: "nailcut", label: "Nail Cut", emoji: "💅", enabled: true },
 ];
+
+/**
+ * Build a family-invented habit.
+ *
+ * The key is derived from the label rather than randomly, so re-adding a habit
+ * someone removed picks its history back up instead of starting a fresh streak
+ * beside the old logs.
+ */
+export function makeCustomHabit(label: string, emoji: string): HabitDef {
+  const name = label.trim();
+  return {
+    key: `custom:${name.toLowerCase()}`,
+    type: "habit",
+    label: name,
+    emoji,
+    enabled: true,
+    custom: true,
+  };
+}
 
 function storageKey(babyId: number): string {
   return `babytracker_habits_${babyId}`;
@@ -72,15 +113,25 @@ export async function loadHabits(babyId: number): Promise<HabitDef[]> {
     const saved: HabitDef[] = JSON.parse(raw);
     if (!Array.isArray(saved)) return DEFAULT_HABITS;
     // Honour the saved list exactly — including habits the family has removed.
-    // Only drop types no longer in the catalogue and refresh label/emoji from
-    // it, so a shipped rename reaches an existing config without re-adding
-    // anything the user took off.
+    // Catalogue entries have their label and emoji refreshed from the catalogue
+    // so a shipped rename reaches an existing config, and any whose type has
+    // since been withdrawn are dropped. Custom ones are the family's own words
+    // and are passed through untouched.
     return saved
-      .filter((h) => CATALOG_BY_TYPE.has(h.type))
-      .map((h) => {
-        const meta = CATALOG_BY_TYPE.get(h.type)!;
-        return { ...h, label: meta.label, emoji: meta.emoji };
-      });
+      .map((h): HabitDef | null => {
+        if (h.custom) {
+          return {
+            ...h,
+            type: "habit",
+            // Configs written before custom habits existed have no key.
+            key: h.key || `custom:${h.label.toLowerCase()}`,
+          };
+        }
+        const meta = CATALOG_BY_TYPE.get(h.type);
+        if (!meta) return null;
+        return { ...h, key: h.type, label: meta.label, emoji: meta.emoji };
+      })
+      .filter((h): h is HabitDef => h !== null);
   } catch {
     return DEFAULT_HABITS;
   }
@@ -118,11 +169,17 @@ const MISSED_LOOKBACK_DAYS = 5;
 
 export function computeHabitStats(
   logs: LogEntry[],
-  type: HabitType
+  habit: HabitDef
 ): HabitStats {
+  // Custom habits all share the "habit" type, so the name the family gave it is
+  // the only thing separating one streak from another.
+  const matches = habit.custom
+    ? (log: LogEntry) => log.type === "habit" && log.comments === habit.label
+    : (log: LogEntry) => log.type === habit.type;
+
   const daysWith = new Set<string>();
   for (const log of logs) {
-    if (log.type === type) {
+    if (matches(log)) {
       daysWith.add(new Date(log.startTime).toDateString());
     }
   }

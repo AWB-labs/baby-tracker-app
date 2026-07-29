@@ -51,6 +51,9 @@ const createLogSchema = z
       "nailcut",
       "growth",
       "health",
+      // A habit the family invented. Its name travels in `comments`, so one
+      // type covers every one of them without another enum change.
+      "habit",
       // Once-a-day habit types. Instant logs (see lib/activities.ts); the
       // mobile habit catalogue mirrors this list.
       "tummy",
