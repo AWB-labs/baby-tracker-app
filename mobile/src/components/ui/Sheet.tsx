@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +17,11 @@ import { useThemeContext, useReduceMotion } from "../../design/ThemeProvider";
 import { space, radius, motion } from "../../design/tokens";
 import { Text } from "./primitives";
 import { IconButton } from "./Button";
+
+/** How far down the sheet must travel before letting go dismisses it. */
+const DISMISS_DISTANCE = 110;
+/** Or how fast, so a quick flick doesn't have to cover the full distance. */
+const DISMISS_VELOCITY = 0.7;
 
 export interface SheetProps {
   visible: boolean;
@@ -54,10 +60,66 @@ export function Sheet({
   // Measured so the panel slides exactly its own height — no off-screen guess.
   const [sheetH, setSheetH] = useState(0);
   const progress = useRef(new Animated.Value(0)).current;
+  /** How far the finger has dragged the panel down, added to the slide. */
+  const drag = useRef(new Animated.Value(0)).current;
+
+  /**
+   * Drag the sheet away.
+   *
+   * The grabber has always said this was possible; until now it wasn't, and a
+   * dismissal affordance that ignores the gesture it depicts is worse than no
+   * affordance at all.
+   *
+   * Deliberately PanResponder and Animated rather than gesture-handler: its
+   * GestureDetector runs on Reanimated's worklet runtime, which crashes under
+   * this project's babel setup — the same reason SwipeableRow was moved back.
+   *
+   * The responder lives on the header, not the whole panel. The body scrolls,
+   * and a sheet that dismisses when you drag its list is a sheet you can't
+   * scroll.
+   */
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        // Claim only a clear downward drag, so a tap on the close button or a
+        // horizontal wander doesn't start dragging the sheet.
+        onMoveShouldSetPanResponder: (_e, g) =>
+          g.dy > 6 && g.dy > Math.abs(g.dx),
+        onPanResponderMove: (_e, g) => {
+          // Downward only: dragging up shouldn't lift the sheet off its edge.
+          drag.setValue(Math.max(0, g.dy));
+        },
+        onPanResponderRelease: (_e, g) => {
+          // Either a decisive distance or a quick flick counts — waiting for
+          // the full distance on a fast flick feels like the sheet resisted.
+          if (g.dy > DISMISS_DISTANCE || g.vy > DISMISS_VELOCITY) {
+            // Let the exit animation carry on from where the finger left off
+            // rather than snapping back up first.
+            onClose();
+            return;
+          }
+          Animated.spring(drag, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(drag, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+          }).start();
+        },
+      }),
+    [drag, onClose]
+  );
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
+      // A fresh open always starts undragged, whatever the last dismissal left.
+      drag.setValue(0);
       if (reduceMotion) {
         progress.setValue(1);
         return;
@@ -93,10 +155,13 @@ export function Sheet({
 
   if (!mounted) return null;
 
-  const translateY = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [sheetH || 600, 0],
-  });
+  const translateY = Animated.add(
+    progress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [sheetH || 600, 0],
+    }),
+    drag
+  );
 
   return (
     <Modal
@@ -156,21 +221,26 @@ export function Sheet({
               },
             ]}
           >
-            {/* Grabber: the affordance that says "this can be dragged away". */}
-            <View style={[styles.grabber, { backgroundColor: t.borderStrong }]} />
+            {/* The drag handle is the grabber *and* the title block: a 4pt bar
+                is a hard target, and the whole top of a sheet is where people
+                already reach to push it away. */}
+            <View {...panResponder.panHandlers}>
+              {/* Grabber: the affordance that says "this can be dragged away". */}
+              <View style={[styles.grabber, { backgroundColor: t.borderStrong }]} />
 
-            <View style={styles.header}>
-              <View style={styles.headerText}>
-                <Text variant="title3" accessibilityRole="header">
-                  {title}
-                </Text>
-                {subtitle ? (
-                  <Text variant="footnote" tone="subtle">
-                    {subtitle}
+              <View style={styles.header}>
+                <View style={styles.headerText}>
+                  <Text variant="title3" accessibilityRole="header">
+                    {title}
                   </Text>
-                ) : null}
+                  {subtitle ? (
+                    <Text variant="footnote" tone="subtle">
+                      {subtitle}
+                    </Text>
+                  ) : null}
+                </View>
+                <IconButton icon="close" label="Close" onPress={onClose} />
               </View>
-              <IconButton icon="close" label="Close" onPress={onClose} />
             </View>
 
             <ScrollView
