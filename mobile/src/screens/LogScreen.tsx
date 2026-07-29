@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { Pressable } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 import { useFocusEffect, useRoute, type RouteProp } from "@react-navigation/native";
 import {
   Screen,
@@ -51,7 +51,10 @@ export default function LogScreen() {
   }, [refresh]);
 
   return (
-    <Screen refreshing={refreshing} onRefresh={onRefresh}>
+    // The FlatList inside LogsList owns the scrolling — nesting it in the
+    // Screen's ScrollView would disable virtualization and mount every row,
+    // which is what made this tab slow and crashy with a real history.
+    <Screen scroll={false} contentStyle={styles.content}>
       <ScreenHeader
         title="Log"
         subtitle={`Everything, newest first${activeBaby ? ` · ${activeBaby.name}` : ""}`}
@@ -88,6 +91,8 @@ export default function LogScreen() {
           onDelete={handleDelete}
           onEdit={refresh}
           initialFilter={filter}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
         />
       )}
 
@@ -104,3 +109,9 @@ export default function LogScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  // flex:1 gives the FlatList a bounded viewport; bottom padding moves into
+  // the list's own content inset so rows scroll under the floating tab bar.
+  content: { flex: 1, paddingBottom: 0 },
+});

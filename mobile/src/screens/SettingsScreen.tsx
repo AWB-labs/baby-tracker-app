@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Switch, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useTheme, useThemeContext, type Appearance } from "../design/ThemeProvider";
 import { space, radius, DISABLED_OPACITY, PRESSED_OPACITY } from "../design/tokens";
-import { REMINDER_EMOJI } from "../design/activity";
 import { Icon } from "../design/icons";
 import {
   Screen,
@@ -29,7 +30,6 @@ import { useAuth } from "../context/AuthContext";
 import { useBaby } from "../context/BabyContext";
 import { useSettings, useUnits } from "../context/SettingsContext";
 import { useToast } from "../components/Toast";
-import { usePushRegistration } from "../hooks/usePushRegistration";
 import {
   getMembers,
   addMember,
@@ -38,22 +38,11 @@ import {
   type BabyMember,
   type PendingInvite,
 } from "../api/members";
-import {
-  getReminders,
-  createReminder,
-  updateReminder,
-  deleteReminder,
-  formatInterval,
-  formatDays,
-  WEEKDAYS,
-  REMINDER_TYPES,
-  REMINDER_META,
-  type Reminder,
-  type ReminderType,
-} from "../api/reminders";
+import { getReminders, type Reminder } from "../api/reminders";
 import { updateBaby } from "../api/babies";
 import DobField from "../components/DobField";
 import type { UnitSystem } from "../api/settings";
+import type { AccountStackParamList } from "../navigation/AppTabs";
 
 const GENDER_OPTIONS: { value: "girl" | "boy"; label: string }[] = [
   { value: "girl", label: "Girl" },
@@ -99,7 +88,8 @@ export default function SettingsScreen() {
     save,
     refresh: refreshSettings,
   } = useSettings();
-  const push = usePushRegistration();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AccountStackParamList>>();
 
   const [members, setMembers] = useState<BabyMember[]>([]);
   const [invites, setInvites] = useState<PendingInvite[]>([]);
@@ -110,15 +100,6 @@ export default function SettingsScreen() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
-
-  // New-reminder form
-  const [newType, setNewType] = useState<ReminderType>("feed");
-  const [newLabel, setNewLabel] = useState("");
-  const [newHours, setNewHours] = useState("3");
-  const [newMinutes, setNewMinutes] = useState("0");
-  // Empty means every day — the common case, so it's also the default.
-  const [newDays, setNewDays] = useState<number[]>([]);
-  const [addingReminder, setAddingReminder] = useState(false);
 
   const [savingField, setSavingField] = useState<string | null>(null);
 
@@ -207,76 +188,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // --- Reminders ---
-
-  const handleAddReminder = async () => {
-    if (!activeBaby) return;
-    const hours = parseInt(newHours || "0", 10);
-    const minutes = parseInt(newMinutes || "0", 10);
-    if (isNaN(hours) || isNaN(minutes) || hours * 60 + minutes < 5) {
-      toast.error("Choose an interval of at least 5 minutes.");
-      return;
-    }
-    if (newType === "custom" && !newLabel.trim()) {
-      toast.error("Give your custom reminder a name.");
-      return;
-    }
-    setAddingReminder(true);
-    try {
-      const created = await createReminder({
-        babyId: activeBaby.id,
-        type: newType,
-        label: newLabel.trim() || null,
-        hours,
-        minutes,
-        daysOfWeek: newDays.length > 0 ? newDays : null,
-      });
-      setReminders((prev) => [...prev, created]);
-      setNewLabel("");
-      setNewDays([]);
-      toast.success(
-        created.daysOfWeek
-          ? `You'll be reminded every ${formatInterval(created.intervalMinutes)} on ${formatDays(created.daysOfWeek).toLowerCase()}.`
-          : `You'll be reminded every ${formatInterval(created.intervalMinutes)}.`
-      );
-    } catch (err) {
-      toast.showError(err);
-    } finally {
-      setAddingReminder(false);
-    }
-  };
-
-  const handleToggleReminder = async (reminder: Reminder) => {
-    // Flip immediately so the switch feels instant, then put it back if the
-    // server disagrees.
-    const next = !reminder.enabled;
-    setReminders((prev) =>
-      prev.map((r) => (r.id === reminder.id ? { ...r, enabled: next } : r))
-    );
-    try {
-      await updateReminder(reminder.id, { enabled: next });
-    } catch (err) {
-      setReminders((prev) =>
-        prev.map((r) =>
-          r.id === reminder.id ? { ...r, enabled: reminder.enabled } : r
-        )
-      );
-      toast.showError(err);
-    }
-  };
-
-  const handleDeleteReminder = async (reminder: Reminder) => {
-    const previous = reminders;
-    setReminders((prev) => prev.filter((r) => r.id !== reminder.id));
-    try {
-      await deleteReminder(reminder.id);
-      toast.success("Reminder removed.");
-    } catch (err) {
-      setReminders(previous);
-      toast.showError(err);
-    }
-  };
-
   // --- Preferences ---
 
   const handleUnitChange = async (system: UnitSystem) => {
@@ -297,17 +208,6 @@ export default function SettingsScreen() {
   };
 
 
-
-  const handleNotificationsToggle = async (value: boolean) => {
-    try {
-      await save({ notificationsEnabled: value });
-      toast.success(
-        value ? "Reminders switched on." : "All reminders paused."
-      );
-    } catch (err) {
-      toast.showError(err);
-    }
-  };
 
   // --- Baby appearance ---
 
@@ -360,20 +260,6 @@ export default function SettingsScreen() {
       setSavingField(null);
     }
   };
-
-  const availableTypes = useMemo(() => {
-    const used = new Set(
-      reminders.filter((r) => r.type !== "custom").map((r) => r.type)
-    );
-    return REMINDER_TYPES.filter((t) => t.value === "custom" || !used.has(t.value));
-  }, [reminders]);
-
-  useEffect(() => {
-    // The previously selected type may have just been used up.
-    if (!availableTypes.some((t) => t.value === newType)) {
-      setNewType(availableTypes[0]?.value ?? "custom");
-    }
-  }, [availableTypes, newType]);
 
   if (!activeBaby) {
     return (
@@ -546,190 +432,36 @@ export default function SettingsScreen() {
           {/* ---------- Reminders ---------- */}
           <View style={styles.section}>
             <SectionHeader title="Reminders" />
-            <Card>
-              <View style={styles.switchRow}>
-                <View style={styles.rowBody}>
-                  <Text variant="subheadStrong">Notifications</Text>
-                  <Text variant="caption" tone="subtle">
-                    {push && push.status !== "granted"
-                      ? push.message
-                      : "Reminders are sent to this device."}
-                  </Text>
-                </View>
-                <Switch
-                  value={notificationsEnabled}
-                  onValueChange={handleNotificationsToggle}
-                  trackColor={{ true: t.accent, false: t.border }}
-                  thumbColor={t.surface}
-                  ios_backgroundColor={t.border}
-                  accessibilityLabel="Notifications"
-                />
+            <Pressable
+              onPress={() => navigation.navigate("Reminders")}
+              accessibilityRole="button"
+              accessibilityLabel={`Reminders. ${
+                reminders.filter((r) => r.enabled).length
+              } active. Opens the reminders screen.`}
+              style={({ pressed }) => [
+                styles.navRow,
+                {
+                  backgroundColor: t.surface,
+                  borderColor: t.border,
+                  opacity: pressed ? PRESSED_OPACITY : 1,
+                },
+              ]}
+            >
+              <View style={[styles.avatar, { backgroundColor: t.accentSofter }]}>
+                <Emoji size={18}>{notificationsEnabled ? "🔔" : "🔕"}</Emoji>
               </View>
-
-              {reminders.length === 0 ? (
-                <EmptyState
-                  icon="bell"
-                  title="No reminders yet"
-                  body="Add one below and we'll nudge you when it's been too long."
-                />
-              ) : (
-                <View style={styles.rows}>
-                  {reminders.map((r, index) => {
-                    const meta = REMINDER_META.get(r.type);
-                    const name = r.label || meta?.label || r.type;
-                    return (
-                      <FadeInUp key={r.id} index={index}>
-                        <View style={[styles.row, { borderTopColor: t.border }]}>
-                          <View
-                            style={[styles.avatar, { backgroundColor: t.accentSofter }]}
-                          >
-                            <Emoji size={18}>
-                              {REMINDER_EMOJI[r.type] ?? REMINDER_EMOJI.custom}
-                            </Emoji>
-                          </View>
-                          <View style={styles.rowBody}>
-                            <Text variant="subheadStrong" numberOfLines={1}>
-                              {name}
-                            </Text>
-                            <Text variant="caption" tone="subtle">
-                              Every {formatInterval(r.intervalMinutes)}
-                              {meta?.watchesActivity ? " since the last one" : ""}
-                              {r.daysOfWeek
-                                ? ` · ${formatDays(r.daysOfWeek)}`
-                                : ""}
-                            </Text>
-                          </View>
-                          <Switch
-                            value={r.enabled}
-                            onValueChange={() => handleToggleReminder(r)}
-                            trackColor={{ true: t.accent, false: t.border }}
-                            thumbColor={t.surface}
-                            ios_backgroundColor={t.border}
-                            accessibilityLabel={`${name} reminder`}
-                          />
-                          <IconButton
-                            icon="trash"
-                            label={`Delete the ${name.toLowerCase()} reminder`}
-                            variant="ghost"
-                            size="sm"
-                            onPress={() => handleDeleteReminder(r)}
-                          />
-                        </View>
-                      </FadeInUp>
-                    );
-                  })}
-                </View>
-              )}
-
-              <Divider style={styles.divider} />
-
-              <View style={styles.form}>
-                <Field label="Remind me to…">
-                  <ChipWrap>
-                    {availableTypes.map((option) => (
-                      <Chip
-                        key={option.value}
-                        label={option.label}
-                        emoji={REMINDER_EMOJI[option.value] ?? REMINDER_EMOJI.custom}
-                        selected={newType === option.value}
-                        onPress={() => setNewType(option.value)}
-                      />
-                    ))}
-                  </ChipWrap>
-                </Field>
-
-                {newType === "custom" && (
-                  <Input
-                    label="Call it"
-                    value={newLabel}
-                    onChangeText={setNewLabel}
-                    placeholder="What should we call it?"
-                  />
-                )}
-
-                <View style={styles.intervalRow}>
-                  <Input
-                    containerStyle={styles.flex}
-                    label="Every · hours"
-                    value={newHours}
-                    onChangeText={setNewHours}
-                    keyboardType="number-pad"
-                    placeholder="0"
-                  />
-                  <Input
-                    containerStyle={styles.flex}
-                    label="…and minutes"
-                    value={newMinutes}
-                    onChangeText={setNewMinutes}
-                    keyboardType="number-pad"
-                    placeholder="0"
-                  />
-                </View>
-                <Text variant="footnote" tone="subtle">
-                  At least 5 minutes in total.
+              <View style={styles.rowBody}>
+                <Text variant="subheadStrong">Reminders</Text>
+                <Text variant="caption" tone="subtle">
+                  {!notificationsEnabled
+                    ? "Notifications off"
+                    : reminders.length === 0
+                      ? "None yet — add your first nudge"
+                      : `${reminders.filter((r) => r.enabled).length} of ${reminders.length} active`}
                 </Text>
-
-                {/* Nothing selected means every day, so the common case needs
-                    no interaction at all — you only touch this to narrow it. */}
-                <Field
-                  label="On these days"
-                  helper={
-                    newDays.length === 0
-                      ? "Every day. Tap to limit it to certain days."
-                      : formatDays(newDays)
-                  }
-                >
-                  <View style={styles.dayRow}>
-                    {WEEKDAYS.map((day) => {
-                      const selected = newDays.includes(day.value);
-                      return (
-                        <Pressable
-                          key={day.value}
-                          onPress={() =>
-                            setNewDays((prev) =>
-                              prev.includes(day.value)
-                                ? prev.filter((d) => d !== day.value)
-                                : [...prev, day.value].sort((a, b) => a - b)
-                            )
-                          }
-                          accessibilityRole="button"
-                          accessibilityState={{ selected }}
-                          accessibilityLabel={day.long}
-                          style={({ pressed }) => [
-                            styles.dayTile,
-                            {
-                              backgroundColor: selected
-                                ? t.accent
-                                : t.accentSofter,
-                              borderColor: selected ? t.accent : "transparent",
-                              opacity: pressed ? PRESSED_OPACITY : 1,
-                            },
-                          ]}
-                        >
-                          <Text
-                            variant="caption"
-                            style={{
-                              color: selected ? t.onAccent : t.accentText,
-                            }}
-                          >
-                            {day.short}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </Field>
-
-                <Button
-                  label={addingReminder ? "Adding…" : "Add reminder"}
-                  icon="plus"
-                  variant="secondary"
-                  fullWidth
-                  loading={addingReminder}
-                  onPress={handleAddReminder}
-                />
               </View>
-            </Card>
+              <Icon name="chevronRight" size="md" color={t.textSubtle} />
+            </Pressable>
           </View>
 
           {/* ---------- Units ---------- */}
@@ -883,12 +615,6 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   rowBody: { flex: 1, minWidth: 0, gap: space.xxs },
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-    paddingBottom: space.sm,
-  },
   avatar: {
     width: 40,
     height: 40,
@@ -897,17 +623,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   divider: { marginVertical: space.lg },
-  intervalRow: { flexDirection: "row", gap: space.sm },
-  // Seven tiles that must fit one line on the narrowest phone, so they flex
-  // rather than carrying a fixed width.
-  dayRow: { flexDirection: "row", gap: space.xs },
-  dayTile: {
-    flex: 1,
-    height: 44,
-    borderRadius: radius.md,
+  // The tappable card that opens the Reminders screen.
+  navRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   swatchWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   swatch: {

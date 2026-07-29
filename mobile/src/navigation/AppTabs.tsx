@@ -4,6 +4,7 @@ import {
   createBottomTabNavigator,
   type BottomTabBarProps,
 } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useThemeContext } from "../design/ThemeProvider";
 import { TAB_EMOJI } from "../design/activity";
 import { space, radius, tabBar, elevation } from "../design/tokens";
@@ -13,6 +14,7 @@ import LogScreen from "../screens/LogScreen";
 import InsightsScreen from "../screens/InsightsScreen";
 import HealthScreen from "../screens/HealthScreen";
 import SettingsScreen from "../screens/SettingsScreen";
+import RemindersScreen from "../screens/RemindersScreen";
 
 /**
  * Five destinations, the platform maximum for a bottom bar.
@@ -31,7 +33,27 @@ export type TabParamList = {
   Account: undefined;
 };
 
+export type AccountStackParamList = {
+  AccountHome: undefined;
+  Reminders: undefined;
+};
+
 const Tab = createBottomTabNavigator<TabParamList>();
+const AccountStack = createNativeStackNavigator<AccountStackParamList>();
+
+/**
+ * Account is a stack: settings stays the hub, and flows that deserve room —
+ * reminders today, maybe exports tomorrow — push their own screen instead of
+ * unfolding inline in the middle of the page.
+ */
+function AccountNavigator() {
+  return (
+    <AccountStack.Navigator screenOptions={{ headerShown: false }}>
+      <AccountStack.Screen name="AccountHome" component={SettingsScreen} />
+      <AccountStack.Screen name="Reminders" component={RemindersScreen} />
+    </AccountStack.Navigator>
+  );
+}
 
 /**
  * A floating pill instead of an edge-to-edge bar. Content scrolls beneath it
@@ -126,7 +148,7 @@ export default function AppTabs() {
       <Tab.Screen name="Log" component={LogScreen} />
       <Tab.Screen name="Insights" component={InsightsScreen} />
       <Tab.Screen name="Health" component={HealthScreen} />
-      <Tab.Screen name="Account" component={SettingsScreen} />
+      <Tab.Screen name="Account" component={AccountNavigator} />
     </Tab.Navigator>
   );
 }

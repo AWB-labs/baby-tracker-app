@@ -1,10 +1,17 @@
-import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  View,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
-import { space, radius } from "../design/tokens";
+import { space, radius, tabBar } from "../design/tokens";
+import { useTheme } from "../design/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
 import { useBaby } from "../context/BabyContext";
 import { useLogs } from "../hooks/useLogs";
@@ -44,6 +51,9 @@ const POLL_INTERVAL_MS = 60_000;
 
 const TRACK_TYPES: TrackType[] = ["feed", "pump", "sleep", "diaper"];
 
+/** How much scroll it takes to fully fold the snapshot away. */
+const COLLAPSE_DISTANCE = 110;
+
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
   for (const log of logs) {
     if (log.type === type) return log; // logs arrive newest-first
@@ -60,6 +70,15 @@ export default function HomeScreen() {
   const [habitsRefreshKey, setHabitsRefreshKey] = useState(0);
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
   const insets = useSafeAreaInsets();
+  const t = useTheme();
+
+  // Scroll-driven collapse: the pink hero stays pinned while the content
+  // scrolls under it, and the snapshot folds away into "header only" as you
+  // scroll up — then unfolds as you pull back down to the top. Height can't
+  // ride the native driver, so the scroll events run on the JS thread; the
+  // area involved is small enough that this stays smooth.
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const [snapshotH, setSnapshotH] = useState(0);
 
   // The timers live here, not in the rows: the snapshot needs to read the
   // same running feed/sleep the track rows control.
@@ -112,11 +131,30 @@ export default function HomeScreen() {
       .filter(Boolean)
       .join(" · ") || "Here's today";
 
+  // Fold the snapshot away over the first stretch of scroll; the header line
+  // (greeting, name, switcher) stays. All clamped, so overscroll at the top
+  // just holds the fully-expanded state.
+  const collapsible = snapshotH > 0;
+  const snapshotHeight = scrollY.interpolate({
+    inputRange: [0, COLLAPSE_DISTANCE],
+    outputRange: [snapshotH, 0],
+    extrapolate: "clamp",
+  });
+  const snapshotOpacity = scrollY.interpolate({
+    inputRange: [0, COLLAPSE_DISTANCE * 0.6],
+    outputRange: [1, 0],
+    extrapolate: "clamp",
+  });
+  const snapshotGap = scrollY.interpolate({
+    inputRange: [0, COLLAPSE_DISTANCE],
+    outputRange: [space.lg, 0],
+    extrapolate: "clamp",
+  });
+
   return (
-    <Screen bleedTop refreshing={refreshing} onRefresh={onRefresh}>
-      {/* The dashboard's top — greeting, who, and the live snapshot — sits on a
-          pink gradient that bleeds to the screen edges and behind the status
-          bar; Track and everything below return to the app's blush surface. */}
+    <View style={[styles.root, { backgroundColor: t.bg }]}>
+      {/* The pink hero is pinned above the scroll: the content slides under it
+          while the snapshot folds into a header-only strip. */}
       <LinearGradient
         colors={["#f3437e", "#993758"]}
         start={{ x: 0.1, y: 0 }}
@@ -131,18 +169,53 @@ export default function HomeScreen() {
           actions={<BabySwitcher />}
         />
 
-        {/* What's happening right now — four doors, not banners. */}
-        {!loading && (
-          <Snapshot
-            logs={logs}
-            feedTimer={feedTimer}
-            sleepTimer={sleepTimer}
-            onOpenLog={(filter) => navigation.navigate("Log", { filter })}
-            onOpenInsights={() => navigation.navigate("Insights")}
-          />
-        )}
+        <Animated.View
+          style={
+            collapsible
+              ? {
+                  height: snapshotHeight,
+                  opacity: snapshotOpacity,
+                  marginTop: snapshotGap,
+                  overflow: "hidden",
+                }
+              : styles.snapshotResting
+          }
+        >
+          {/* Measured at natural size so the fold knows how far "open" is. */}
+          <View onLayout={(e) => setSnapshotH(e.nativeEvent.layout.height)}>
+            {/* What's happening right now — four doors, not banners. */}
+            {!loading && (
+              <Snapshot
+                logs={logs}
+                feedTimer={feedTimer}
+                sleepTimer={sleepTimer}
+                onOpenLog={(filter) => navigation.navigate("Log", { filter })}
+                onOpenInsights={() => navigation.navigate("Insights")}
+              />
+            )}
+          </View>
+        </Animated.View>
       </LinearGradient>
 
+      <Animated.ScrollView
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }
+        )}
+        scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={t.accent}
+            colors={[t.accent]}
+            progressBackgroundColor={t.surface}
+          />
+        }
+      >
       <View style={styles.section}>
         <SectionHeader
           title="Track"
@@ -184,6 +257,7 @@ export default function HomeScreen() {
       />
 
       <Foods babyId={activeBaby.id} />
+      </Animated.ScrollView>
 
       <ManualEntryModal
         visible={showManual}
@@ -193,22 +267,31 @@ export default function HomeScreen() {
         onSaved={refresh}
         onClose={() => setShowManual(false)}
       />
-    </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   section: { gap: space.sm },
   center: { alignItems: "center" },
   divider: { marginHorizontal: space.lg },
-  // Full-bleed pink header: negative side margins cancel the Screen's padding
-  // so it reaches both edges; the bottom corners round into the blush below.
+  // Pinned full-width pink header; the bottom corners round into the blush
+  // content that scrolls beneath it.
   hero: {
-    marginHorizontal: -space.lg,
     paddingHorizontal: space.lg,
     paddingBottom: space.xl,
-    gap: space.lg,
     borderBottomLeftRadius: radius.xxl,
     borderBottomRightRadius: radius.xxl,
+    zIndex: 1,
+  },
+  // Before the first layout pass measures the snapshot, keep the resting gap
+  // the hero's old `gap` used to provide.
+  snapshotResting: { marginTop: space.lg },
+  scrollContent: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+    gap: space.lg,
+    paddingBottom: tabBar.margin + tabBar.height + space.lg,
   },
 });

@@ -13,7 +13,7 @@ import {
   FadeInUp,
 } from "./ui";
 import { useToast } from "./Toast";
-import { createLog, fetchLogs, type LogEntry } from "../api/logs";
+import { createLog, deleteLog, fetchLogs, type LogEntry } from "../api/logs";
 import {
   loadHabits,
   saveHabits,
@@ -103,27 +103,42 @@ export default function Habits({
   const handleLog = useCallback(
     async (habit: HabitDef) => {
       const stat = stats.get(habit.type);
-      if (saving || stat?.doneToday) return;
+      if (saving) return;
       setSaving(habit.type);
       const now = new Date();
       try {
-        await createLog({
-          babyId,
-          type: habit.type,
-          startTime: now.toISOString(),
-          endTime: now.toISOString(),
-          enteredByName,
-        });
-        onLogSaved();
-        await refreshHistory();
-        toast.success(`${habit.label} done.`);
+        if (stat?.doneToday) {
+          // Tapping a done habit undoes it: remove today's entry so a slipped
+          // finger isn't a locked-in tick until midnight.
+          const today = now.toDateString();
+          const entry = history.find(
+            (l) =>
+              l.type === habit.type &&
+              new Date(l.startTime).toDateString() === today
+          );
+          if (entry) await deleteLog(entry.id);
+          onLogSaved();
+          await refreshHistory();
+          toast.success(`${habit.label} unmarked.`);
+        } else {
+          await createLog({
+            babyId,
+            type: habit.type,
+            startTime: now.toISOString(),
+            endTime: now.toISOString(),
+            enteredByName,
+          });
+          onLogSaved();
+          await refreshHistory();
+          toast.success(`${habit.label} done.`);
+        }
       } catch (err) {
         toast.showError(err);
       } finally {
         setSaving(null);
       }
     },
-    [saving, stats, babyId, enteredByName, onLogSaved, refreshHistory, toast]
+    [saving, stats, history, babyId, enteredByName, onLogSaved, refreshHistory, toast]
   );
 
   const persist = useCallback(
@@ -222,7 +237,7 @@ export default function Habits({
                 : "pending";
 
             const a11y = stat.doneToday
-              ? `${habit.label}, done today, ${stat.streak}-day streak`
+              ? `${habit.label}, done today, ${stat.streak}-day streak. Tap to undo`
               : stat.missed
                 ? `${habit.label}, missed yesterday, streak reset. Log ${habit.label.toLowerCase()} for today`
                 : `${habit.label}${
@@ -233,13 +248,10 @@ export default function Habits({
               <FadeInUp key={habit.type} index={index}>
                 <Pressable
                   onPress={() => handleLog(habit)}
-                  disabled={stat.doneToday || saving !== null}
+                  disabled={saving !== null}
                   accessibilityRole="button"
                   accessibilityLabel={a11y}
-                  accessibilityState={{
-                    selected: stat.doneToday,
-                    disabled: stat.doneToday,
-                  }}
+                  accessibilityState={{ selected: stat.doneToday }}
                   style={({ pressed }) => [
                     styles.tile,
                     {

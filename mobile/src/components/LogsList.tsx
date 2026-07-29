@@ -1,11 +1,18 @@
-import React, { useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  View,
+} from "react-native";
 import type { LogEntry } from "../api/logs";
 import { formatTime, formatDateLabel } from "../utils/formatTime";
 import { formatDuration, formatGapLabel } from "../utils/formatDuration";
 import { dayOffset, shortDate } from "../lib/dayMath";
 import { isInstantLog } from "../lib/activities";
 import { useTheme } from "../design/ThemeProvider";
+import { Icon } from "../design/icons";
 import {
   useActivityTone,
   ACTIVITY_LABEL,
@@ -13,9 +20,9 @@ import {
   CONDITION_META,
   MEASURE_EMOJI,
 } from "../design/activity";
-import { space, radius } from "../design/tokens";
+import { space, radius, tabBar } from "../design/tokens";
 import { useUnits } from "../context/SettingsContext";
-import { Text, Emoji, Chip, ChipRow, FadeInUp, ConfirmDialog } from "./ui";
+import { Text, Emoji, Chip, ChipRow, ConfirmDialog } from "./ui";
 import SwipeableRow from "./SwipeableRow";
 import PauseTimelineIndicator from "./PauseTimelineIndicator";
 import EditLogModal from "./EditLogModal";
@@ -93,9 +100,11 @@ export interface LogRowProps {
   /** Minutes since the previous log of the same type, when worth showing. */
   gapMinutes?: number | null;
   onEdit?: (log: LogEntry) => void;
+  /** A tap-to-delete that never depends on the swipe landing. */
+  onDelete?: (log: LogEntry) => void;
 }
 
-export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
+export function LogRow({ log, gapMinutes, onEdit, onDelete }: LogRowProps) {
   const t = useTheme();
   const tone = useActivityTone(log.type);
   const units = useUnits();
@@ -222,26 +231,46 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
           <Text variant="caption" tone="subtle">
             by {log.enteredByName}
           </Text>
-          {onEdit && (
-            <Pressable
-              onPress={() => onEdit(log)}
-              accessibilityRole="button"
-              accessibilityLabel={`Edit this ${label.toLowerCase()} entry`}
-              // The pill is only ~26pt tall, so the shared 8pt slop (sized for
-              // the 36pt controls elsewhere) leaves it short of the 44pt floor.
-              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-              style={({ pressed }) => [
-                styles.editBtn,
-                {
-                  backgroundColor: t.accentSofter,
-                  borderColor: t.border,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              <Emoji size={13}>✏️</Emoji>
-            </Pressable>
-          )}
+          <View style={styles.footerActions}>
+            {onEdit && (
+              <Pressable
+                onPress={() => onEdit(log)}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit this ${label.toLowerCase()} entry`}
+                // The pill is only ~26pt tall, so the shared 8pt slop (sized for
+                // the 36pt controls elsewhere) leaves it short of the 44pt floor.
+                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+                style={({ pressed }) => [
+                  styles.editBtn,
+                  {
+                    backgroundColor: t.accentSofter,
+                    borderColor: t.border,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Emoji size={13}>✏️</Emoji>
+              </Pressable>
+            )}
+            {onDelete && (
+              <Pressable
+                onPress={() => onDelete(log)}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete this ${label.toLowerCase()} entry`}
+                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+                style={({ pressed }) => [
+                  styles.editBtn,
+                  {
+                    backgroundColor: t.dangerSoft,
+                    borderColor: t.dangerBorder,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Icon name="trash" size="sm" color={t.danger} />
+              </Pressable>
+            )}
+          </View>
         </View>
       </View>
     </View>
@@ -262,9 +291,27 @@ interface Props {
    * switch chips freely afterwards.
    */
   initialFilter?: string | null;
+  /** Pull-to-refresh, owned here because the FlatList owns the scrolling. */
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }
 
-export default function LogsList({ logs, onDelete, onEdit, initialFilter = null }: Props) {
+/** One list item, with its date header precomputed so rows never depend on
+ *  their neighbours at render time — a FlatList renders rows independently. */
+interface ListItem {
+  log: LogEntry;
+  header: string | null;
+}
+
+export default function LogsList({
+  logs,
+  onDelete,
+  onEdit,
+  initialFilter = null,
+  refreshing = false,
+  onRefresh,
+}: Props) {
+  const t = useTheme();
   const [filter, setFilter] = useState<string | null>(initialFilter);
 
   // Re-apply when a new deep link arrives while the tab is already mounted.
@@ -275,69 +322,108 @@ export default function LogsList({ logs, onDelete, onEdit, initialFilter = null 
   const [editLog, setEditLog] = useState<LogEntry | null>(null);
 
   const gaps = useMemo(() => computeGaps(logs), [logs]);
-  const filtered = filter ? logs.filter((l) => l.type === filter) : logs;
+
+  // Precompute rows + their date headers once per change, not per render.
+  const items = useMemo<ListItem[]>(() => {
+    const source = filter ? logs.filter((l) => l.type === filter) : logs;
+    let lastDate = "";
+    return source.map((log) => {
+      const dateLabel = formatDateLabel(log.startTime);
+      const header = dateLabel !== lastDate ? dateLabel : null;
+      lastDate = dateLabel;
+      return { log, header };
+    });
+  }, [logs, filter]);
+
+  const askDelete = useCallback((log: LogEntry) => setPendingDelete(log), []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: ListItem }) => {
+      const row = (
+        <LogRow
+          log={item.log}
+          gapMinutes={gaps.get(item.log.id)}
+          onEdit={onEdit ? setEditLog : undefined}
+          onDelete={onDelete ? askDelete : undefined}
+        />
+      );
+      return (
+        <View style={styles.itemWrap}>
+          {item.header && (
+            <Text
+              variant="overline"
+              tone="subtle"
+              style={styles.dateHeader}
+              accessibilityRole="header"
+            >
+              {item.header}
+            </Text>
+          )}
+          {onDelete ? (
+            <SwipeableRow onDelete={() => askDelete(item.log)}>
+              {row}
+            </SwipeableRow>
+          ) : (
+            row
+          )}
+        </View>
+      );
+    },
+    [gaps, onEdit, onDelete, askDelete]
+  );
 
   if (logs.length === 0) return null;
 
-  let lastDate = "";
-
   return (
     <View style={styles.list}>
-      <ChipRow>
-        {FILTERS.map((value) => (
-          <Chip
-            key={value ?? "all"}
-            label={value ? ACTIVITY_LABEL[value] : "All"}
-            emoji={value ? FILTER_EMOJI[value] : undefined}
-            selected={filter === value}
-            onPress={() => setFilter(value)}
-          />
-        ))}
-      </ChipRow>
-
-      {filtered.length === 0 ? (
-        <View style={styles.noMatches}>
-          <Text variant="subhead" tone="subtle" center>
-            Nothing here for that filter yet.
-          </Text>
-        </View>
-      ) : (
-        filtered.map((log, index) => {
-          const dateLabel = formatDateLabel(log.startTime);
-          const showHeader = dateLabel !== lastDate;
-          lastDate = dateLabel;
-
-          const row = (
-            <LogRow
-              log={log}
-              gapMinutes={gaps.get(log.id)}
-              onEdit={onEdit ? setEditLog : undefined}
+      {/*
+       * Virtualized: real families carry hundreds of entries, and mounting
+       * every row at once was what made this tab slow to open and quick to
+       * die under memory pressure. The FlatList mounts a screenful and
+       * recycles the rest.
+       */}
+      <FlatList
+        data={items}
+        keyExtractor={(item) => String(item.log.id)}
+        renderItem={renderItem}
+        ListHeaderComponent={
+          <ChipRow style={styles.chips}>
+            {FILTERS.map((value) => (
+              <Chip
+                key={value ?? "all"}
+                label={value ? ACTIVITY_LABEL[value] : "All"}
+                emoji={value ? FILTER_EMOJI[value] : undefined}
+                selected={filter === value}
+                onPress={() => setFilter(value)}
+              />
+            ))}
+          </ChipRow>
+        }
+        ListEmptyComponent={
+          <View style={styles.noMatches}>
+            <Text variant="subhead" tone="subtle" center>
+              Nothing here for that filter yet.
+            </Text>
+          </View>
+        }
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={t.accent}
+              colors={[t.accent]}
+              progressBackgroundColor={t.surface}
             />
-          );
-
-          return (
-            <FadeInUp key={log.id} index={index}>
-              {showHeader && (
-                <Text
-                  variant="overline"
-                  tone="subtle"
-                  style={styles.dateHeader}
-                  accessibilityRole="header"
-                >
-                  {dateLabel}
-                </Text>
-              )}
-              {onDelete ? (
-                <SwipeableRow onDelete={() => setPendingDelete(log)}>
-                  {row}
-                </SwipeableRow>
-              ) : (
-                row
-              )}
-            </FadeInUp>
-          );
-        })
-      )}
+          ) : undefined
+        }
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews
+        contentContainerStyle={styles.listContent}
+      />
 
       <ConfirmDialog
         visible={pendingDelete !== null}
@@ -369,7 +455,15 @@ export default function LogsList({ logs, onDelete, onEdit, initialFilter = null 
 }
 
 const styles = StyleSheet.create({
-  list: { gap: space.sm },
+  // flex:1 so the FlatList gets a bounded viewport to virtualize within —
+  // inside an unbounded container it would render everything anyway.
+  list: { flex: 1 },
+  listContent: {
+    gap: space.sm,
+    paddingBottom: tabBar.margin + tabBar.height + space.lg,
+  },
+  itemWrap: { gap: space.xxs },
+  chips: { paddingBottom: space.xs },
   dateHeader: {
     paddingTop: space.xl,
     paddingBottom: space.xs,
@@ -426,6 +520,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: space.xxs,
   },
+  footerActions: { flexDirection: "row", gap: space.sm },
   editBtn: {
     paddingHorizontal: space.md,
     paddingVertical: space.xs,

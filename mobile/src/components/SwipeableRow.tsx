@@ -2,12 +2,12 @@ import React, { useCallback, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
+  PanResponder,
   Animated,
   LayoutAnimation,
   UIManager,
   Platform,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useTheme } from "../design/ThemeProvider";
 import { radius } from "../design/tokens";
 import { Icon } from "../design/icons";
@@ -20,11 +20,12 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const DELETE_THRESHOLD = 96;
+const DELETE_THRESHOLD = 90;
 
 /**
  * A swipe is unreachable with a screen reader on, so the same delete is offered
- * as a rotor / local-menu action.
+ * as a rotor / local-menu action, and every row also carries a visible trash
+ * button — the swipe is a shortcut, never the only way out.
  */
 const A11Y_ACTIONS = [{ name: "delete", label: "Delete" }];
 
@@ -36,25 +37,19 @@ interface Props {
 /**
  * Swipe a row aside to delete.
  *
- * Uses react-native-gesture-handler rather than PanResponder: the old responder
- * lost the horizontal drag to the surrounding ScrollView, so the swipe simply
- * never engaged. A Pan gesture with `activeOffsetX` only claims the touch once
- * it's clearly sideways, and `failOffsetY` hands a vertical drag straight back
- * to the list — so scrolling and swiping stop fighting. Callbacks `runOnJS` so
- * the existing Animated values drive the motion without a worklet dependency.
+ * Deliberately plain PanResponder: the gesture-handler `GestureDetector` path
+ * runs on Reanimated's worklet runtime, which crashes under this project's
+ * babel setup, and legacy (Animated) `Swipeable` is gone in gesture-handler 2.
+ * PanResponder is pure React Native — it never touches a worklet — so the Log
+ * stays up. It only claims the touch once the drag is clearly horizontal, so
+ * the list still scrolls vertically.
  */
 export default function SwipeableRow({ children, onDelete }: Props) {
   const t = useTheme();
   const translateX = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
   const isDismissed = useRef(false);
   const [removing, setRemoving] = useState(false);
-
-  // The red "Delete" slab fades in as the row travels, both directions.
-  const progress = translateX.interpolate({
-    inputRange: [-DELETE_THRESHOLD, 0, DELETE_THRESHOLD],
-    outputRange: [0.9, 0, 0.9],
-    extrapolate: "clamp",
-  });
 
   const handleDelete = useCallback(() => {
     if (isDismissed.current) return;
@@ -64,37 +59,55 @@ export default function SwipeableRow({ children, onDelete }: Props) {
     onDelete();
   }, [onDelete]);
 
-  const settleBack = useCallback(() => {
-    Animated.spring(translateX, {
-      toValue: 0,
-      useNativeDriver: false,
-      bounciness: 4,
-    }).start();
-  }, [translateX]);
-
-  const pan = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetX([-12, 12])
-    .failOffsetY([-10, 10])
-    .onUpdate((e) => {
-      if (isDismissed.current) return;
-      translateX.setValue(e.translationX);
-    })
-    .onEnd((e) => {
-      if (isDismissed.current) return;
-      if (Math.abs(e.translationX) > DELETE_THRESHOLD) {
-        Animated.timing(translateX, {
-          toValue: (e.translationX > 0 ? 1 : -1) * 500,
-          duration: 200,
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, gs) => {
+        // Claim only clearly-horizontal drags, so vertical scrolling is left to
+        // the list.
+        const horizontal =
+          Math.abs(gs.dx) > Math.abs(gs.dy) * 1.4 && Math.abs(gs.dx) > 8;
+        return horizontal && !isDismissed.current;
+      },
+      onPanResponderMove: (_e, gs) => {
+        if (isDismissed.current) return;
+        translateX.setValue(gs.dx);
+        progressAnim.setValue(Math.min(Math.abs(gs.dx) / DELETE_THRESHOLD, 1));
+      },
+      onPanResponderRelease: (_e, gs) => {
+        if (isDismissed.current) return;
+        if (Math.abs(gs.dx) > DELETE_THRESHOLD) {
+          Animated.timing(translateX, {
+            toValue: (gs.dx > 0 ? 1 : -1) * 400,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => handleDelete());
+        } else {
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+          Animated.timing(progressAnim, {
+            toValue: 0,
+            duration: 160,
+            useNativeDriver: false,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        if (isDismissed.current) return;
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+        Animated.timing(progressAnim, {
+          toValue: 0,
+          duration: 160,
           useNativeDriver: false,
-        }).start(() => handleDelete());
-      } else {
-        settleBack();
-      }
+        }).start();
+      },
     })
-    .onFinalize(() => {
-      if (!isDismissed.current) settleBack();
-    });
+  ).current;
 
   if (removing) {
     return <View style={styles.gone} />;
@@ -102,11 +115,16 @@ export default function SwipeableRow({ children, onDelete }: Props) {
 
   return (
     <View style={styles.container}>
-      {/* Red delete background */}
       <Animated.View
         style={[
           styles.background,
-          { backgroundColor: t.dangerSoft, opacity: progress },
+          {
+            backgroundColor: t.dangerSoft,
+            opacity: progressAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 0.9],
+            }),
+          },
         ]}
         pointerEvents="none"
         accessibilityElementsHidden
@@ -118,18 +136,16 @@ export default function SwipeableRow({ children, onDelete }: Props) {
         </Text>
       </Animated.View>
 
-      {/* Swipeable foreground */}
-      <GestureDetector gesture={pan}>
-        <Animated.View
-          style={{ transform: [{ translateX }] }}
-          accessibilityActions={A11Y_ACTIONS}
-          onAccessibilityAction={(e) => {
-            if (e.nativeEvent.actionName === "delete") onDelete();
-          }}
-        >
-          {children}
-        </Animated.View>
-      </GestureDetector>
+      <Animated.View
+        style={{ transform: [{ translateX }] }}
+        accessibilityActions={A11Y_ACTIONS}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === "delete") onDelete();
+        }}
+        {...panResponder.panHandlers}
+      >
+        {children}
+      </Animated.View>
     </View>
   );
 }
