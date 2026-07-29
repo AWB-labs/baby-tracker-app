@@ -11,6 +11,18 @@ const INSTANT_TYPES: ReadonlySet<string> = new Set([
   "nailcut",
   "growth",
   "health",
+  // A family-invented habit, and the once-a-day ones from the catalogue. These
+  // had been added to the server's list without being mirrored here, so a bath
+  // or a tummy-time entry was drawn as a timed span and given a duration pill
+  // for a session that never had one.
+  "habit",
+  "tummy",
+  "sunlight",
+  "bath",
+  "massage",
+  "teeth",
+  "walk",
+  "medicine",
 ]);
 
 interface InstantLogFields {

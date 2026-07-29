@@ -13,6 +13,7 @@ import { space, radius } from "../design/tokens";
 import { useUnits } from "../context/SettingsContext";
 import { createLog } from "../api/logs";
 import { isInstantLog } from "../lib/activities";
+import { formatDuration } from "../utils/formatDuration";
 import { Text, Emoji, Button, Input, Field, Sheet, Chip, ChipWrap } from "./ui";
 import { useToast } from "./Toast";
 
@@ -38,6 +39,23 @@ function formatTimeDisplay(d: Date): string {
 function formatDateDisplay(d: Date): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.toDateString() === b.toDateString();
+}
+
+function daysAgo(n: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d;
+}
+
+/** Almost every after-the-fact entry is from the last couple of days. */
+const DAY_SHORTCUTS = [
+  { label: "Today", resolve: () => new Date() },
+  { label: "Yesterday", resolve: () => daysAgo(1) },
+  { label: "2 days ago", resolve: () => daysAgo(2) },
+];
 
 interface Props {
   visible: boolean;
@@ -76,9 +94,17 @@ export default function ManualEntryModal({
   const [comments, setComments] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
+  /**
+   * Which picker is open, if any.
+   *
+   * One value rather than three booleans, because three could all be true at
+   * once — and on iOS they were: the spinner is inline and was never closed, so
+   * tapping Date then Start left two stacked wheels shoving the form around,
+   * with no way to put either away.
+   */
+  const [openPicker, setOpenPicker] = useState<"date" | "start" | "end" | null>(
+    null
+  );
 
   const takesMl = activityType === "feed" || activityType === "pump";
   const isDiaper = activityType === "diaper";
@@ -97,11 +123,44 @@ export default function ManualEntryModal({
   const sidedValid = !takesMl || !!side || amountValid;
   const canSave = !!activityType && sidedValid && (!isDiaper || !!diaperStatus);
 
+  /**
+   * Why Save is unavailable, in words.
+   *
+   * A disabled button that doesn't say what it's waiting for reads as broken —
+   * you tap it, nothing happens, and the sheet offers no clue which of the
+   * fields above it minds about.
+   */
+  const blockedReason = !activityType
+    ? "Pick an activity to save this entry."
+    : takesMl && !sidedValid
+      ? "Choose a side, or enter an amount."
+      : isDiaper && !diaperStatus
+        ? "Choose what was in the nappy."
+        : null;
+
   const combine = (d: Date, tm: Date): Date => {
     const result = new Date(d);
     result.setHours(tm.getHours(), tm.getMinutes(), 0, 0);
     return result;
   };
+
+  // Worked out once, for both the readout below the fields and the save itself,
+  // so what the sheet promises and what it writes can't drift apart.
+  const spanStart = combine(date, startTime);
+  const spanEnd = (() => {
+    const end = combine(date, endTime);
+    // An end before the start means it crossed midnight — roll it forward.
+    if (end.getTime() < spanStart.getTime()) {
+      const rolled = new Date(end);
+      rolled.setDate(rolled.getDate() + 1);
+      return rolled;
+    }
+    return end;
+  })();
+  const crossesMidnight = spanEnd.getDate() !== spanStart.getDate();
+  const spanMinutes = (spanEnd.getTime() - spanStart.getTime()) / 60000;
+  /** Long enough to be a slip on the wheel rather than a real session. */
+  const implausible = !isInstant && spanMinutes > 16 * 60;
 
   const handleClose = () => {
     setActivityType(null);
@@ -112,9 +171,7 @@ export default function ManualEntryModal({
     setStartTime(new Date());
     setEndTime(new Date());
     setComments("");
-    setShowDatePicker(false);
-    setShowStartPicker(false);
-    setShowEndPicker(false);
+    setOpenPicker(null);
     onClose();
   };
 
@@ -122,13 +179,8 @@ export default function ManualEntryModal({
     if (!canSave || !activityType) return;
     setSaving(true);
 
-    const start = combine(date, startTime);
-    let end = isInstant ? start : combine(date, endTime);
-    // An end before the start means it crossed midnight — roll it forward.
-    if (!isInstant && end.getTime() < start.getTime()) {
-      end = new Date(end);
-      end.setDate(end.getDate() + 1);
-    }
+    const start = spanStart;
+    const end = isInstant ? start : spanEnd;
 
     try {
       await createLog({
@@ -152,25 +204,72 @@ export default function ManualEntryModal({
     }
   };
 
-  const pickerField = (label: string, value: string, onPress: () => void) => (
-    <Field label={label} style={styles.flex}>
-      <Pressable
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={`${label}: ${value}`}
-        style={({ pressed }) => [
-          styles.pickerBtn,
-          {
-            backgroundColor: t.accentSofter,
-            borderColor: t.borderStrong,
-            opacity: pressed ? 0.7 : 1,
-          },
-        ]}
-      >
-        <Text variant="body">{value}</Text>
-      </Pressable>
-    </Field>
-  );
+  /** A field that opens its own picker and closes whichever was open. */
+  const pickerField = (
+    label: string,
+    value: string,
+    which: "date" | "start" | "end"
+  ) => {
+    const active = openPicker === which;
+    return (
+      <Field label={label} style={styles.flex}>
+        <Pressable
+          onPress={() => setOpenPicker(active ? null : which)}
+          accessibilityRole="button"
+          accessibilityLabel={`${label}: ${value}`}
+          accessibilityState={{ expanded: active }}
+          style={({ pressed }) => [
+            styles.pickerBtn,
+            {
+              backgroundColor: active ? t.accentSoft : t.accentSofter,
+              // The open field is outlined, so it's obvious which one the wheel
+              // below is actually editing.
+              borderColor: active ? t.accent : t.borderStrong,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          <Text variant="body">{value}</Text>
+        </Pressable>
+      </Field>
+    );
+  };
+
+  /**
+   * The wheel, plus a way to put it away.
+   *
+   * iOS renders the spinner inline and never dismisses it on its own, so
+   * without an explicit Done there is no way to close one — which is what made
+   * this sheet feel stuck. Android's dialog closes itself, so it gets no button.
+   */
+  const picker = (
+    which: "date" | "start" | "end",
+    mode: "date" | "time",
+    value: Date,
+    onPick: (next: Date) => void
+  ) =>
+    openPicker === which ? (
+      <View style={styles.pickerWrap}>
+        <DateTimePicker
+          value={value}
+          mode={mode}
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          maximumDate={mode === "date" ? new Date() : undefined}
+          onChange={(_, picked) => {
+            if (Platform.OS !== "ios") setOpenPicker(null);
+            if (picked) onPick(picked);
+          }}
+        />
+        {Platform.OS === "ios" && (
+          <Button
+            label="Done"
+            variant="secondary"
+            fullWidth
+            onPress={() => setOpenPicker(null)}
+          />
+        )}
+      </View>
+    ) : null;
 
   return (
     <Sheet
@@ -305,57 +404,64 @@ export default function ManualEntryModal({
         </Field>
       )}
 
-      {pickerField("Date", formatDateDisplay(date), () => setShowDatePicker(true))}
-      {showDatePicker && (
-        <DateTimePicker
-          value={date}
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(_, d) => {
-            setShowDatePicker(Platform.OS === "ios");
-            if (d) setDate(d);
-          }}
-        />
-      )}
+      {/* Most entries are for today or yesterday, so those are one tap rather
+          than a trip through a calendar wheel. */}
+      <Field label="When">
+        <ChipWrap>
+          {DAY_SHORTCUTS.map((shortcut) => {
+            const target = shortcut.resolve();
+            const selected = sameDay(date, target);
+            return (
+              <Chip
+                key={shortcut.label}
+                label={shortcut.label}
+                selected={selected}
+                onPress={() => {
+                  setDate(target);
+                  setOpenPicker(null);
+                }}
+              />
+            );
+          })}
+        </ChipWrap>
+      </Field>
+
+      {pickerField("Date", formatDateDisplay(date), "date")}
+      {picker("date", "date", date, setDate)}
 
       {isInstant ? (
-        pickerField("Time", formatTimeDisplay(startTime), () =>
-          setShowStartPicker(true)
-        )
+        pickerField("Time", formatTimeDisplay(startTime), "start")
       ) : (
         <View style={styles.rowGap}>
-          {pickerField("Start time", formatTimeDisplay(startTime), () =>
-            setShowStartPicker(true)
-          )}
-          {pickerField("End time", formatTimeDisplay(endTime), () =>
-            setShowEndPicker(true)
-          )}
+          {pickerField("Start time", formatTimeDisplay(startTime), "start")}
+          {pickerField("End time", formatTimeDisplay(endTime), "end")}
         </View>
       )}
-      {showStartPicker && (
-        <DateTimePicker
-          value={startTime}
-          mode="time"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(_, tm) => {
-            setShowStartPicker(Platform.OS === "ios");
-            if (tm) {
-              setStartTime(tm);
-              if (isInstant) setEndTime(tm);
-            }
-          }}
-        />
-      )}
-      {showEndPicker && (
-        <DateTimePicker
-          value={endTime}
-          mode="time"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(_, tm) => {
-            setShowEndPicker(Platform.OS === "ios");
-            if (tm) setEndTime(tm);
-          }}
-        />
+
+      {picker("start", "time", startTime, (picked) => {
+        setStartTime(picked);
+        if (isInstant) setEndTime(picked);
+      })}
+      {picker("end", "time", endTime, setEndTime)}
+
+      {/* The resulting length, stated plainly. Picking 2:00 AM to 9:24 PM is
+          easy to do by accident on a wheel, and a nineteen-hour nap saved in
+          silence is only discovered later, in the averages. */}
+      {!isInstant && (
+        <View style={styles.durationRow}>
+          <Text variant="footnote" tone="subtle">
+            That's{" "}
+            <Text variant="footnote" style={{ color: t.accentText }}>
+              {formatDuration(spanMinutes)}
+            </Text>
+            {crossesMidnight ? " (ends next day)" : ""}
+          </Text>
+          {implausible && (
+            <Text variant="footnote" style={{ color: t.warning }}>
+              That's unusually long — check the start and end.
+            </Text>
+          )}
+        </View>
       )}
 
       <Input
@@ -364,6 +470,12 @@ export default function ManualEntryModal({
         onChangeText={setComments}
         placeholder="Optional"
       />
+
+      {blockedReason && (
+        <Text variant="footnote" style={{ color: t.warning }}>
+          {blockedReason}
+        </Text>
+      )}
     </Sheet>
   );
 }
@@ -372,6 +484,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   actions: { flexDirection: "row", gap: space.sm },
   rowGap: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
+  pickerWrap: { gap: space.sm },
+  durationRow: { gap: space.xxs },
   pickerBtn: {
     borderRadius: radius.md,
     borderWidth: 2,

@@ -26,3 +26,29 @@ export function isVaccineMonth(month: number): boolean {
 export function isMandatoryMonth(month: number): boolean {
   return month % 2 === 1;
 }
+
+/**
+ * Whole months a baby has lived, on the caregiver's clock.
+ *
+ * Counts completed months rather than started ones: a baby born on the 20th is
+ * three months old on the 20th, not on the 1st. Returns null without a date of
+ * birth, because a reminder that says "your baby is 0 months old" is worse than
+ * no reminder.
+ */
+export function ageInMonths(
+  dob: Date | null,
+  now: Date,
+  tzOffsetMinutes: number | null = 0
+): number | null {
+  if (!dob) return null;
+  const shift = (tzOffsetMinutes ?? 0) * 60_000;
+  const born = new Date(dob.getTime() + shift);
+  const local = new Date(now.getTime() + shift);
+
+  let months =
+    (local.getUTCFullYear() - born.getUTCFullYear()) * 12 +
+    (local.getUTCMonth() - born.getUTCMonth());
+  // Not a full month until the day-of-month comes round again.
+  if (local.getUTCDate() < born.getUTCDate()) months -= 1;
+  return months;
+}
