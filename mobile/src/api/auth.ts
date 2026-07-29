@@ -8,6 +8,8 @@ export interface AccountInfo {
   unitSystem?: UnitSystem;
   themeColor?: string | null;
   notificationsEnabled?: boolean;
+  relation?: string | null;
+  relationNote?: string | null;
 }
 
 export interface AuthResponse {

@@ -14,6 +14,7 @@ import { useThemeContext } from "../design/ThemeProvider";
 import WelcomeScreen from "../screens/auth/WelcomeScreen";
 import LoginScreen from "../screens/auth/LoginScreen";
 import SignupScreen from "../screens/auth/SignupScreen";
+import ParentProfileScreen from "../screens/auth/ParentProfileScreen";
 import SetupBabyScreen from "../screens/auth/SetupBabyScreen";
 import AppTabs from "./AppTabs";
 
@@ -24,6 +25,7 @@ export type AuthStackParamList = {
 };
 
 export type AppStackParamList = {
+  ParentProfile: undefined;
   SetupBaby: undefined;
   Main: undefined;
 };
@@ -61,12 +63,25 @@ function AuthNavigator() {
 
 function AppNavigator() {
   const { babies, loading } = useBaby();
+  const { account } = useAuth();
 
   if (loading) return <Splash />;
 
+  /*
+   * Onboarding order: who are you, then who is the baby.
+   *
+   * Gated on having no babies as well as no relationship, so it only ever
+   * catches a genuinely new account. Everyone who signed up before the question
+   * existed has a null relationship and must not be dragged back through
+   * onboarding to answer it — Account has the same picker for that.
+   */
+  const needsProfile = babies.length === 0 && !account?.relation;
+
   return (
     <AppStack.Navigator screenOptions={{ headerShown: false }}>
-      {babies.length === 0 ? (
+      {needsProfile ? (
+        <AppStack.Screen name="ParentProfile" component={ParentProfileScreen} />
+      ) : babies.length === 0 ? (
         <AppStack.Screen name="SetupBaby" component={SetupBabyScreen} />
       ) : (
         // Settings now lives inside the tabs as Account, so the app stack is

@@ -19,6 +19,14 @@ model Account {
   name      String
   createdAt DateTime      @default(now())
 
+  /// This caregiver's own relationship to the babies they look after — asked
+  /// once during onboarding, before any baby exists, and copied onto the owner
+  /// membership of every baby they create. Null on accounts made before it was
+  /// asked, which is what stops them being sent back through onboarding.
+  relation             String?
+  /// Free text for relation = "other". Ignored otherwise.
+  relationNote         String?
+
   // --- Settings ---
   unitSystem           String  @default("metric") // metric | imperial
   // Accent colour override for this caregiver's own app. Null means "derive

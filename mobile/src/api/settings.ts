@@ -9,6 +9,9 @@ export interface AccountSettings {
   unitSystem: UnitSystem;
   themeColor: string | null;
   notificationsEnabled: boolean;
+  /** This caregiver's own relationship to their babies. Null until asked. */
+  relation: string | null;
+  relationNote: string | null;
 }
 
 export async function getSettings(): Promise<AccountSettings> {
@@ -21,6 +24,8 @@ export async function updateSettings(data: {
   unitSystem?: UnitSystem;
   themeColor?: string | null;
   notificationsEnabled?: boolean;
+  relation?: string | null;
+  relationNote?: string | null;
 }): Promise<AccountSettings> {
   const res = await apiClient.patch<AccountSettings>("/settings", data);
   return res.data;
