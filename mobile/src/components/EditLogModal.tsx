@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useTheme } from "../design/ThemeProvider";
+import { useTheme, useThemeContext } from "../design/ThemeProvider";
 import {
   useActivityTone,
   ACTIVITY_LABEL,
@@ -44,6 +44,7 @@ interface Props {
 
 export default function EditLogModal({ log, onClose, onSaved }: Props) {
   const t = useTheme();
+  const { isDark } = useThemeContext();
   const tone = useActivityTone(log.type);
   const units = useUnits();
   const label = ACTIVITY_LABEL[log.type] ?? log.type;
@@ -254,17 +255,35 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
         </View>
       }
     >
-      {pickerField("Date", formatDateDisplay(date), () => setShowDatePicker(true))}
+      {pickerField("Date", formatDateDisplay(date), () =>
+        setShowDatePicker((v) => !v)
+      )}
       {showDatePicker && (
-        <DateTimePicker
-          value={date}
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(_, d) => {
-            setShowDatePicker(Platform.OS === "ios");
-            if (d) setDate(d);
-          }}
-        />
+        <View style={styles.pickerWrap}>
+          <DateTimePicker
+            value={date}
+            mode="date"
+            // A calendar grid, not a spinner — Android's own dialog already is
+            // one. Unlike the spinner, this has to be closed by hand: it never
+            // dismissed itself, so without a Done button it would just stay
+            // open, full-size, for the rest of the edit.
+            display={Platform.OS === "ios" ? "inline" : "default"}
+            accentColor={t.accent}
+            themeVariant={isDark ? "dark" : "light"}
+            onChange={(_, d) => {
+              setShowDatePicker(Platform.OS === "ios");
+              if (d) setDate(d);
+            }}
+          />
+          {Platform.OS === "ios" && (
+            <Button
+              label="Done"
+              variant="secondary"
+              fullWidth
+              onPress={() => setShowDatePicker(false)}
+            />
+          )}
+        </View>
       )}
 
       {usesSingleTime ? (
@@ -534,6 +553,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   actions: { flexDirection: "row", gap: space.sm },
   rowGap: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
+  pickerWrap: { gap: space.sm },
   pickerBtn: {
     borderRadius: radius.md,
     borderWidth: 2,

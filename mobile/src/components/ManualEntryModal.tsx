@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useTheme } from "../design/ThemeProvider";
+import { useTheme, useThemeContext } from "../design/ThemeProvider";
 import {
   useActivityTones,
   ACTIVITY_LABEL,
@@ -82,6 +82,7 @@ export default function ManualEntryModal({
   onClose,
 }: Props) {
   const t = useTheme();
+  const { isDark } = useThemeContext();
   const tones = useActivityTones();
   const units = useUnits();
   const toast = useToast();
@@ -256,7 +257,18 @@ export default function ManualEntryModal({
         <DateTimePicker
           value={value}
           mode={mode}
-          display={Platform.OS === "ios" ? "spinner" : "default"}
+          // A calendar grid for the date — Android's own dialog already is
+          // one — but time stays a spinner: a grid of days doesn't have an
+          // equivalent for picking a time of day.
+          display={
+            Platform.OS === "ios"
+              ? mode === "date"
+                ? "inline"
+                : "spinner"
+              : "default"
+          }
+          accentColor={t.accent}
+          themeVariant={isDark ? "dark" : "light"}
           maximumDate={mode === "date" ? new Date() : undefined}
           onChange={(_, picked) => {
             if (Platform.OS !== "ios") setOpenPicker(null);
