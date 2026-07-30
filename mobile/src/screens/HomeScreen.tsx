@@ -23,8 +23,6 @@ import {
   SectionHeader,
   Text,
   EmptyState,
-  Card,
-  Divider,
 } from "../components/ui";
 import Snapshot from "../components/Snapshot";
 import TrackRow, { type TrackType } from "../components/TrackRow";
@@ -212,21 +210,24 @@ export default function HomeScreen() {
             </Pressable>
           }
         />
-        <Card padded={false}>
-          {TRACK_TYPES.map((type, index) => (
-            <View key={`${type}-${activeBaby.id}`}>
-              {index > 0 && <Divider style={styles.divider} />}
-              <TrackRow
-                type={type}
-                babyId={activeBaby.id}
-                enteredByName={enteredByName}
-                onLogSaved={refresh}
-                timer={timers[type]}
-                lastLog={lastByType.get(type) ?? null}
-              />
-            </View>
+        {/* Four separate horizontal cards, not one shared list with hairlines
+            between rows — each activity now has real padding and room for a
+            properly sized touch target instead of splitting one card's width
+            four ways. TrackRow owns its own Card (idle) or bordered box
+            (running); this just spaces them apart. */}
+        <View style={styles.trackList}>
+          {TRACK_TYPES.map((type) => (
+            <TrackRow
+              key={`${type}-${activeBaby.id}`}
+              type={type}
+              babyId={activeBaby.id}
+              enteredByName={enteredByName}
+              onLogSaved={refresh}
+              timer={timers[type]}
+              lastLog={lastByType.get(type) ?? null}
+            />
           ))}
-        </Card>
+        </View>
       </View>
 
       <Habits
@@ -254,7 +255,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   section: { gap: space.sm },
   center: { alignItems: "center" },
-  divider: { marginHorizontal: space.lg },
+  trackList: { gap: space.sm },
   // Pinned full-width pink header; the bottom corners round into the blush
   // content that scrolls beneath it.
   hero: {

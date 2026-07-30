@@ -14,6 +14,7 @@ import {
   SLEEP_KIND_META,
 } from "../design/activity";
 import { Text, Badge, Emoji } from "./ui/primitives";
+import { Card } from "./ui/Card";
 import { Button, IconButton } from "./ui/Button";
 import { Input, Field } from "./ui/Input";
 import { Sheet } from "./ui/Sheet";
@@ -452,10 +453,15 @@ export default function TrackRow({
 
   return (
     <>
-      <View style={styles.row}>
+      {/* Its own horizontal card, not a thin shared-list row — the four
+          activities used to sit stacked in one Card divided by hairlines, with
+          40pt buttons crammed against the right edge to fit. Standing alone
+          each row can afford real padding and touch targets sized properly,
+          rather than everyone splitting one card's width. */}
+      <Card padded={false} style={styles.row}>
         <View style={styles.left}>
           <View style={[styles.iconChip, { backgroundColor: tone.soft }]}>
-            <Emoji size={19}>{tone.emoji}</Emoji>
+            <Emoji size={22}>{tone.emoji}</Emoji>
           </View>
           <View style={styles.nameCol}>
             <Text variant="bodyStrong" numberOfLines={1}>
@@ -506,7 +512,7 @@ export default function TrackRow({
             />
           )}
         </View>
-      </View>
+      </Card>
 
       <TrackSheet
         shown={shown}
@@ -558,7 +564,7 @@ function MiniButton({
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
+      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
       accessibilityRole="button"
       accessibilityLabel={a11y}
       style={({ pressed }) => [
@@ -810,42 +816,44 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: space.md,
     paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    minHeight: 64,
+    paddingVertical: space.lg,
+    minHeight: 76,
   },
   left: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.sm,
+    gap: space.md,
     flex: 1,
     minWidth: 0,
   },
   iconChip: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.md,
+    width: 44,
+    height: 44,
+    borderRadius: radius.lg,
     alignItems: "center",
     justifyContent: "center",
   },
-  nameCol: { flex: 1, minWidth: 0, gap: 1 },
-  actions: { flexDirection: "row", gap: space.xs, flexShrink: 0 },
+  nameCol: { flex: 1, minWidth: 0, gap: 2 },
+  actions: { flexDirection: "row", gap: space.sm, flexShrink: 0 },
   mini: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: space.xs,
-    minWidth: 46,
-    height: 40,
+    minWidth: 52,
+    height: 48,
     paddingHorizontal: space.md,
     borderRadius: radius.md,
     borderWidth: 1.5,
   },
   // Single-letter L/R get a touch more width so they don't read as cramped.
-  miniWide: { minWidth: 54 },
+  miniWide: { minWidth: 60 },
 
   /* running */
+  // No outer margin: this used to sit inset within one shared unpadded Card;
+  // now each row stands alone and the gap between cards comes from the list's
+  // own spacing, in HomeScreen, rather than a margin baked into the row.
   runBox: {
-    margin: space.sm,
     padding: space.lg,
     borderRadius: radius.lg,
     borderWidth: 2,
