@@ -8,7 +8,8 @@ import { PressableCard, Text, Emoji } from "./ui";
 import { formatTime, formatTimer, formatRelativeTime } from "../utils/formatTime";
 import { formatDuration } from "../utils/formatDuration";
 import { summarise } from "../lib/greeting";
-import type { LogEntry } from "../api/logs";
+import { useUnits } from "../context/SettingsContext";
+import type { LogEntry, MilkBalance } from "../api/logs";
 import type { UseTimerResult } from "../hooks/useTimer";
 
 interface Props {
@@ -21,6 +22,17 @@ interface Props {
   onOpenLog: (filter?: string) => void;
   /** Open the Insights tab. */
   onOpenInsights: () => void;
+  /**
+   * Pumped minus bottled. When there's a pump history to show (`pumpedMl >
+   * 0`), it takes over the fourth card instead of the day-so-far summary —
+   * a running balance is closer in kind to "last feed"/"last sleep" than a
+   * once-a-day tally is, and a family that pumps checks it just as often.
+   * Falls back to the day summary otherwise, so a family with no pump
+   * history doesn't lose that card.
+   */
+  milkBalance?: MilkBalance | null;
+  /** Open the balance-correction sheet. */
+  onOpenMilkBalance?: () => void;
 }
 
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
@@ -53,8 +65,11 @@ export default function Snapshot({
   sleepTimer,
   onOpenLog,
   onOpenInsights,
+  milkBalance,
+  onOpenMilkBalance,
 }: Props) {
   const t = useTheme();
+  const units = useUnits();
   /*
    * Only the very first load holds the cards back. A poll or a pull-to-refresh
    * arrives with the previous numbers still on screen, and blanking those to
@@ -100,6 +115,14 @@ export default function Snapshot({
     today.sleepMinutes > 0
       ? `${formatDuration(today.sleepMinutes)} sleep so far`
       : "The day is young";
+
+  // Hidden until there's a pump history to show — a formula-only family
+  // shouldn't have their day-so-far card replaced by "0 ml available".
+  const showMilkBalance =
+    !!milkBalance && milkBalance.pumpedMl > 0 && !!onOpenMilkBalance;
+  const availableMl = showMilkBalance
+    ? Math.max(0, milkBalance!.balanceMl)
+    : 0;
 
   return (
     <View style={styles.grid}>
@@ -221,18 +244,31 @@ export default function Snapshot({
         onPress={() => onOpenLog("diaper")}
       />
 
-      {/* --------------------------------------------------------- today */}
-      <SnapshotCard
-        pending={pending}
-        emoji="✨"
-        label="Today"
-        value={todayLine}
-        valueColor={t.text}
-        valueSmall
-        sub={todaySleepLine}
-        accessibilityLabel={`Today so far: ${todayLine}, ${todaySleepLine}. Opens Insights.`}
-        onPress={onOpenInsights}
-      />
+      {/* ------------------------------------------------- today / balance */}
+      {showMilkBalance ? (
+        <SnapshotCard
+          pending={pending}
+          emoji="🍼"
+          label="Milk balance"
+          value={units.formatVolume(availableMl)}
+          valueColor={t.accentText}
+          sub="Available · tap to correct"
+          accessibilityLabel={`${units.formatVolume(availableMl)} of pumped milk available. Tap to correct it.`}
+          onPress={onOpenMilkBalance!}
+        />
+      ) : (
+        <SnapshotCard
+          pending={pending}
+          emoji="✨"
+          label="Today"
+          value={todayLine}
+          valueColor={t.text}
+          valueSmall
+          sub={todaySleepLine}
+          accessibilityLabel={`Today so far: ${todayLine}, ${todaySleepLine}. Opens Insights.`}
+          onPress={onOpenInsights}
+        />
+      )}
     </View>
   );
 }
