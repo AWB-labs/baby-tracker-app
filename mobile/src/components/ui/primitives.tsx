@@ -168,9 +168,13 @@ export function SectionHeader({
 }) {
   return (
     <View style={[styles.sectionHeader, style]}>
-      <Text variant="overline" tone="subtle">
-        {title}
-      </Text>
+      {/*
+       * 16pt semibold, in the text colour — not the small uppercase overline
+       * this used to be. A section title is a heading for what follows, and the
+       * overline treatment made every one of them read as a faint label rather
+       * than as structure. Fixed here so all of them change together.
+       */}
+      <Text style={styles.sectionTitle}>{title}</Text>
       {action}
     </View>
   );
@@ -273,4 +277,8 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
     minHeight: 20,
   },
+  // Fixed at 16/600 rather than borrowed from a Text variant: this is the one
+  // rule the app's section titles all share, and it should be changed in one
+  // place rather than by picking a different variant per screen.
+  sectionTitle: { fontSize: 16, fontWeight: "600" },
 });

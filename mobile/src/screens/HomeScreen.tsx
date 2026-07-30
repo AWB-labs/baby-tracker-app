@@ -1,8 +1,8 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
-  Animated,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -50,9 +50,6 @@ const POLL_INTERVAL_MS = 60_000;
 
 const TRACK_TYPES: TrackType[] = ["feed", "pump", "sleep", "diaper"];
 
-/** How much scroll it takes to fully fold the snapshot away. */
-const COLLAPSE_DISTANCE = 110;
-
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
   for (const log of logs) {
     if (log.type === type) return log; // logs arrive newest-first
@@ -70,14 +67,6 @@ export default function HomeScreen() {
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
   const insets = useSafeAreaInsets();
   const t = useTheme();
-
-  // Scroll-driven collapse: the pink hero stays pinned while the content
-  // scrolls under it, and the snapshot folds away into "header only" as you
-  // scroll up — then unfolds as you pull back down to the top. Height can't
-  // ride the native driver, so the scroll events run on the JS thread; the
-  // area involved is small enough that this stays smooth.
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const [snapshotH, setSnapshotH] = useState(0);
 
   // The timers live here, not in the rows: the snapshot needs to read the
   // same running feed/sleep the track rows control.
@@ -130,30 +119,24 @@ export default function HomeScreen() {
       .filter(Boolean)
       .join(" · ") || "Here's today";
 
-  // Fold the snapshot away over the first stretch of scroll; the header line
-  // (greeting, name, switcher) stays. All clamped, so overscroll at the top
-  // just holds the fully-expanded state.
-  const collapsible = snapshotH > 0;
-  const snapshotHeight = scrollY.interpolate({
-    inputRange: [0, COLLAPSE_DISTANCE],
-    outputRange: [snapshotH, 0],
-    extrapolate: "clamp",
-  });
-  const snapshotOpacity = scrollY.interpolate({
-    inputRange: [0, COLLAPSE_DISTANCE * 0.6],
-    outputRange: [1, 0],
-    extrapolate: "clamp",
-  });
-  const snapshotGap = scrollY.interpolate({
-    inputRange: [0, COLLAPSE_DISTANCE],
-    outputRange: [space.lg, 0],
-    extrapolate: "clamp",
-  });
-
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
-      {/* The pink hero is pinned above the scroll: the content slides under it
-          while the snapshot folds into a header-only strip. */}
+      {/*
+       * The pink hero is pinned above the scroll, at a fixed height — nothing
+       * about it moves as the content scrolls beneath it.
+       *
+       * A scroll-linked collapse used to live here: the snapshot's height,
+       * opacity and margin all interpolated from the scroll offset. Height
+       * cannot run on the native driver, which forced the whole listener onto
+       * the JS thread — and that thread is not idle on this screen (timers
+       * ticking every second, polling, the snapshot's own memos), so the
+       * animation fell behind the real, natively-driven scroll and caught up in
+       * visible jumps. That is the "electrocuted" flicker: two clocks running
+       * at different, drifting rates.
+       *
+       * Fixed height has no such clock to drift. The pink hero is simply drawn
+       * once and stays put; nothing here reads the scroll position at all.
+       */}
       <LinearGradient
         colors={["#f3437e", "#993758"]}
         start={{ x: 0.1, y: 0 }}
@@ -168,45 +151,23 @@ export default function HomeScreen() {
           actions={<BabySwitcher />}
         />
 
-        <Animated.View
-          style={
-            collapsible
-              ? {
-                  height: snapshotHeight,
-                  opacity: snapshotOpacity,
-                  marginTop: snapshotGap,
-                  overflow: "hidden",
-                }
-              : styles.snapshotResting
-          }
-        >
-          {/* Measured at natural size so the fold knows how far "open" is. */}
-          <View onLayout={(e) => setSnapshotH(e.nativeEvent.layout.height)}>
-            {/* What's happening right now — four doors, not banners.
-                Rendered from the first frame, placeholders and all: withheld
-                until data arrived, the hero changed height the moment it
-                landed, and the fold above measures nothing so the collapse
-                couldn't work at all until then. */}
-            <Snapshot
-              logs={logs}
-              loading={loading}
-              feedTimer={feedTimer}
-              sleepTimer={sleepTimer}
-              onOpenLog={(filter) =>
-                navigation.navigate("Activity", { filter })
-              }
-              onOpenInsights={() => navigation.navigate("Analytics")}
-            />
-          </View>
-        </Animated.View>
+        <View style={styles.snapshotResting}>
+          {/* What's happening right now — four doors, not banners. Rendered
+              from the first frame, placeholders and all: withholding it until
+              data arrived used to change the hero's height the moment it
+              landed, throwing everything below it down the screen. */}
+          <Snapshot
+            logs={logs}
+            loading={loading}
+            feedTimer={feedTimer}
+            sleepTimer={sleepTimer}
+            onOpenLog={(filter) => navigation.navigate("Activity", { filter })}
+            onOpenInsights={() => navigation.navigate("Analytics")}
+          />
+        </View>
       </LinearGradient>
 
-      <Animated.ScrollView
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
+      <ScrollView
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -260,7 +221,7 @@ export default function HomeScreen() {
         refreshKey={habitsRefreshKey}
       />
 
-      </Animated.ScrollView>
+      </ScrollView>
 
       <ManualEntryModal
         visible={showManual}
@@ -288,8 +249,8 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: radius.xxl,
     zIndex: 1,
   },
-  // Before the first layout pass measures the snapshot, keep the resting gap
-  // the hero's old `gap` used to provide.
+  // The hero's old `gap` between the header and the snapshot, restored as an
+  // ordinary margin now that nothing animates it away.
   snapshotResting: { marginTop: space.lg },
   scrollContent: {
     paddingHorizontal: space.lg,

@@ -144,6 +144,10 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
       </View>
 
       <View style={styles.body}>
+        {/* Name on the left, time hard right, on one line. These were three
+            stacked rows — title, then times, then author — which made every
+            entry as tall as its longest possible form even when it had nothing
+            to say. Anything conditional still gets its own line below. */}
         <View style={styles.titleRow}>
           <Text variant="bodyStrong" numberOfLines={1} style={styles.title}>
             {label}
@@ -153,6 +157,10 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
               </Text>
             ) : null}
           </Text>
+          <Text variant="footnote" tone="subtle" tabular numberOfLines={1}>
+            {formatTime(log.startTime)}
+            {!instant && log.endTime ? ` → ${formatTime(log.endTime)}` : ""}
+          </Text>
           {!instant && log.durationMinutes != null && log.durationMinutes > 0 && (
             <Pill bg={tone.soft} fg={tone.text}>
               {formatDuration(log.durationMinutes)}
@@ -160,19 +168,15 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
           )}
         </View>
 
-        <View style={styles.timeRow}>
-          <Text variant="footnote" tone="subtle" tabular>
-            {formatTime(log.startTime)}
-            {!instant && log.endTime ? `  →  ${formatTime(log.endTime)}` : ""}
-          </Text>
-          {crossesDays > 0 && (
+        {crossesDays > 0 && (
+          <View style={styles.timeRow}>
             <Pill bg={t.infoSoft} fg={t.info}>
               {crossesDays === 1
                 ? `next day · ${shortDate(log.endTime!)}`
                 : `+${crossesDays}d · ${shortDate(log.endTime!)}`}
             </Pill>
-          )}
-        </View>
+          </View>
+        )}
 
         {(showGap ||
           log.amountMl != null ||
@@ -237,32 +241,33 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
           </Text>
         ) : null}
 
-        <View style={styles.footerRow}>
-          <Text variant="caption" tone="subtle">
-            by {log.enteredByName}
-          </Text>
-          {onEdit && (
-            <Pressable
-              onPress={() => onEdit(log)}
-              accessibilityRole="button"
-              accessibilityLabel={`Edit this ${label.toLowerCase()} entry`}
-              // The pill is only ~26pt tall, so the shared 8pt slop (sized for
-              // the 36pt controls elsewhere) leaves it short of the 44pt floor.
-              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-              style={({ pressed }) => [
-                styles.editBtn,
-                {
-                  backgroundColor: t.accentSofter,
-                  borderColor: t.border,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              <Emoji size={13}>✏️</Emoji>
-            </Pressable>
-          )}
-        </View>
+        {/* Authorship is the least of it, so it gets the least: one caption,
+            no row of its own alongside a button. */}
+        <Text variant="caption" tone="subtle">
+          by {log.enteredByName}
+        </Text>
       </View>
+
+      {onEdit && (
+        <Pressable
+          onPress={() => onEdit(log)}
+          accessibilityRole="button"
+          accessibilityLabel={`Edit this ${label.toLowerCase()} entry`}
+          // The pill is only ~26pt tall, so the shared 8pt slop (sized for
+          // the 36pt controls elsewhere) leaves it short of the 44pt floor.
+          hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+          style={({ pressed }) => [
+            styles.editBtn,
+            {
+              backgroundColor: t.accentSofter,
+              borderColor: t.border,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          <Emoji size={13}>✏️</Emoji>
+        </Pressable>
+      )}
     </View>
   );
 }
