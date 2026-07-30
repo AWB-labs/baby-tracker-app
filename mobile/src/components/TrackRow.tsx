@@ -21,7 +21,7 @@ import { useToast } from "./Toast";
 import { useUnits } from "../context/SettingsContext";
 import type { UseTimerResult } from "../hooks/useTimer";
 import { createLog, type LogEntry } from "../api/logs";
-import { formatTimer, formatRelativeTime } from "../utils/formatTime";
+import { formatTimer, formatRelativeTime, formatTime } from "../utils/formatTime";
 import { formatDuration } from "../utils/formatDuration";
 
 const DIAPER_OPTIONS = Object.entries(DIAPER_META).map(([value, meta]) => ({
@@ -214,6 +214,15 @@ export default function TrackRow({
   }, [type, timer.showComment]);
 
   const running = timer.isActive;
+  /*
+   * The true start, not the current segment's.
+   *
+   * getOriginalStartTime survives pauses and the ±1 minute adjustments, so the
+   * label keeps naming the moment the session began rather than the last time
+   * it resumed. Recomputed each render, which is what keeps it honest after an
+   * adjustment; it changes only when the timer says it did.
+   */
+  const startedAt = running ? timer.getOriginalStartTime() ?? timer.startTime : null;
 
   /*
    * Which sheet is asking for input. One Modal that swaps its contents can't
@@ -288,6 +297,17 @@ export default function TrackRow({
           >
             {formatTimer(timer.elapsed)}
           </Text>
+
+          {/* When the clock started, spelled out.
+              A running total answers "how long", never "since when" — and after
+              an hour or two those are different questions. It reads the true
+              start, so a session that was paused, resumed or nudged with the
+              adjust buttons still names the moment it actually began. */}
+          {startedAt && (
+            <Text variant="caption" tone="subtle" center tabular>
+              started {formatTime(startedAt.toISOString())}
+            </Text>
+          )}
 
           {/* Babies swap breast mid-feed constantly; the running session just
               moves across rather than splitting into two entries. */}
