@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../design/ThemeProvider";
 import { space, radius, tabBar } from "../../design/tokens";
-import { Text } from "./primitives";
+import { Text, type TextProps } from "./primitives";
 
 export interface ScreenProps {
   children: React.ReactNode;
@@ -137,6 +137,13 @@ export interface ScreenHeaderProps {
    * would be truncated at 28pt.
    */
   overline?: string;
+  /**
+   * Overrides the overline's text size. Meant for a screen with no title at
+   * all, where the overline is carrying the whole heading on its own and the
+   * default size (chosen for a line that sits *above* something bigger) reads
+   * as too quiet to be the only thing there.
+   */
+  overlineVariant?: TextProps["variant"];
   /** Trailing controls, e.g. a baby switcher or settings button. */
   actions?: React.ReactNode;
   /** White text, for a header sitting on a coloured/gradient background. */
@@ -148,6 +155,7 @@ export function ScreenHeader({
   title,
   subtitle,
   overline,
+  overlineVariant = "subheadStrong",
   actions,
   light = false,
   style,
@@ -157,9 +165,15 @@ export function ScreenHeader({
       <View style={styles.headerText}>
         {overline ? (
           <Text
-            variant="subheadStrong"
+            variant={overlineVariant}
             tone="accent"
-            numberOfLines={1}
+            // Two lines, not one: at the default small size a long overline was
+            // never going to wrap anyway, so this costs nothing there. At a
+            // caller-requested larger size (Home's greeting) it's the
+            // difference between a clean wrap and a name truncated mid-word —
+            // exactly the "Good afterno…." this component used to produce
+            // before the greeting had anywhere of its own to grow into.
+            numberOfLines={2}
             // Without a title, the overline is the only heading-like text on
             // screen — a screen reader still needs one "header" landmark to
             // land on, so it takes over the role title would otherwise carry.

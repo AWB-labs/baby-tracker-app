@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import {
   NavigationContainer,
@@ -15,6 +15,7 @@ import WelcomeScreen from "../screens/auth/WelcomeScreen";
 import LoginScreen from "../screens/auth/LoginScreen";
 import SignupScreen from "../screens/auth/SignupScreen";
 import ParentProfileScreen from "../screens/auth/ParentProfileScreen";
+import JoinOrCreateScreen from "../screens/auth/JoinOrCreateScreen";
 import SetupBabyScreen from "../screens/auth/SetupBabyScreen";
 import AppTabs from "./AppTabs";
 
@@ -26,6 +27,7 @@ export type AuthStackParamList = {
 
 export type AppStackParamList = {
   ParentProfile: undefined;
+  JoinOrCreate: undefined;
   SetupBaby: undefined;
   Main: undefined;
 };
@@ -64,23 +66,41 @@ function AuthNavigator() {
 function AppNavigator() {
   const { babies, loading } = useBaby();
   const { account } = useAuth();
+  // Whether this session has said "I'm starting a new family" — only matters
+  // for the create path. The join path never needs it: claiming an invite
+  // populates `babies` directly, so the ordinary babies.length checks below
+  // carry it the rest of the way into Main on their own.
+  const [wantsToCreate, setWantsToCreate] = useState(false);
 
   if (loading) return <Splash />;
 
   /*
-   * Onboarding order: who are you, then who is the baby.
+   * Onboarding order: who are you, then whose family this is, then who the
+   * baby is.
    *
-   * Gated on having no babies as well as no relationship, so it only ever
-   * catches a genuinely new account. Everyone who signed up before the question
-   * existed has a null relationship and must not be dragged back through
-   * onboarding to answer it — Account has the same picker for that.
+   * needsProfile is gated on having no babies as well as no relationship, so
+   * it only ever catches a genuinely new account — everyone who signed up
+   * before the question existed has a null relationship and must not be
+   * dragged back through onboarding to answer it; Account has the same
+   * picker for that.
+   *
+   * needsIntent follows the same shape: no babies yet, profile already
+   * answered, and this session hasn't said "create" yet. Add Baby only makes
+   * sense for someone actually starting a family — not for someone about to
+   * gain access to a baby that already exists elsewhere — so this has to be
+   * answered before Add Baby can be reached at all.
    */
   const needsProfile = babies.length === 0 && !account?.relation;
+  const needsIntent = !needsProfile && babies.length === 0 && !wantsToCreate;
 
   return (
     <AppStack.Navigator screenOptions={{ headerShown: false }}>
       {needsProfile ? (
         <AppStack.Screen name="ParentProfile" component={ParentProfileScreen} />
+      ) : needsIntent ? (
+        <AppStack.Screen name="JoinOrCreate">
+          {() => <JoinOrCreateScreen onCreate={() => setWantsToCreate(true)} />}
+        </AppStack.Screen>
       ) : babies.length === 0 ? (
         <AppStack.Screen name="SetupBaby" component={SetupBabyScreen} />
       ) : (

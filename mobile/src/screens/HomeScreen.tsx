@@ -153,13 +153,16 @@ export default function HomeScreen() {
       >
         {/* The baby's name was showing twice — as this header's big title, and
             again on the switcher pill beside it. No replacement title: the
-            greeting stays a small overline (title1 truncates a phrase this
-            long to one line, which is exactly what put it here in the first
-            place), and age/gender stay in the subtitle since that information
-            isn't shown anywhere else on this screen. */}
+            greeting stays the overline rather than being promoted to a real
+            title — title1 truncates a phrase this long to one line, which is
+            exactly what put it here in the first place — but sized up with
+            overlineVariant so it still reads as this screen's headline rather
+            than a caption, and age/gender stay in the subtitle since that
+            information isn't shown anywhere else on this screen. */}
         <ScreenHeader
           light
           overline={`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
+          overlineVariant="title3"
           subtitle={babyLine}
           actions={<BabySwitcher />}
         />
