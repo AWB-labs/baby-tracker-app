@@ -164,7 +164,7 @@ export default function HomeScreen() {
           light
           overline={`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
           overlineVariant="title3"
-          title={`${activeBaby.avatarEmoji ? `${activeBaby.avatarEmoji} ` : ""}${activeBaby.name}`}
+          title={`${activeBaby.name}${activeBaby.avatarEmoji ? ` ${activeBaby.avatarEmoji}` : ""}`}
           subtitle={babyLine}
         />
 
