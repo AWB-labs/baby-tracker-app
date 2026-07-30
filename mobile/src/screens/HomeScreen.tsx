@@ -122,20 +122,30 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
       {/*
-       * The pink hero is pinned above the scroll, at a fixed height — nothing
-       * about it moves as the content scrolls beneath it.
+       * The pink hero is pinned above the scroll. Its own height has no
+       * animation logic at all — it's sized by its content, and shrinks when
+       * that content does, which is what the LayoutAnimation call above
+       * arranges for.
        *
-       * A scroll-linked collapse used to live here: the snapshot's height,
-       * opacity and margin all interpolated from the scroll offset. Height
-       * cannot run on the native driver, which forced the whole listener onto
-       * the JS thread — and that thread is not idle on this screen (timers
-       * ticking every second, polling, the snapshot's own memos), so the
-       * animation fell behind the real, natively-driven scroll and caught up in
-       * visible jumps. That is the "electrocuted" flicker: two clocks running
-       * at different, drifting rates.
+       * The version before this one drove a height Animated.Value continuously
+       * from the raw scroll offset. That forced the whole listener onto the
+       * JS thread — a thread that is not idle on this screen (timers ticking
+       * every second, polling, the snapshot's own memos) — and the animation
+       * fell behind the real, natively-driven scroll and caught up in visible
+       * jumps: the "electrocuted" flicker, two clocks running at different,
+       * drifting rates. The attempt after that tried to reclaim the space
+       * with a manually measured, manually driven height value, and shipped
+       * with the summary silently failing to render. A third attempt fired a
+       * discrete LayoutAnimation from that same per-frame listener instead of
+       * a continuous value, which was closer — but still ran a native layout
+       * transition while the ScrollView was actively being dragged, and a
+       * layout animation competing with a live scroll gesture produced the
+       * same flicker back a third time.
        *
-       * Fixed height has no such clock to drift. The pink hero is simply drawn
-       * once and stays put; nothing here reads the scroll position at all.
+       * Given three attempts at "shrink to match" each found a new way to
+       * regress into the exact bug this was meant to fix, the hero is fixed
+       * again — no scroll listener, no LayoutAnimation, nothing here reads
+       * scroll position at all. The full snapshot is simply always shown.
        */}
       <LinearGradient
         colors={["#f3437e", "#993758"]}
@@ -143,10 +153,15 @@ export default function HomeScreen() {
         end={{ x: 0.9, y: 1 }}
         style={[styles.hero, { paddingTop: insets.top + space.md }]}
       >
+        {/* The baby's name was showing twice — as this header's big title, and
+            again on the switcher pill beside it. No replacement title: the
+            greeting stays a small overline (title1 truncates a phrase this
+            long to one line, which is exactly what put it here in the first
+            place), and age/gender stay in the subtitle since that information
+            isn't shown anywhere else on this screen. */}
         <ScreenHeader
           light
           overline={`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
-          title={activeBaby.name}
           subtitle={babyLine}
           actions={<BabySwitcher />}
         />
@@ -251,6 +266,10 @@ const styles = StyleSheet.create({
   },
   // The hero's old `gap` between the header and the snapshot, restored as an
   // ordinary margin now that nothing animates it away.
+  // position:'relative' is what lets summaryOverlay below anchor to this
+  // box rather than to the whole screen.
+  // position:'relative' is what lets summaryOverlay below anchor to this
+  // box rather than to the whole screen.
   snapshotResting: { marginTop: space.lg },
   scrollContent: {
     paddingHorizontal: space.lg,

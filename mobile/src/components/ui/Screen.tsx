@@ -124,7 +124,12 @@ export function Screen({
 }
 
 export interface ScreenHeaderProps {
-  title: string;
+  /**
+   * Optional — a screen whose overline already says everything worth saying
+   * (Home's greeting, for one) doesn't need a second, bigger heading directly
+   * under it repeating the same ground.
+   */
+  title?: string;
   subtitle?: string;
   /**
    * Small line above the title. For secondary context that shouldn't compete
@@ -155,19 +160,25 @@ export function ScreenHeader({
             variant="subheadStrong"
             tone="accent"
             numberOfLines={1}
+            // Without a title, the overline is the only heading-like text on
+            // screen — a screen reader still needs one "header" landmark to
+            // land on, so it takes over the role title would otherwise carry.
+            accessibilityRole={title ? undefined : "header"}
             style={light && { color: "rgba(255,255,255,0.92)" }}
           >
             {overline}
           </Text>
         ) : null}
-        <Text
-          variant="title1"
-          accessibilityRole="header"
-          numberOfLines={1}
-          style={light && { color: "#ffffff" }}
-        >
-          {title}
-        </Text>
+        {title ? (
+          <Text
+            variant="title1"
+            accessibilityRole="header"
+            numberOfLines={1}
+            style={light && { color: "#ffffff" }}
+          >
+            {title}
+          </Text>
+        ) : null}
         {subtitle ? (
           <Text
             variant="subhead"

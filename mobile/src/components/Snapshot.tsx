@@ -311,6 +311,7 @@ function SnapshotCard({
   );
 }
 
+
 const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",

@@ -78,7 +78,7 @@ function MonthTile({
       onPress={() => onOpen(month)}
       accessibilityRole="button"
       accessibilityLabel={`Month ${month.month}, ${
-        month.mandatory ? "required" : "optional"
+        month.mandatory ? "mandatory" : "optional"
       }, ${month.given ? `given ${formatGivenDate(month.givenAt!)}` : status}`}
       style={({ pressed }) => [
         styles.tile,
@@ -122,28 +122,29 @@ function MonthTile({
   );
 }
 
-/** A labelled run of months — the required ones, or the optional ones. */
+/** A labelled run of months — the mandatory ones, or the optional ones. */
 function VaccineGroup({
   title,
+  mandatory,
   caption,
   months,
   onOpen,
 }: {
   title: string;
+  mandatory: boolean;
   caption: string;
   months: VaccineMonth[];
   onOpen: (m: VaccineMonth) => void;
 }) {
   const t = useTheme();
-  const required = title === "Required";
   return (
     <View style={styles.group}>
       <View style={styles.groupHead}>
         <Text
           variant="caption"
-          style={{ color: required ? t.accent : t.textSubtle }}
+          style={{ color: mandatory ? t.accent : t.textSubtle }}
         >
-          {required ? "●" : "○"}
+          {mandatory ? "●" : "○"}
         </Text>
         <Text variant="overline" tone="subtle">
           {title}
@@ -267,7 +268,8 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
           the first thing anyone wants from this screen, and reading it off the
           parity of a month number is a puzzle nobody should have to solve. */}
       <VaccineGroup
-        title="Required"
+        title="Mandatory"
+        mandatory
         caption="Don't miss these"
         months={required}
         onOpen={openMonth}
@@ -277,6 +279,7 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
 
       <VaccineGroup
         title="Optional"
+        mandatory={false}
         caption="Check with your clinic"
         months={optional}
         onOpen={openMonth}
@@ -292,7 +295,7 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
               {summary.requiredDone}/{summary.requiredTotal}
             </Text>
             <Text variant="caption" tone="muted">
-              required done
+              mandatory done
             </Text>
           </View>
           <View style={[styles.summaryDivider, { backgroundColor: t.border }]} />
@@ -309,6 +312,10 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
             </Text>
           </View>
         </View>
+        <Text variant="footnote" tone="subtle">
+          Always follow the card your clinic gives you — schedules differ by
+          country.
+        </Text>
       </Card>
 
       <Sheet

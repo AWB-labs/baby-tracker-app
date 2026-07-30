@@ -61,8 +61,10 @@ const GENDER_OPTIONS: { value: "girl" | "boy"; label: string }[] = [
  * for their baby, so they stay emoji rather than becoming stroke icons.
  */
 const AVATAR_EMOJIS = [
-  "👶", "🐣", "🐻", "🐰", "🦊", "🐨", "🦁", "🐼",
-  "🌸", "⭐", "🌙", "🍼",
+  "👶", "🐣", "🐤", "🐥", "🐻", "🐰", "🦊", "🐨",
+  "🦁", "🐼", "🐯", "🐶", "🐱", "🐹", "🐷", "🐮",
+  "🐸", "🦄", "🐘", "🐢", "🦋", "🐬", "🌸", "🌷",
+  "🌈", "⭐", "🌟", "🌙", "☀️", "🍼", "🧸", "🎀",
 ];
 
 const APPEARANCE_OPTIONS: { value: Appearance; label: string; icon: "auto" | "sun" | "moon" }[] = [
