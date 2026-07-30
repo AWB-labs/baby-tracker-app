@@ -132,12 +132,12 @@ export default function BagScreen() {
           onPress={() => navigation.goBack()}
         />
         <ScreenHeader
-          title="Baby's Bag"
+          title={activeBaby ? `${activeBaby.name}'s diaper bag` : "Diaper bag"}
           subtitle={
             activeBaby
               ? items.length > 0
                 ? `${packedCount} of ${items.length} packed`
-                : `What to bring for ${activeBaby.name}`
+                : "Add what to bring before you're out the door"
               : undefined
           }
           style={styles.headerText}
