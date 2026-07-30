@@ -14,6 +14,7 @@ import {
   Input,
   Field,
   Sheet,
+  Divider,
   EmptyState,
   SkeletonList,
   FadeInUp,
@@ -197,20 +198,21 @@ export default function HealthScreen() {
         dob={activeBaby.dob}
       />
 
-      <Button
-        label="Log health entry"
-        icon="plus"
-        variant="primary"
-        fullWidth
-        onPress={() => {
-          setShowForm(true);
-          setDate(new Date());
-          setTime(new Date());
-        }}
-      />
+      <Divider />
 
       <View style={styles.section}>
         <SectionHeader title="Illness & medication" />
+        <Button
+          label="Log health entry"
+          icon="plus"
+          variant="primary"
+          fullWidth
+          onPress={() => {
+            setShowForm(true);
+            setDate(new Date());
+            setTime(new Date());
+          }}
+        />
         {loading ? (
           <SkeletonList rows={3} />
         ) : healthLogs.length === 0 ? (
@@ -233,10 +235,13 @@ export default function HealthScreen() {
                       (centered and accent-coloured here, left and grey there)
                       for no reason beyond having been written separately. */}
                   {showHeader && <DateHeader label={dateLabel} />}
-                  {/* The same row the history tab renders, so a health entry
-                      reads identically wherever you meet it. */}
+                  {/* The same row component the Activity tab uses, so shared
+                      formatting (times, pills, pause timeline, comments)
+                      never drifts between them — emphasizeHealth just leads
+                      with the condition instead of repeating "Health" on a
+                      screen that's already nothing else. */}
                   <SwipeableRow onDelete={() => setPendingDelete(log)}>
-                    <LogRow log={log} onEdit={setEditLog} />
+                    <LogRow log={log} onEdit={setEditLog} emphasizeHealth />
                   </SwipeableRow>
                 </FadeInUp>
               );

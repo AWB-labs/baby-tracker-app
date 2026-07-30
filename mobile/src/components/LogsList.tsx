@@ -114,6 +114,15 @@ export interface LogRowProps {
   /** Minutes since the previous log of the same type, when worth showing. */
   gapMinutes?: number | null;
   onEdit?: (log: LogEntry) => void;
+  /**
+   * The Medical tab's whole list is health entries, so "Health" repeated as
+   * every row's title said nothing the screen itself hadn't already said.
+   * With this on, a health row leads with its condition instead, and a
+   * fever's actual number and the medicine given get more visual weight than
+   * a same-size pill or a muted footnote — the things worth reading at a
+   * glance in a list that's nothing but health entries.
+   */
+  emphasizeHealth?: boolean;
 }
 
 /**
@@ -143,7 +152,7 @@ export function DateHeader({
   );
 }
 
-export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
+export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps) {
   const t = useTheme();
   const tone = useActivityTone(log.type);
   const units = useUnits();
@@ -172,6 +181,9 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
     isOtherCondition && log.comments ? log.comments : conditionMeta?.label;
   const showGap = gapMinutes != null && log.type === "feed";
 
+  const healthEmphasis = !!emphasizeHealth && log.type === "health";
+  const title = healthEmphasis ? conditionLabel ?? label : label;
+
   return (
     <View style={[styles.row, { backgroundColor: t.surface }]}>
       {/* The website's round emoji chip, tinted per activity. */}
@@ -188,7 +200,7 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
             single timestamp is short and safe to keep beside the title. */}
         <View style={styles.titleRow}>
           <Text variant="bodyStrong" numberOfLines={1} style={styles.title}>
-            {label}
+            {title}
             {log.side ? (
               <Text variant="subhead" style={{ color: tone.text }}>
                 {"  "}({log.side === "left" ? "L" : "R"})
@@ -206,6 +218,16 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
             </Text>
           )}
         </View>
+
+        {/* A fever's actual number is the thing worth reading at a glance
+            here — bigger and bolder than the same-size pill it'd otherwise
+            share the row with, next to a "Fever" pill the title already
+            said. */}
+        {healthEmphasis && log.feverCelsius != null && (
+          <Text variant="title3" tabular style={{ color: t.warning }}>
+            {units.formatTemperature(log.feverCelsius)}
+          </Text>
+        )}
 
         {!instant && (
           <View style={styles.timeRow}>
@@ -236,8 +258,8 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
           diaperMeta ||
           log.weightKg != null ||
           log.heightCm != null ||
-          conditionMeta ||
-          log.feverCelsius != null) && (
+          (conditionMeta && !healthEmphasis) ||
+          (log.feverCelsius != null && !healthEmphasis)) && (
           <View style={styles.badges}>
             {showGap && (
               <Pill emoji="⏱" bg={t.infoSoft} fg={t.info}>
@@ -264,13 +286,17 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
                 {units.formatHeight(log.heightCm)}
               </Pill>
             )}
-            {/* A health row's own tone IS the rose health pair. */}
-            {conditionMeta && (
+            {/* A health row's own tone IS the rose health pair. Suppressed
+                under emphasis — the title already says the condition, so the
+                pill would just repeat it. */}
+            {conditionMeta && !healthEmphasis && (
               <Pill emoji={conditionMeta.emoji} bg={tone.soft} fg={tone.text}>
                 {conditionLabel}
               </Pill>
             )}
-            {log.feverCelsius != null && (
+            {/* Same reasoning — the number has its own bigger line above
+                under emphasis, so it doesn't also need the small pill. */}
+            {log.feverCelsius != null && !healthEmphasis && (
               <Pill emoji={MEASURE_EMOJI.fever} bg={t.warningSoft} fg={t.warning}>
                 {units.formatTemperature(log.feverCelsius)}
               </Pill>
@@ -279,7 +305,10 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
         )}
 
         {log.type === "health" && (log.medication || log.dose) ? (
-          <Text variant="footnote" tone="muted">
+          <Text
+            variant={healthEmphasis ? "subheadStrong" : "footnote"}
+            tone={healthEmphasis ? undefined : "muted"}
+          >
             {log.medication}
             {log.medication && log.dose ? " · " : ""}
             {log.dose ? `Dose: ${log.dose}` : ""}
