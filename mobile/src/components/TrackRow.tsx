@@ -11,6 +11,7 @@ import {
   useActivityTone,
   ACTIVITY_LABEL,
   DIAPER_META,
+  SLEEP_KIND_META,
 } from "../design/activity";
 import { Text, Badge, Emoji } from "./ui/primitives";
 import { Button, IconButton } from "./ui/Button";
@@ -48,17 +49,11 @@ const CONFIG: Record<string, Config> = {
 
 export type TrackType = "feed" | "pump" | "sleep" | "diaper";
 
-/**
- * Nap or night.
- *
- * Two words that can't be recovered from timestamps later: eleven hours of
- * sleep is a very different night depending on whether it came in one stretch
- * or six naps, and only the person who was there knows which.
- */
-const SLEEP_KINDS: { value: "nap" | "night"; label: string; emoji: string }[] = [
-  { value: "nap", label: "Nap", emoji: "☀️" },
-  { value: "night", label: "Night", emoji: "🌙" },
-];
+// Shared with EditLogModal, and defined once in design/activity.ts so the two
+// don't drift into describing "nap" differently.
+const SLEEP_KINDS = (
+  Object.entries(SLEEP_KIND_META) as ["nap" | "night", { emoji: string; label: string }][]
+).map(([value, meta]) => ({ value, ...meta }));
 
 interface Props {
   type: TrackType;

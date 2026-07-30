@@ -144,10 +144,12 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
       </View>
 
       <View style={styles.body}>
-        {/* Name on the left, time hard right, on one line. These were three
-            stacked rows — title, then times, then author — which made every
-            entry as tall as its longest possible form even when it had nothing
-            to say. Anything conditional still gets its own line below. */}
+        {/* Name on the left, time hard right — but only when the time is
+            short enough not to fight it for room. A start→end range like
+            "8:39 AM → 12:00 PM" plus a duration pill is wide enough on its own
+            to squeeze "Feed" down to "F…"; sharing that time onto its own row
+            costs one line, but a truncated name isn't a name. An instant log's
+            single timestamp is short and safe to keep beside the title. */}
         <View style={styles.titleRow}>
           <Text variant="bodyStrong" numberOfLines={1} style={styles.title}>
             {label}
@@ -157,16 +159,26 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
               </Text>
             ) : null}
           </Text>
-          <Text variant="footnote" tone="subtle" tabular numberOfLines={1}>
-            {formatTime(log.startTime)}
-            {!instant && log.endTime ? ` → ${formatTime(log.endTime)}` : ""}
-          </Text>
-          {!instant && log.durationMinutes != null && log.durationMinutes > 0 && (
-            <Pill bg={tone.soft} fg={tone.text}>
-              {formatDuration(log.durationMinutes)}
-            </Pill>
+          {instant && (
+            <Text variant="footnote" tone="subtle" tabular numberOfLines={1}>
+              {formatTime(log.startTime)}
+            </Text>
           )}
         </View>
+
+        {!instant && (
+          <View style={styles.timeRow}>
+            <Text variant="footnote" tone="subtle" tabular>
+              {formatTime(log.startTime)}
+              {log.endTime ? ` → ${formatTime(log.endTime)}` : ""}
+            </Text>
+            {log.durationMinutes != null && log.durationMinutes > 0 && (
+              <Pill bg={tone.soft} fg={tone.text}>
+                {formatDuration(log.durationMinutes)}
+              </Pill>
+            )}
+          </View>
+        )}
 
         {crossesDays > 0 && (
           <View style={styles.timeRow}>

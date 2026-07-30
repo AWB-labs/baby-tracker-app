@@ -7,6 +7,7 @@ import {
   ACTIVITY_LABEL,
   DIAPER_META,
   CONDITION_META,
+  SLEEP_KIND_META,
 } from "../design/activity";
 import { space, radius } from "../design/tokens";
 import { useUnits } from "../context/SettingsContext";
@@ -23,6 +24,10 @@ function formatTimeDisplay(d: Date): string {
 function formatDateDisplay(d: Date): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
+
+const SLEEP_KIND_OPTIONS = (
+  Object.entries(SLEEP_KIND_META) as ["nap" | "night", { emoji: string; label: string }][]
+).map(([value, meta]) => ({ value, ...meta }));
 
 /** Combine a calendar day from `d` with the clock time from `t`. */
 function combine(d: Date, t: Date): Date {
@@ -59,6 +64,11 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
   );
   const [comments, setComments] = useState(log.comments ?? "");
   const [diaperStatus, setDiaperStatus] = useState<string | null>(log.diaperStatus);
+  // Sleeps recorded before the distinction existed carry no sleepKind; "nap" is
+  // a starting position for the toggle, never a fact asserted on their behalf.
+  const [sleepKind, setSleepKind] = useState<"nap" | "night">(
+    log.sleepKind === "night" ? "night" : "nap"
+  );
   const [amountMl, setAmountMl] = useState(
     log.amountMl !== null ? units.toDisplayVolume(log.amountMl) : ""
   );
@@ -93,6 +103,7 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
     const payload: UpdateLogInput = { comments: comments.trim() || null };
 
     if (log.type === "diaper") payload.diaperStatus = diaperStatus;
+    if (log.type === "sleep") payload.sleepKind = sleepKind;
 
     if (editsAmountMl) {
       const ml = amountMl.trim() ? units.parseVolume(amountMl) : NaN;
@@ -157,9 +168,9 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
       setSaving(false);
     }
   }, [
-    saving, comments, log, diaperStatus, editsAmountMl, amountMl, weight,
-    height, condition, fever, medication, dose, date, startTime, endTime,
-    usesSingleTime, units, onSaved, onClose,
+    saving, comments, log, diaperStatus, sleepKind, editsAmountMl, amountMl,
+    weight, height, condition, fever, medication, dose, date, startTime,
+    endTime, usesSingleTime, units, onSaved, onClose,
   ]);
 
   const pickerField = (
@@ -239,6 +250,11 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
           )}
         </>
       ) : (
+        // The two time pickers are deliberately siblings of this row, not
+        // children of it: nested inside a flex-wrap row, an opened spinner —
+        // full sheet width, unconstrained — competed for space against these
+        // two flex:1 buttons and squeezed both labels down to a sliver a few
+        // points wide, wrapping "Start time" into an unreadable column.
         <View style={styles.rowGap}>
           {pickerField("Start time", formatTimeDisplay(startTime), () =>
             setShowStartPicker(true)
@@ -246,29 +262,64 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
           {pickerField("End time", formatTimeDisplay(endTime), () =>
             setShowEndPicker(true)
           )}
-          {showStartPicker && (
-            <DateTimePicker
-              value={startTime}
-              mode="time"
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={(_, tm) => {
-                setShowStartPicker(Platform.OS === "ios");
-                if (tm) setStartTime(tm);
-              }}
-            />
-          )}
-          {showEndPicker && (
-            <DateTimePicker
-              value={endTime}
-              mode="time"
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={(_, tm) => {
-                setShowEndPicker(Platform.OS === "ios");
-                if (tm) setEndTime(tm);
-              }}
-            />
-          )}
         </View>
+      )}
+      {!usesSingleTime && showStartPicker && (
+        <DateTimePicker
+          value={startTime}
+          mode="time"
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={(_, tm) => {
+            setShowStartPicker(Platform.OS === "ios");
+            if (tm) setStartTime(tm);
+          }}
+        />
+      )}
+      {!usesSingleTime && showEndPicker && (
+        <DateTimePicker
+          value={endTime}
+          mode="time"
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={(_, tm) => {
+            setShowEndPicker(Platform.OS === "ios");
+            if (tm) setEndTime(tm);
+          }}
+        />
+      )}
+
+      {log.type === "sleep" && (
+        <Field label="Nap or night?">
+          <View style={styles.tileGrid}>
+            {SLEEP_KIND_OPTIONS.map((opt) => {
+              const selected = sleepKind === opt.value;
+              return (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => setSleepKind(opt.value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={opt.label}
+                  accessibilityState={{ selected }}
+                  style={({ pressed }) => [
+                    styles.tile,
+                    {
+                      backgroundColor: selected ? t.accent : t.accentSofter,
+                      borderColor: selected ? t.accent : t.borderStrong,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Emoji size={18}>{opt.emoji}</Emoji>
+                  <Text
+                    variant="subheadStrong"
+                    style={{ color: selected ? t.onAccent : t.accentText }}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Field>
       )}
 
       {editsAmountMl && (

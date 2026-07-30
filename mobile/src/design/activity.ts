@@ -139,6 +139,18 @@ export const DIAPER_META: Record<string, { emoji: string; label: string }> = {
 
 export const SIDE_EMOJI = { left: "🫲", right: "🫱" } as const;
 
+/**
+ * Nap or night, on a sleep entry.
+ *
+ * Two words that can't be recovered from timestamps afterwards: eleven hours
+ * of sleep is a very different day depending on whether it came in one
+ * overnight stretch or six naps, and only the person who was there knows which.
+ */
+export const SLEEP_KIND_META: Record<"nap" | "night", { emoji: string; label: string }> = {
+  nap: { emoji: "☀️", label: "Nap" },
+  night: { emoji: "🌙", label: "Night" },
+};
+
 export const MEASURE_EMOJI = {
   weight: "⚖️",
   height: "📏",
