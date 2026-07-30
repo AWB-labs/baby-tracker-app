@@ -20,6 +20,7 @@ import {
   ACTIVITY_LABEL,
   DIAPER_META,
   CONDITION_META,
+  SLEEP_KIND_META,
   MEASURE_EMOJI,
   type ActivityTone,
 } from "../design/activity";
@@ -191,6 +192,10 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
             {log.side ? (
               <Text variant="subhead" style={{ color: tone.text }}>
                 {"  "}({log.side === "left" ? "L" : "R"})
+              </Text>
+            ) : log.sleepKind === "nap" || log.sleepKind === "night" ? (
+              <Text variant="subhead" style={{ color: tone.text }}>
+                {"  "}({SLEEP_KIND_META[log.sleepKind].label})
               </Text>
             ) : null}
           </Text>
