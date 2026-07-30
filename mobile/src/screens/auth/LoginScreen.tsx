@@ -89,13 +89,15 @@ export default function LoginScreen({ navigation }: Props) {
             returnKeyType="done"
           />
 
-          <Button
+          {/* Disabled until SMTP is set up on the API (no mail sender
+              configured yet) — uncomment to bring it back. */}
+          {/* <Button
             label="Forgot password?"
             variant="ghost"
             size="sm"
             onPress={() => navigation.navigate("ForgotPassword")}
             style={styles.forgotBtn}
-          />
+          /> */}
 
           <Button
             label="Sign in"
