@@ -34,13 +34,30 @@ model Account {
   themeColor           String?
   notificationsEnabled Boolean @default(true)
 
-  ownedBabies Baby[]        @relation("BabyOwner")
-  memberships BabyMember[]
-  invitesSent BabyInvite[]  @relation("InviteSender")
-  profiles    Profile[]
-  logs        ActivityLog[]
-  reminders   Reminder[]
-  pushTokens  PushToken[]
+  ownedBabies    Baby[]          @relation("BabyOwner")
+  memberships    BabyMember[]
+  invitesSent    BabyInvite[]    @relation("InviteSender")
+  profiles       Profile[]
+  logs           ActivityLog[]
+  reminders      Reminder[]
+  pushTokens     PushToken[]
+  passwordResets PasswordReset[]
+}
+
+/// A single-use code emailed to reclaim a forgotten password. Same shape as a
+/// BabyInvite link — a high-entropy random token, stored as issued rather than
+/// hashed, because 24 random bytes is already computationally infeasible to
+/// guess and this codebase already trusts that reasoning for invite links.
+model PasswordReset {
+  id        Int      @id @default(autoincrement())
+  accountId Int
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
 }
 
 model Baby {

@@ -43,6 +43,22 @@ export async function login(
   return res.data;
 }
 
+/**
+ * Always resolves, whether or not the email has an account — the server
+ * deliberately gives one answer either way, so the app can't be used to test
+ * which addresses are registered.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await apiClient.post("/auth/forgot-password", { email });
+}
+
+export async function resetPassword(
+  token: string,
+  password: string
+): Promise<void> {
+  await apiClient.post("/auth/reset-password", { token, password });
+}
+
 export interface Baby {
   id: number;
   name: string;

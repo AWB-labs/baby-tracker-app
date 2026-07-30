@@ -90,6 +90,14 @@ export default function LoginScreen({ navigation }: Props) {
           />
 
           <Button
+            label="Forgot password?"
+            variant="ghost"
+            size="sm"
+            onPress={() => navigation.navigate("ForgotPassword")}
+            style={styles.forgotBtn}
+          />
+
+          <Button
             label="Sign in"
             variant="primary"
             size="lg"
@@ -128,4 +136,8 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
   },
   form: { gap: space.lg },
+  // Right-aligned and pulled up against the password field above it, the way
+  // a "forgot password" link conventionally sits — not a third full-width
+  // button competing with Sign in for attention.
+  forgotBtn: { alignSelf: "flex-end", marginTop: -space.sm },
 });

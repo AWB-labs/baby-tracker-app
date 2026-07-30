@@ -14,6 +14,8 @@ import { useThemeContext } from "../design/ThemeProvider";
 import WelcomeScreen from "../screens/auth/WelcomeScreen";
 import LoginScreen from "../screens/auth/LoginScreen";
 import SignupScreen from "../screens/auth/SignupScreen";
+import ForgotPasswordScreen from "../screens/auth/ForgotPasswordScreen";
+import ResetPasswordScreen from "../screens/auth/ResetPasswordScreen";
 import ParentProfileScreen from "../screens/auth/ParentProfileScreen";
 import JoinOrCreateScreen from "../screens/auth/JoinOrCreateScreen";
 import SetupBabyScreen from "../screens/auth/SetupBabyScreen";
@@ -23,6 +25,10 @@ export type AuthStackParamList = {
   Welcome: undefined;
   Login: undefined;
   Signup: undefined;
+  ForgotPassword: undefined;
+  /** email/token are both optional — arriving fresh from Forgot Password
+   *  prefills them, but the screen works from a bare code alone too. */
+  ResetPassword: { email?: string; token?: string } | undefined;
 };
 
 export type AppStackParamList = {
@@ -59,6 +65,8 @@ function AuthNavigator() {
       <AuthStack.Screen name="Welcome" component={WelcomeScreen} />
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="Signup" component={SignupScreen} />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <AuthStack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </AuthStack.Navigator>
   );
 }
