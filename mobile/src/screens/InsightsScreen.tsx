@@ -294,6 +294,11 @@ function SleepSplit({ logs }: { logs: LogEntry[] }) {
     let napCount = 0;
     let nightCount = 0;
     let unlabelled = 0;
+    // Which calendar days actually have a labelled sleep — the divisor for
+    // "naps a day" below. A baby tracked for only 4 of these days shouldn't
+    // have their naps averaged over 7; that silently understates the rate on
+    // a new baby, or on any family that doesn't log every single day.
+    const trackedDays = new Set<string>();
 
     for (const log of logs) {
       if (log.type !== "sleep") continue;
@@ -302,14 +307,23 @@ function SleepSplit({ logs }: { logs: LogEntry[] }) {
       if (log.sleepKind === "night") {
         nightMinutes += mins;
         nightCount += 1;
+        trackedDays.add(new Date(log.startTime).toDateString());
       } else if (log.sleepKind === "nap") {
         napMinutes += mins;
         napCount += 1;
+        trackedDays.add(new Date(log.startTime).toDateString());
       } else {
         unlabelled += 1;
       }
     }
-    return { napMinutes, nightMinutes, napCount, nightCount, unlabelled };
+    return {
+      napMinutes,
+      nightMinutes,
+      napCount,
+      nightCount,
+      unlabelled,
+      trackedDays: trackedDays.size,
+    };
   }, [logs]);
 
   const total = split.napMinutes + split.nightMinutes;
@@ -357,7 +371,8 @@ function SleepSplit({ logs }: { logs: LogEntry[] }) {
 
         <Text variant="footnote" tone="subtle">
           {nightShare}% of sleep came at night, across{" "}
-          {(split.napCount / SLEEP_SPLIT_DAYS).toFixed(1)} naps a day.
+          {(split.napCount / Math.max(1, split.trackedDays)).toFixed(1)} naps
+          a day.
         </Text>
 
         {split.unlabelled > 0 && (
