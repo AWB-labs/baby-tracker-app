@@ -29,6 +29,7 @@ import {
 } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { useBaby } from "../context/BabyContext";
+import BabySwitcher from "../components/BabySwitcher";
 import { useSettings, useUnits } from "../context/SettingsContext";
 import { useToast } from "../components/Toast";
 import {
@@ -412,6 +413,22 @@ export default function SettingsScreen() {
         <SkeletonList rows={4} />
       ) : (
         <>
+          {/* ---------- Switch baby ---------- */}
+          <View style={styles.section}>
+            <SectionHeader title="Switch baby" />
+            <Card>
+              <Text variant="footnote" tone="subtle">
+                Everything below applies to whichever baby is selected here.
+              </Text>
+              {/* BabySwitcher's own trigger is a compact pill, not a full-width
+                  row — left-aligning it here keeps that shape instead of
+                  letting the card's column flex stretch it edge to edge. */}
+              <View style={styles.switcherWrap}>
+                <BabySwitcher />
+              </View>
+            </Card>
+          </View>
+
           {/* ---------- Caregivers ---------- */}
           <View style={styles.section}>
             <SectionHeader title="Caregivers" />
@@ -919,6 +936,7 @@ const styles = StyleSheet.create({
   section: { gap: space.sm },
   flex: { flex: 1 },
   form: { gap: space.lg },
+  switcherWrap: { alignItems: "flex-start", marginTop: space.md },
   // The tappable card that opens the Reminders screen.
   navRow: {
     flexDirection: "row",

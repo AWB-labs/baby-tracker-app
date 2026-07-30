@@ -151,20 +151,20 @@ export default function HomeScreen() {
         end={{ x: 0.9, y: 1 }}
         style={[styles.hero, { paddingTop: insets.top + space.md }]}
       >
-        {/* The baby's name was showing twice — as this header's big title, and
-            again on the switcher pill beside it. No replacement title: the
-            greeting stays the overline rather than being promoted to a real
-            title — title1 truncates a phrase this long to one line, which is
-            exactly what put it here in the first place — but sized up with
-            overlineVariant so it still reads as this screen's headline rather
-            than a caption, and age/gender stay in the subtitle since that
-            information isn't shown anywhere else on this screen. */}
+        {/* The greeting stays the overline rather than being promoted into the
+            title slot — title1 truncates a phrase this long to one line,
+            which is exactly what put it here in the first place — but sized
+            up with overlineVariant so it still reads as this screen's
+            headline rather than a caption. The baby's name (short enough to
+            never hit that truncation) plus their emoji is the actual title,
+            with age/gender underneath in the subtitle. The switcher itself
+            moved to Account, so there's nothing trailing to compete with it. */}
         <ScreenHeader
           light
           overline={`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
           overlineVariant="title3"
+          title={`${activeBaby.avatarEmoji ? `${activeBaby.avatarEmoji} ` : ""}${activeBaby.name}`}
           subtitle={babyLine}
-          actions={<BabySwitcher />}
         />
 
         <View style={styles.snapshotResting}>
@@ -270,10 +270,6 @@ const styles = StyleSheet.create({
   },
   // The hero's old `gap` between the header and the snapshot, restored as an
   // ordinary margin now that nothing animates it away.
-  // position:'relative' is what lets summaryOverlay below anchor to this
-  // box rather than to the whole screen.
-  // position:'relative' is what lets summaryOverlay below anchor to this
-  // box rather than to the whole screen.
   snapshotResting: { marginTop: space.lg },
   scrollContent: {
     paddingHorizontal: space.lg,
