@@ -45,6 +45,14 @@ export interface VaccineMonth {
    * than guessing.
    */
   overdue: boolean;
+  /**
+   * True while the baby hasn't reached this month of age yet — nothing to
+   * record, so the tile is dimmed and disabled rather than inviting a dose to
+   * be logged before it's due. Never true once something's actually recorded
+   * against it, and — like `overdue` — stays false without a known DOB rather
+   * than blocking a family who hasn't set one.
+   */
+  locked: boolean;
 }
 
 /** Whole months elapsed since birth, or null when the DOB isn't known. */
@@ -82,6 +90,7 @@ export function buildSchedule(
       givenAt: record?.givenAt ?? null,
       notes: record?.notes ?? null,
       overdue: !given && age !== null && age > month,
+      locked: !given && age !== null && age < month,
     };
   });
 }

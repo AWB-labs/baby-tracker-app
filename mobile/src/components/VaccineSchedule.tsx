@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../design/ThemeProvider";
-import { space, radius, PRESSED_OPACITY } from "../design/tokens";
+import { space, radius, PRESSED_OPACITY, DISABLED_OPACITY } from "../design/tokens";
 import {
   Card,
   Text,
@@ -63,23 +63,37 @@ function MonthTile({
 }) {
   const t = useTheme();
 
-  // Three states, each with its own colour so the grid reads at a glance:
-  // done, overdue, and not yet due.
+  // Four states, each with its own colour so the grid reads at a glance:
+  // done, overdue, locked, and not yet due (but reachable).
   const bg = month.given
     ? t.successSoft
     : month.overdue
       ? t.warningSoft
       : t.accentSofter;
   const fg = month.given ? t.success : month.overdue ? t.warning : t.accentText;
-  const status = month.given ? "done" : month.overdue ? "overdue" : "not yet";
+  const status = month.given
+    ? "done"
+    : month.locked
+      ? "locked"
+      : month.overdue
+        ? "overdue"
+        : "not yet";
 
   return (
     <Pressable
       onPress={() => onOpen(month)}
+      disabled={month.locked}
       accessibilityRole="button"
+      accessibilityState={{ disabled: month.locked }}
       accessibilityLabel={`Month ${month.month}, ${
         month.mandatory ? "mandatory" : "optional"
-      }, ${month.given ? `given ${formatGivenDate(month.givenAt!)}` : status}`}
+      }, ${
+        month.given
+          ? `given ${formatGivenDate(month.givenAt!)}`
+          : month.locked
+            ? "not due yet"
+            : status
+      }`}
       style={({ pressed }) => [
         styles.tile,
         {
@@ -88,7 +102,9 @@ function MonthTile({
           // A required month carries a heavier edge, so the ones that matter
           // stand out without resting on colour alone.
           borderWidth: month.mandatory ? 2 : StyleSheet.hairlineWidth,
-          opacity: pressed ? PRESSED_OPACITY : 1,
+          // Locked wins over pressed — it can't be pressed anyway, but a stale
+          // pressed style from just before it locked shouldn't linger.
+          opacity: month.locked ? DISABLED_OPACITY : pressed ? PRESSED_OPACITY : 1,
         },
       ]}
     >
@@ -113,7 +129,11 @@ function MonthTile({
       {/* Once it's done, the date it was given is the useful thing to show —
           "done" only repeats what the tick and the colour already said. */}
       <View style={styles.tileFoot}>
-        {month.given ? <Emoji size={12}>✅</Emoji> : null}
+        {month.given ? (
+          <Emoji size={12}>✅</Emoji>
+        ) : month.locked ? (
+          <Emoji size={12}>🔒</Emoji>
+        ) : null}
         <Text variant="caption" tabular style={{ color: fg }} numberOfLines={1}>
           {month.given && month.givenAt ? formatDayMonth(month.givenAt) : status}
         </Text>
