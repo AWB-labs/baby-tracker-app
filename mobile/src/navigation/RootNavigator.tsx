@@ -10,6 +10,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { useAuth } from "../context/AuthContext";
 import { useBaby } from "../context/BabyContext";
+import { usePushRegistration } from "../hooks/usePushRegistration";
 import { useThemeContext } from "../design/ThemeProvider";
 import WelcomeScreen from "../screens/auth/WelcomeScreen";
 import LoginScreen from "../screens/auth/LoginScreen";
@@ -79,6 +80,10 @@ function AppNavigator() {
   // populates `babies` directly, so the ordinary babies.length checks below
   // carry it the rest of the way into Main on their own.
   const [wantsToCreate, setWantsToCreate] = useState(false);
+  // Registers this device's token as soon as there's a session to attach it
+  // to — not gated on ever opening Reminders, which used to mean an account
+  // that never visited that one screen never received anything.
+  usePushRegistration();
 
   if (loading) return <Splash />;
 
