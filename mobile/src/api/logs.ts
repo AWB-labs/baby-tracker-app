@@ -121,3 +121,16 @@ export async function getMilkBalance(babyId: number): Promise<MilkBalance> {
   });
   return res.data;
 }
+
+/** Hand-correct the balance to an exact amount — the server works out what
+ *  offset that takes so future pumps/bottles keep moving it from there. */
+export async function setMilkBalance(
+  babyId: number,
+  balanceMl: number
+): Promise<MilkBalance> {
+  const res = await apiClient.patch<MilkBalance>("/logs/milk-balance", {
+    babyId,
+    balanceMl,
+  });
+  return res.data;
+}

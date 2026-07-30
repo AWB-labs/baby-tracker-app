@@ -72,6 +72,12 @@ model Baby {
   avatarEmoji    String?
   avatarColor    String?
   createdAt      DateTime  @default(now())
+  /// The milk balance (pumped minus bottled) is otherwise entirely computed
+  /// from ActivityLog — this is a hand correction added on top, in ml. Stored
+  /// as an offset rather than an absolute value so pump/bottle logs keep
+  /// adjusting the total from wherever a caregiver last corrected it to,
+  /// instead of a manual edit being silently overwritten by the next log.
+  milkBalanceAdjustmentMl Float @default(0)
 
   owner     Account       @relation("BabyOwner", fields: [ownerAccountId], references: [id], onDelete: Cascade)
   members   BabyMember[]
@@ -79,6 +85,7 @@ model Baby {
   reminders Reminder[]
   logs      ActivityLog[]
   vaccines  Vaccine[]
+  bagItems  BagItem[]
 }
 
 /// Who may read and write a baby's logs. This is the only source of truth for
@@ -154,6 +161,21 @@ model Vaccine {
   baby Baby @relation(fields: [babyId], references: [id], onDelete: Cascade)
 
   @@unique([babyId, monthNumber])
+  @@index([babyId])
+}
+
+/// One line on the "what's in the bag" checklist — nappies, wipes, a spare
+/// outfit. Shared across every caregiver of the baby, same as everything else
+/// here: whoever packs sees what another caregiver already checked off.
+model BagItem {
+  id        Int      @id @default(autoincrement())
+  babyId    Int
+  label     String
+  checked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  baby Baby @relation(fields: [babyId], references: [id], onDelete: Cascade)
+
   @@index([babyId])
 }
 

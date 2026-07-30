@@ -47,6 +47,7 @@ import {
   type PendingInvite,
 } from "../api/members";
 import { getReminders, type Reminder } from "../api/reminders";
+import { getBagItems, type BagItem } from "../api/bag";
 import { updateBaby } from "../api/babies";
 import DobField from "../components/DobField";
 import { updateSettings, type UnitSystem } from "../api/settings";
@@ -104,6 +105,7 @@ export default function SettingsScreen() {
   const [members, setMembers] = useState<BabyMember[]>([]);
   const [invites, setInvites] = useState<PendingInvite[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [bagItems, setBagItems] = useState<BagItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -138,13 +140,15 @@ export default function SettingsScreen() {
       return;
     }
     try {
-      const [membersRes, remindersRes] = await Promise.all([
+      const [membersRes, remindersRes, bagItemsRes] = await Promise.all([
         getMembers(activeBaby.id),
         getReminders(activeBaby.id),
+        getBagItems(activeBaby.id),
       ]);
       setMembers(membersRes.members);
       setInvites(membersRes.pendingInvites);
       setReminders(remindersRes);
+      setBagItems(bagItemsRes);
     } catch (err) {
       toast.showError(err);
     } finally {
@@ -667,6 +671,39 @@ export default function SettingsScreen() {
                     : reminders.length === 0
                       ? "None yet — add your first nudge"
                       : `${reminders.filter((r) => r.enabled).length} of ${reminders.length} active`}
+                </Text>
+              </View>
+              <Icon name="chevronRight" size="md" color={t.textSubtle} />
+            </Pressable>
+          </View>
+
+          {/* ---------- Baby's Bag ---------- */}
+          <View style={styles.section}>
+            <SectionHeader title="Baby's Bag" />
+            <Pressable
+              onPress={() => navigation.navigate("Bag")}
+              accessibilityRole="button"
+              accessibilityLabel={`Baby's Bag. ${
+                bagItems.filter((i) => i.checked).length
+              } of ${bagItems.length} packed. Opens the checklist.`}
+              style={({ pressed }) => [
+                styles.navRow,
+                {
+                  backgroundColor: t.surface,
+                  borderColor: t.border,
+                  opacity: pressed ? PRESSED_OPACITY : 1,
+                },
+              ]}
+            >
+              <View style={[styles.avatar, { backgroundColor: t.accentSofter }]}>
+                <Emoji size={18}>🎒</Emoji>
+              </View>
+              <View style={styles.rowBody}>
+                <Text variant="subheadStrong">Baby's Bag</Text>
+                <Text variant="caption" tone="subtle">
+                  {bagItems.length === 0
+                    ? "None yet — add what to pack"
+                    : `${bagItems.filter((i) => i.checked).length} of ${bagItems.length} packed`}
                 </Text>
               </View>
               <Icon name="chevronRight" size="md" color={t.textSubtle} />

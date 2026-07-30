@@ -169,20 +169,65 @@ router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
 });
 
 /**
- * GET /logs/milk-balance?babyId=X
- *
- * Pumped milk minus what's gone into bottles since, as a running lifetime
- * total — not a stock with an expiry, just the two sides of the ledger. Two
- * indexed sums rather than fetching every feed/pump row, so this stays cheap
- * regardless of how long the account has been logging.
+ * Pumped minus bottled, plus whatever a caregiver has manually corrected the
+ * total by. Two indexed sums rather than fetching every feed/pump row, so
+ * this stays cheap regardless of how long the account has been logging.
  *
  * A bottle is any feed with an amount, side or no side — the fix that let a
  * feed carry both together (a nursing session topped up with a bottle) means
  * that ml came out of a bottle either way.
  */
+async function computeMilkBalance(babyId: number) {
+  const [pumped, bottled, baby] = await Promise.all([
+    prisma.activityLog.aggregate({
+      where: { babyId, type: "pump" },
+      _sum: { amountMl: true },
+    }),
+    prisma.activityLog.aggregate({
+      where: { babyId, type: "feed" },
+      _sum: { amountMl: true },
+    }),
+    prisma.baby.findUnique({
+      where: { id: babyId },
+      select: { milkBalanceAdjustmentMl: true },
+    }),
+  ]);
+
+  const pumpedMl = pumped._sum.amountMl ?? 0;
+  const bottleMl = bottled._sum.amountMl ?? 0;
+  const adjustmentMl = baby?.milkBalanceAdjustmentMl ?? 0;
+
+  return { pumpedMl, bottleMl, balanceMl: pumpedMl - bottleMl + adjustmentMl };
+}
+
+// GET /logs/milk-balance?babyId=X
 router.get("/milk-balance", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
   const babyId = parseId(req.query.babyId, "baby");
+
+  await requireBabyAccess(accountId, babyId);
+
+  res.json(await computeMilkBalance(babyId));
+});
+
+/**
+ * PATCH /logs/milk-balance — hand-correct the total.
+ *
+ * The client sends the balance it wants, not an offset: the offset needed to
+ * get there depends on pumpedMl/bottleMl at the moment of writing, which only
+ * the server can know for certain without a race against whatever's just been
+ * logged. Storing it as a delta (see Baby.milkBalanceAdjustmentMl) rather than
+ * overwriting pumpedMl/bottleMl directly means the next pump or bottle still
+ * moves the total from here, instead of a manual edit being one-shot.
+ */
+const setMilkBalanceSchema = z.object({
+  babyId: z.number().int().positive(),
+  balanceMl: z.number().min(0),
+});
+
+router.patch("/milk-balance", authMiddleware, async (req, res: Response): Promise<void> => {
+  const { accountId } = req as AuthRequest;
+  const { babyId, balanceMl } = parseOrThrow(setMilkBalanceSchema, req.body);
 
   await requireBabyAccess(accountId, babyId);
 
@@ -196,11 +241,15 @@ router.get("/milk-balance", authMiddleware, async (req, res: Response): Promise<
       _sum: { amountMl: true },
     }),
   ]);
-
   const pumpedMl = pumped._sum.amountMl ?? 0;
   const bottleMl = bottled._sum.amountMl ?? 0;
 
-  res.json({ pumpedMl, bottleMl, balanceMl: pumpedMl - bottleMl });
+  await prisma.baby.update({
+    where: { id: babyId },
+    data: { milkBalanceAdjustmentMl: balanceMl - (pumpedMl - bottleMl) },
+  });
+
+  res.json({ pumpedMl, bottleMl, balanceMl });
 });
 
 // POST /logs

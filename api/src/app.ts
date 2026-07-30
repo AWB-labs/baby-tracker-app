@@ -17,6 +17,7 @@ import vaccinesRouter from "./routes/vaccines";
 import profilesRouter from "./routes/profiles";
 import settingsRouter from "./routes/settings";
 import remindersRouter from "./routes/reminders";
+import bagRouter from "./routes/bag";
 import internalRouter from "./routes/internal";
 import { AppError, friendlyPrismaMessage } from "./lib/httpError";
 
@@ -56,6 +57,7 @@ app.use("/vaccines", vaccinesRouter);
 app.use("/profiles", profilesRouter);
 app.use("/settings", settingsRouter);
 app.use("/reminders", remindersRouter);
+app.use("/bag-items", bagRouter);
 app.use("/internal", internalRouter);
 
 // Unknown route — still a readable message rather than Express's HTML page.
