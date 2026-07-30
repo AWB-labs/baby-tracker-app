@@ -8,6 +8,7 @@ export type ReminderType =
   | "shower"
   | "vitamin"
   | "nailcut"
+  | "medication"
   | "vaccine"
   | "custom";
 
@@ -24,6 +25,7 @@ export const REMINDER_TYPES: {
   { value: "shower", label: "Shower", icon: "🚿" },
   { value: "vitamin", label: "Vitamin", icon: "💊" },
   { value: "nailcut", label: "Nail Cut", icon: "💅" },
+  { value: "medication", label: "Medication", icon: "🩹" },
   { value: "vaccine", label: "Vaccine", icon: "💉" },
   { value: "custom", label: "Custom", icon: "⏰" },
 ];

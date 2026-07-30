@@ -135,6 +135,10 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
         setError("Enter a valid temperature for fever.");
         return;
       }
+      if (condition === "other" && !comments.trim()) {
+        setError("Say what the condition is.");
+        return;
+      }
       payload.healthCondition = condition;
       payload.medication = medication.trim() || null;
       payload.dose = dose.trim() || null;
@@ -456,11 +460,21 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
         </Field>
       )}
 
+      {/* "Other" reuses this field rather than adding a second one beside it —
+          the only free-text field a health entry has, doing double duty the
+          same way "Notes" already does for every other condition. */}
       <Input
-        label="Notes"
+        label={
+          log.type === "health" && condition === "other" ? "What is it?" : "Notes"
+        }
         value={comments}
         onChangeText={setComments}
-        placeholder="Optional"
+        placeholder={
+          log.type === "health" && condition === "other"
+            ? "e.g. Ear infection"
+            : "Optional"
+        }
+        required={log.type === "health" && condition === "other"}
         error={error}
       />
     </Sheet>

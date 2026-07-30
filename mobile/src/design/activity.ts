@@ -173,6 +173,7 @@ export const REMINDER_EMOJI: Record<string, string> = {
   shower: "🚿",
   vitamin: "💊",
   nailcut: "💅",
+  medication: "🩹",
   vaccine: "💉",
   custom: "⏰",
 };

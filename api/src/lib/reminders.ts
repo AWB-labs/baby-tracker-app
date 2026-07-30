@@ -14,6 +14,12 @@ export const REMINDER_TYPES = [
   { value: "vitamin", logType: "vitamin", label: "Vitamin", icon: "💊" },
   { value: "nailcut", logType: "nailcut", label: "Nail Cut", icon: "💅" },
   /**
+   * Watches the same "medicine" log type the Habits catalogue already writes
+   * — a family logging doses as a habit gets a reminder for that habit rather
+   * than a second, disconnected medication concept.
+   */
+  { value: "medication", logType: "medicine", label: "Medication", icon: "🩹" },
+  /**
    * The odd one out: monthly rather than weekly, anchored to the baby's date of
    * birth rather than the calendar, and it goes quiet on its own once the dose
    * for that month is recorded. See shouldFireVaccine.

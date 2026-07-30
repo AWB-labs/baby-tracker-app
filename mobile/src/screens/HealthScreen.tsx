@@ -28,7 +28,7 @@ import BabySwitcher from "../components/BabySwitcher";
 import VaccineSchedule from "../components/VaccineSchedule";
 import SwipeableRow from "../components/SwipeableRow";
 import EditLogModal from "../components/EditLogModal";
-import { LogRow } from "../components/LogsList";
+import { LogRow, DateHeader } from "../components/LogsList";
 import { formatTime, formatDateLabel } from "../utils/formatTime";
 import { createLog, type LogEntry } from "../api/logs";
 import { HEALTH_CONDITIONS, type HealthCondition } from "../lib/health";
@@ -96,10 +96,12 @@ export default function HealthScreen() {
     setRefreshing(false);
   }, [refresh]);
 
-  // A fever entry is meaningless without a reading, so the form gates on it.
+  // A fever entry is meaningless without a reading; "Other" is meaningless
+  // without saying what it is — both gate the save the same way.
   const canSave =
     condition !== null &&
-    (condition !== "fever" || (fever.trim() !== "" && parseFloat(fever) > 0));
+    (condition !== "fever" || (fever.trim() !== "" && parseFloat(fever) > 0)) &&
+    (condition !== "other" || comments.trim() !== "");
 
   const resetForm = () => {
     setShowForm(false);
@@ -226,17 +228,11 @@ export default function HealthScreen() {
 
               return (
                 <FadeInUp key={log.id} index={index}>
-                  {showHeader && (
-                    <Text
-                      variant="overline"
-                      tone="accent"
-                      center
-                      style={styles.dateHeader}
-                      accessibilityRole="header"
-                    >
-                      {dateLabel}
-                    </Text>
-                  )}
+                  {/* Same DateHeader Activity uses, not a local copy — the two
+                      screens used to disagree on how a date label looked
+                      (centered and accent-coloured here, left and grey there)
+                      for no reason beyond having been written separately. */}
+                  {showHeader && <DateHeader label={dateLabel} />}
                   {/* The same row the history tab renders, so a health entry
                       reads identically wherever you meet it. */}
                   <SwipeableRow onDelete={() => setPendingDelete(log)}>
@@ -381,11 +377,21 @@ export default function HealthScreen() {
           placeholder="e.g. 2.5 ml"
         />
 
+        {/*
+         * "Other" reuses the notes field rather than adding a second one next
+         * to it: this is the only free-text field a health entry has, and
+         * asking twice — once for "what is it" and again for "any notes" —
+         * would be two boxes doing what one already can. Required only here,
+         * the same way Temperature is required only for Fever.
+         */}
         <Input
-          label="Notes"
+          label={condition === "other" ? "What is it?" : "Notes"}
           value={comments}
           onChangeText={setComments}
-          placeholder="Optional"
+          placeholder={
+            condition === "other" ? "e.g. Ear infection" : "Optional"
+          }
+          required={condition === "other"}
         />
       </Sheet>
 
@@ -423,7 +429,6 @@ const styles = StyleSheet.create({
   center: { alignItems: "center" },
   section: { gap: space.sm },
   list: { gap: space.sm },
-  dateHeader: { paddingTop: space.md, paddingBottom: space.xs },
   actions: { flexDirection: "row", gap: space.sm },
   pickerBtn: {
     borderRadius: radius.md,

@@ -21,6 +21,7 @@ import {
   DIAPER_META,
   CONDITION_META,
   MEASURE_EMOJI,
+  type ActivityTone,
 } from "../design/activity";
 import { space, radius } from "../design/tokens";
 import { useUnits } from "../context/SettingsContext";
@@ -114,6 +115,33 @@ export interface LogRowProps {
   onEdit?: (log: LogEntry) => void;
 }
 
+/**
+ * "Today" / "Yesterday" / "Wed, Jul 30" above a run of entries for that day.
+ *
+ * Exported so every screen grouping logs by day — Activity, Medical — renders
+ * this the same way. Health used to have its own copy, centered and in the
+ * accent colour; the two read as different components even though they meant
+ * the same thing, purely because nobody had one place to change. `children`
+ * is where Activity slots in that day's totals — Health has none to show and
+ * simply omits it.
+ */
+export function DateHeader({
+  label,
+  children,
+}: {
+  label: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <View style={styles.dateHeader}>
+      <Text variant="overline" tone="subtle" accessibilityRole="header">
+        {label}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
 export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
   const t = useTheme();
   const tone = useActivityTone(log.type);
@@ -134,6 +162,13 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
     log.type === "health" && log.healthCondition
       ? CONDITION_META[log.healthCondition]
       : null;
+  // "Other" carries what it actually is in `comments`, so the pill shows that
+  // instead of the word "Other" — an entry that says "Ear infection" is worth
+  // more at a glance than one that says nothing was fever, cold or stomach.
+  // Older entries with no description keep "Other" as the fallback.
+  const isOtherCondition = log.type === "health" && log.healthCondition === "other";
+  const conditionLabel =
+    isOtherCondition && log.comments ? log.comments : conditionMeta?.label;
   const showGap = gapMinutes != null && log.type === "feed";
 
   return (
@@ -226,7 +261,7 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
             {/* A health row's own tone IS the rose health pair. */}
             {conditionMeta && (
               <Pill emoji={conditionMeta.emoji} bg={tone.soft} fg={tone.text}>
-                {conditionMeta.label}
+                {conditionLabel}
               </Pill>
             )}
             {log.feverCelsius != null && (
@@ -247,7 +282,9 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
 
         <PauseTimelineIndicator pauseTimelineJson={log.pauseTimelineJson} />
 
-        {log.comments ? (
+        {/* Suppressed when it's already the condition pill's own text above —
+            otherwise "Ear infection" would print twice on the same row. */}
+        {log.comments && !(isOtherCondition && conditionLabel === log.comments) ? (
           <Text variant="footnote" tone="muted" style={styles.comment}>
             “{log.comments}”
           </Text>
@@ -325,8 +362,13 @@ interface DayTotals {
   bottleMl: number;
   pumpMl: number;
   diaperCount: number;
-  /** Everything else, counted together — habits, showers, vitamins. */
-  otherCount: number;
+  /**
+   * Everything else, kept apart by type rather than lumped into one count —
+   * shower, vitamin, nail cut, growth, health, and every habit. Nap and night
+   * both land under sleepMinutes above, since they're the same server type
+   * and already share sleep's icon.
+   */
+  otherByType: Record<string, number>;
 }
 
 /** One row's worth of derived display state, computed once per list rather than
@@ -359,7 +401,7 @@ function totalsFor(logs: LogEntry[]): DayTotals {
     bottleMl: 0,
     pumpMl: 0,
     diaperCount: 0,
-    otherCount: 0,
+    otherByType: {},
   };
   for (const log of logs) {
     const mins = log.durationMinutes ?? 0;
@@ -379,7 +421,7 @@ function totalsFor(logs: LogEntry[]): DayTotals {
         totals.diaperCount += 1;
         break;
       default:
-        totals.otherCount += 1;
+        totals.otherByType[log.type] = (totals.otherByType[log.type] ?? 0) + 1;
     }
   }
   return totals;
@@ -392,7 +434,19 @@ function totalsFor(logs: LogEntry[]): DayTotals {
  * pumping, rather than carrying a row of zeroes for every activity the app
  * supports. It reads as a sentence about the day instead of a form.
  */
+/**
+ * Which server type each "everything else" entry belongs to, in a fixed
+ * reading order rather than whatever order they happened to occur in — the
+ * fallback (alphabetical, appended after) only ever fires for a type this
+ * list hasn't been told about yet.
+ */
+const OTHER_TYPE_ORDER = [
+  "shower", "vitamin", "nailcut", "growth", "health",
+  "tummy", "sunlight", "bath", "massage", "teeth", "walk", "medicine",
+];
+
 function DayTotalsRow({ totals }: { totals: DayTotals }) {
+  const t = useTheme();
   const units = useUnits();
   const tones = useActivityTones();
 
@@ -437,12 +491,24 @@ function DayTotalsRow({ totals }: { totals: DayTotals }) {
       color: tones.diaper.text,
     });
   }
-  if (totals.otherCount > 0) {
+  // The fixed order first, then anything the list doesn't yet know about,
+  // alphabetically — so a new server type shows up rather than vanishing.
+  const otherTypes = [
+    ...OTHER_TYPE_ORDER.filter((k) => (totals.otherByType[k] ?? 0) > 0),
+    ...Object.keys(totals.otherByType)
+      .filter((k) => !OTHER_TYPE_ORDER.includes(k))
+      .sort(),
+  ];
+  for (const type of otherTypes) {
+    const tone = (tones as Record<string, ActivityTone | undefined>)[type];
     parts.push({
-      key: "other",
-      emoji: "✅",
-      text: `${totals.otherCount}`,
-      color: tones.vitamin.text,
+      key: type,
+      // Custom habits all share one server type ("habit") with no icon of
+      // their own — the emoji lives in the per-baby habit config, not on the
+      // log row this component has — so a star stands in for "something".
+      emoji: tone?.emoji ?? "⭐",
+      text: `${totals.otherByType[type]}`,
+      color: tone?.text ?? t.textSubtle,
     });
   }
 
@@ -566,16 +632,9 @@ export default function LogsList({
       const content = (
         <>
           {showHeader && (
-            <View style={styles.dateHeader}>
-              <Text
-                variant="overline"
-                tone="subtle"
-                accessibilityRole="header"
-              >
-                {dateLabel}
-              </Text>
+            <DateHeader label={dateLabel}>
               {totals ? <DayTotalsRow totals={totals} /> : null}
-            </View>
+            </DateHeader>
           )}
           {onDelete ? (
             <SwipeableRow onDelete={() => setPendingDelete(log)}>
