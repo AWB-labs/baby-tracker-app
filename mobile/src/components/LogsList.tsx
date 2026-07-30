@@ -195,7 +195,8 @@ export function LogRow({ log, gapMinutes, onEdit }: LogRowProps) {
               </Text>
             ) : log.sleepKind === "nap" || log.sleepKind === "night" ? (
               <Text variant="subhead" style={{ color: tone.text }}>
-                {"  "}({SLEEP_KIND_META[log.sleepKind].label})
+                {"  "}({SLEEP_KIND_META[log.sleepKind].emoji}{" "}
+                {SLEEP_KIND_META[log.sleepKind].label})
               </Text>
             ) : null}
           </Text>
