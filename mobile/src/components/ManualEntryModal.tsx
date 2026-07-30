@@ -68,8 +68,10 @@ interface Props {
 
 /**
  * "Add something that already happened" — the catch-all for entries made after
- * the fact. Same rules as live tracking: a feed or pump is either a timed side
- * session or a measured amount; moments save with a single time.
+ * the fact. A feed or pump needs a side, an amount, or both: a side (with or
+ * without an amount) is a timed session with a start and end; an amount with
+ * no side is a single measured moment, like a bottle. Every other type saves
+ * with a single time.
  */
 export default function ManualEntryModal({
   visible,
@@ -119,7 +121,8 @@ export default function ManualEntryModal({
       amountMl: amountValid ? amountValue : null,
     });
 
-  // A feed or pump needs either a side or a valid amount; one is enough.
+  // A feed or pump needs a side or a valid amount — one is enough, and having
+  // both is fine too.
   const sidedValid = !takesMl || !!side || amountValid;
   const canSave = !!activityType && sidedValid && (!isDiaper || !!diaperStatus);
 
@@ -133,7 +136,7 @@ export default function ManualEntryModal({
   const blockedReason = !activityType
     ? "Pick an activity to save this entry."
     : takesMl && !sidedValid
-      ? "Choose a side, or enter an amount."
+      ? "Choose a side, enter an amount, or both."
       : isDiaper && !diaperStatus
         ? "Choose what was in the nappy."
         : null;
@@ -315,8 +318,8 @@ export default function ManualEntryModal({
       {takesMl && (
         <>
           <Field
-            label="Side (timed session)"
-            helper="Pick a side, or enter an amount below instead."
+            label="Side"
+            helper="Optional — add a side to make this a timed session, with or without an amount."
           >
             <View style={styles.sideRow}>
               {(["left", "right"] as const).map((s) => {
@@ -324,11 +327,7 @@ export default function ManualEntryModal({
                 return (
                   <Pressable
                     key={s}
-                    onPress={() => {
-                      const next = selected ? null : s;
-                      setSide(next);
-                      if (next) setAmount("");
-                    }}
+                    onPress={() => setSide(selected ? null : s)}
                     accessibilityRole="button"
                     accessibilityLabel={`${s} side`}
                     accessibilityState={{ selected }}
@@ -356,13 +355,16 @@ export default function ManualEntryModal({
 
           <Input
             label={activityType === "feed" ? "Bottle amount" : "Amount"}
+            helper={
+              side
+                ? activityType === "feed"
+                  ? "Optional — a bottle top-up amount, if there was one."
+                  : "Optional — how much came out, if you know it."
+                : undefined
+            }
             suffix={units.volume}
             value={amount}
-            onChangeText={(v) => {
-              setAmount(v);
-              // Entering an amount switches to an instant, measured log.
-              if (v) setSide(null);
-            }}
+            onChangeText={setAmount}
             keyboardType="decimal-pad"
             placeholder={units.system === "metric" ? "120" : "4"}
           />

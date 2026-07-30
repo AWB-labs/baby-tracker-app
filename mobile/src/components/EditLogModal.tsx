@@ -53,9 +53,11 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
     side: log.side,
     amountMl: log.amountMl,
   });
-  // A pump or bottle feed records how much, not how long.
-  const editsAmountMl =
-    (log.type === "pump" || log.type === "feed") && log.amountMl !== null;
+  // A pump or bottle feed can record how much — whether or not this
+  // particular entry had an amount when it was first logged. A timed session
+  // (side, no amount) can have one added here; one with an amount can have it
+  // cleared, as long as the side is still there to anchor the entry.
+  const editsAmountMl = log.type === "pump" || log.type === "feed";
 
   const [date, setDate] = useState(() => new Date(log.startTime));
   const [startTime, setStartTime] = useState(() => new Date(log.startTime));
@@ -106,12 +108,21 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
     if (log.type === "sleep") payload.sleepKind = sleepKind;
 
     if (editsAmountMl) {
-      const ml = amountMl.trim() ? units.parseVolume(amountMl) : NaN;
-      if (isNaN(ml) || ml <= 0) {
-        setError(`Enter a valid amount in ${units.volume}.`);
+      if (amountMl.trim()) {
+        const ml = units.parseVolume(amountMl);
+        if (isNaN(ml) || ml <= 0) {
+          setError(`Enter a valid amount in ${units.volume}.`);
+          return;
+        }
+        payload.amountMl = ml;
+      } else if (!log.side) {
+        // Side isn't editable here, so it's the only other thing that can
+        // anchor a feed/pump entry — without one, the amount can't be blank.
+        setError(`Enter an amount in ${units.volume}.`);
         return;
+      } else {
+        payload.amountMl = null;
       }
-      payload.amountMl = ml;
     }
 
     if (log.type === "growth") {
@@ -329,6 +340,7 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
       {editsAmountMl && (
         <Input
           label="Amount"
+          helper={log.side ? "Optional — leave blank to clear it." : undefined}
           suffix={units.volume}
           value={amountMl}
           onChangeText={setAmountMl}
