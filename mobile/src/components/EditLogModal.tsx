@@ -11,11 +11,11 @@ import {
 } from "../design/activity";
 import { space, radius } from "../design/tokens";
 import { useUnits } from "../context/SettingsContext";
-import { updateLog, type LogEntry, type UpdateLogInput } from "../api/logs";
+import { updateLog, deleteLog, type LogEntry, type UpdateLogInput } from "../api/logs";
 import { isInstantLog } from "../lib/activities";
 import { HEALTH_CONDITIONS, type HealthCondition } from "../lib/health";
 import { getErrorMessage } from "../lib/errors";
-import { Text, Emoji, Button, Input, Field, Sheet } from "./ui";
+import { Text, Emoji, Button, IconButton, Input, Field, Sheet, ConfirmDialog } from "./ui";
 
 function formatTimeDisplay(d: Date): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
@@ -93,6 +93,8 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -188,6 +190,19 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
     endTime, usesSingleTime, units, onSaved, onClose,
   ]);
 
+  const handleDelete = useCallback(async () => {
+    setConfirmDelete(false);
+    setDeleting(true);
+    try {
+      await deleteLog(log.id);
+      await onSaved();
+      onClose();
+    } catch (e) {
+      setError(getErrorMessage(e));
+      setDeleting(false);
+    }
+  }, [log.id, onSaved, onClose]);
+
   const pickerField = (
     label: string,
     value: string,
@@ -220,11 +235,19 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
       subtitle={`${tone.emoji} ${label}`}
       footer={
         <View style={styles.actions}>
+          <IconButton
+            icon="trash"
+            label={`Delete this ${label.toLowerCase()}`}
+            variant="danger"
+            disabled={deleting}
+            onPress={() => setConfirmDelete(true)}
+          />
           <Button label="Cancel" variant="ghost" onPress={onClose} style={styles.flex} />
           <Button
             label="Save"
             variant="primary"
             loading={saving}
+            disabled={deleting}
             onPress={handleSave}
             style={styles.flex}
           />
@@ -488,6 +511,20 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
         }
         required={log.type === "health" && condition === "other"}
         error={error}
+      />
+
+      {/* A Modal underneath, not a sibling — it renders through its own native
+          layer regardless of where it sits in the tree, so nesting it here
+          skips wrapping this whole return in a fragment just to hang a second
+          top-level element off it. */}
+      <ConfirmDialog
+        visible={confirmDelete}
+        icon="trash"
+        title={`Delete this ${label.toLowerCase()}?`}
+        message="This entry will be removed for every caregiver."
+        confirmLabel="Delete"
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(false)}
       />
     </Sheet>
   );

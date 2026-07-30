@@ -71,8 +71,17 @@ export default function SwipeableRow({ children, onDelete }: Props) {
       },
       onPanResponderMove: (_e, gs) => {
         if (isDismissed.current) return;
-        translateX.setValue(gs.dx);
-        progressAnim.setValue(Math.min(Math.abs(gs.dx) / DELETE_THRESHOLD, 1));
+        // 1:1 with the finger up to the threshold, then steeply damped — the
+        // row visibly resists rather than following the drag all the way to
+        // the edge of the screen, so releasing right around the threshold
+        // reads as "this is far enough" instead of an open-ended drag.
+        const abs = Math.abs(gs.dx);
+        const distance =
+          abs <= DELETE_THRESHOLD
+            ? abs
+            : DELETE_THRESHOLD + (abs - DELETE_THRESHOLD) * 0.25;
+        translateX.setValue(gs.dx < 0 ? -distance : distance);
+        progressAnim.setValue(Math.min(abs / DELETE_THRESHOLD, 1));
       },
       onPanResponderRelease: (_e, gs) => {
         if (isDismissed.current) return;
