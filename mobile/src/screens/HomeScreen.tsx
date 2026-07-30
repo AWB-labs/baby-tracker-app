@@ -26,6 +26,7 @@ import {
 } from "../components/ui";
 import Snapshot from "../components/Snapshot";
 import TrackRow, { type TrackType } from "../components/TrackRow";
+import MilkBalance from "../components/MilkBalance";
 import Habits from "../components/Habits";
 import BabySwitcher from "../components/BabySwitcher";
 import ManualEntryModal from "../components/ManualEntryModal";
@@ -213,6 +214,10 @@ export default function HomeScreen() {
             </Pressable>
           }
         />
+        {/* Sits above the rows it's context for: what's pumped is the supply,
+            what a bottle draws down is the demand, and this is the balance
+            between them — Pump and Feed are right below it either way. */}
+        <MilkBalance babyId={activeBaby.id} refreshKey={logs.length} />
         {/* Four separate horizontal cards, not one shared list with hairlines
             between rows — each activity now has real padding and room for a
             properly sized touch target instead of splitting one card's width

@@ -168,6 +168,41 @@ router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
   res.json(logs);
 });
 
+/**
+ * GET /logs/milk-balance?babyId=X
+ *
+ * Pumped milk minus what's gone into bottles since, as a running lifetime
+ * total — not a stock with an expiry, just the two sides of the ledger. Two
+ * indexed sums rather than fetching every feed/pump row, so this stays cheap
+ * regardless of how long the account has been logging.
+ *
+ * A bottle is any feed with an amount, side or no side — the fix that let a
+ * feed carry both together (a nursing session topped up with a bottle) means
+ * that ml came out of a bottle either way.
+ */
+router.get("/milk-balance", authMiddleware, async (req, res: Response): Promise<void> => {
+  const { accountId } = req as AuthRequest;
+  const babyId = parseId(req.query.babyId, "baby");
+
+  await requireBabyAccess(accountId, babyId);
+
+  const [pumped, bottled] = await Promise.all([
+    prisma.activityLog.aggregate({
+      where: { babyId, type: "pump" },
+      _sum: { amountMl: true },
+    }),
+    prisma.activityLog.aggregate({
+      where: { babyId, type: "feed" },
+      _sum: { amountMl: true },
+    }),
+  ]);
+
+  const pumpedMl = pumped._sum.amountMl ?? 0;
+  const bottleMl = bottled._sum.amountMl ?? 0;
+
+  res.json({ pumpedMl, bottleMl, balanceMl: pumpedMl - bottleMl });
+});
+
 // POST /logs
 router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;

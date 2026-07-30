@@ -108,3 +108,16 @@ export async function updateLog(
 export async function deleteLog(id: number): Promise<void> {
   await apiClient.delete(`/logs/${id}`);
 }
+
+export interface MilkBalance {
+  pumpedMl: number;
+  bottleMl: number;
+  balanceMl: number;
+}
+
+export async function getMilkBalance(babyId: number): Promise<MilkBalance> {
+  const res = await apiClient.get<MilkBalance>("/logs/milk-balance", {
+    params: { babyId },
+  });
+  return res.data;
+}
