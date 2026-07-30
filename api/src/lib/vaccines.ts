@@ -2,7 +2,7 @@
  * The immunisation schedule the app tracks: one visit per month of age, for the
  * baby's first year.
  *
- * Odd months are mandatory and even months optional. That is a deliberate
+ * Even months are mandatory and odd months optional. That is a deliberate
  * simplification of a real schedule rather than a medical fact — national
  * programmes differ, and a family should follow whatever their clinic gives
  * them. It exists so the app can show at a glance which visits must not be
@@ -22,9 +22,9 @@ export function isVaccineMonth(month: number): boolean {
   );
 }
 
-/** Odd months are the required visits; even months are catch-up / optional. */
+/** Even months are the required visits; odd months are catch-up / optional. */
 export function isMandatoryMonth(month: number): boolean {
-  return month % 2 === 1;
+  return month % 2 === 0;
 }
 
 /**

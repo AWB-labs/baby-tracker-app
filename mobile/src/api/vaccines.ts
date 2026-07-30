@@ -3,8 +3,8 @@ import apiClient from "./client";
 /**
  * The immunisation schedule, mirrored from api/src/lib/vaccines.ts.
  *
- * One visit per month of age for the first year. Odd months are mandatory and
- * even months optional — a deliberate simplification rather than a medical
+ * One visit per month of age for the first year. Even months are mandatory and
+ * odd months optional — a deliberate simplification rather than a medical
  * fact, so a family should still follow whatever card their clinic gives them.
  */
 export const FIRST_MONTH = 1;
@@ -16,7 +16,7 @@ export const VACCINE_MONTHS: number[] = Array.from(
 );
 
 export function isMandatoryMonth(month: number): boolean {
-  return month % 2 === 1;
+  return month % 2 === 0;
 }
 
 export interface VaccineRecord {

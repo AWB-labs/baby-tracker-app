@@ -162,6 +162,115 @@ function onDateWithCurrentClock(day: Date): Date {
  * where the Log answers "what happened". Individual measurements are edited
  * from the Log tab like any other entry.
  */
+/**
+ * Every measurement, newest first, each against the one before it.
+ *
+ * The tiles show the latest and the chart plots the last six, which leaves the
+ * rest of the history with nowhere to be read — and the interesting number in a
+ * growth record is rarely the value. It's the change: the same 7.1kg means
+ * something different after a 0.5kg month than after a flat one.
+ */
+function GrowthHistory({
+  visible,
+  onClose,
+  entries,
+  babyName,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  /** Oldest first, as the screen keeps them. */
+  entries: LogEntry[];
+  babyName: string;
+}) {
+  const t = useTheme();
+  const units = useUnits();
+  const growthTone = useActivityTone("growth");
+
+  // Deltas need the previous *recorded* value for that measure, which isn't
+  // simply the previous row: a visit that weighed but didn't measure height
+  // leaves height unchanged rather than unknown.
+  const rows = useMemo(() => {
+    let lastWeight: number | null = null;
+    let lastHeight: number | null = null;
+    const out = entries.map((log) => {
+      const weightDelta =
+        log.weightKg != null && lastWeight != null ? log.weightKg - lastWeight : null;
+      const heightDelta =
+        log.heightCm != null && lastHeight != null ? log.heightCm - lastHeight : null;
+      if (log.weightKg != null) lastWeight = log.weightKg;
+      if (log.heightCm != null) lastHeight = log.heightCm;
+      return { log, weightDelta, heightDelta };
+    });
+    return out.reverse();
+  }, [entries]);
+
+  return (
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      title="Growth history"
+      subtitle={`Every measurement recorded for ${babyName}`}
+      footer={<Button label="Done" variant="primary" fullWidth onPress={onClose} />}
+    >
+      {rows.map(({ log, weightDelta, heightDelta }, index) => (
+        <View
+          key={log.id}
+          accessible
+          accessibilityLabel={`${formatDateLabel(log.startTime)}: ${[
+            log.weightKg != null ? units.formatWeight(log.weightKg) : null,
+            log.heightCm != null ? units.formatHeight(log.heightCm) : null,
+          ]
+            .filter(Boolean)
+            .join(", ")}`}
+          style={[
+            styles.growthRowItem,
+            index > 0 && {
+              borderTopColor: t.border,
+              borderTopWidth: StyleSheet.hairlineWidth,
+            },
+          ]}
+        >
+          <View style={styles.flex}>
+            <Text variant="subheadStrong">{formatDateLabel(log.startTime)}</Text>
+            <Text variant="caption" tone="subtle">
+              by {log.enteredByName}
+            </Text>
+          </View>
+
+          <View style={styles.growthValues}>
+            {log.weightKg != null && (
+              <View style={styles.growthValue}>
+                <Text variant="bodyStrong" tabular style={{ color: growthTone.text }}>
+                  {units.formatWeight(log.weightKg)}
+                </Text>
+                {weightDelta !== null && (
+                  <Text variant="caption" tone="subtle" tabular>
+                    {weightDelta >= 0 ? "+" : "−"}
+                    {units.formatWeight(Math.abs(weightDelta))}
+                  </Text>
+                )}
+              </View>
+            )}
+            {log.heightCm != null && (
+              <View style={styles.growthValue}>
+                <Text variant="bodyStrong" tabular style={{ color: growthTone.text }}>
+                  {units.formatHeight(log.heightCm)}
+                </Text>
+                {heightDelta !== null && (
+                  <Text variant="caption" tone="subtle" tabular>
+                    {heightDelta >= 0 ? "+" : "−"}
+                    {units.formatHeight(Math.abs(heightDelta))}
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
+        </View>
+      ))}
+    </Sheet>
+  );
+}
+
 /** How many days back the nap/night split is measured over. */
 const SLEEP_SPLIT_DAYS = 7;
 
@@ -336,6 +445,7 @@ export default function InsightsScreen() {
   const t = useTheme();
   const tones = useActivityTones();
   const growthTone = useActivityTone("growth");
+  const [showGrowthHistory, setShowGrowthHistory] = useState(false);
   const units = useUnits();
   const toast = useToast();
   const { activeBaby } = useBaby();
@@ -595,7 +705,28 @@ export default function InsightsScreen() {
                 formatWeight={units.formatWeight}
               />
             )}
+
+            {/* The chart plots the last six and the tiles show the newest, so
+                every measurement before that had nowhere to be read. */}
+            {growthLogs.length > 0 && (
+              <Button
+                label={`View all ${growthLogs.length} measurement${
+                  growthLogs.length === 1 ? "" : "s"
+                }`}
+                icon="history"
+                variant="secondary"
+                fullWidth
+                onPress={() => setShowGrowthHistory(true)}
+              />
+            )}
           </View>
+
+          <GrowthHistory
+            visible={showGrowthHistory}
+            onClose={() => setShowGrowthHistory(false)}
+            entries={growthLogs}
+            babyName={activeBaby.name}
+          />
 
           {/* ----------------------------------------------- sleep pattern */}
           <View style={styles.section}>
@@ -946,6 +1077,14 @@ const styles = StyleSheet.create({
   center: { alignItems: "center" },
   section: { gap: space.sm },
   rhythmCard: { gap: space.sm },
+  growthRowItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    paddingVertical: space.md,
+  },
+  growthValues: { flexDirection: "row", gap: space.lg },
+  growthValue: { alignItems: "flex-end" },
   splitBar: { height: 12, borderRadius: radius.pill, overflow: "hidden" },
   splitFill: { height: "100%" },
   splitLegend: {

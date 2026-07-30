@@ -38,6 +38,14 @@ function formatGivenDate(iso: string): string {
   });
 }
 
+/** "12/03" — short enough to sit inside a tile without crowding the month. */
+function formatDayMonth(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2, "0")}/${String(
+    d.getMonth() + 1
+  ).padStart(2, "0")}`;
+}
+
 /**
  * One month of the schedule.
  *
@@ -102,10 +110,12 @@ function MonthTile({
       <Text variant="title3" tabular style={{ color: fg }}>
         {month.month}
       </Text>
+      {/* Once it's done, the date it was given is the useful thing to show —
+          "done" only repeats what the tick and the colour already said. */}
       <View style={styles.tileFoot}>
         {month.given ? <Emoji size={12}>✅</Emoji> : null}
-        <Text variant="caption" style={{ color: fg }} numberOfLines={1}>
-          {status}
+        <Text variant="caption" tabular style={{ color: fg }} numberOfLines={1}>
+          {month.given && month.givenAt ? formatDayMonth(month.givenAt) : status}
         </Text>
       </View>
     </Pressable>
@@ -299,10 +309,6 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
             </Text>
           </View>
         </View>
-        <Text variant="footnote" tone="subtle">
-          Always follow the card your clinic gives you — schedules differ by
-          country.
-        </Text>
       </Card>
 
       <Sheet
