@@ -259,7 +259,9 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
           log.weightKg != null ||
           log.heightCm != null ||
           (conditionMeta && !healthEmphasis) ||
-          (log.feverCelsius != null && !healthEmphasis)) && (
+          (log.feverCelsius != null && !healthEmphasis) ||
+          log.medication ||
+          log.dose) && (
           <View style={styles.badges}>
             {showGap && (
               <Pill emoji="⏱" bg={t.infoSoft} fg={t.info}>
@@ -301,19 +303,18 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
                 {units.formatTemperature(log.feverCelsius)}
               </Pill>
             )}
+            {/* Alongside the condition and temperature, not a footnote below
+                them — what was given is as much "what happened" as the
+                fever itself. */}
+            {(log.medication || log.dose) && (
+              <Pill emoji="💊" bg={tone.soft} fg={tone.text}>
+                {log.medication}
+                {log.medication && log.dose ? " · " : ""}
+                {log.dose ? `Dose: ${log.dose}` : ""}
+              </Pill>
+            )}
           </View>
         )}
-
-        {log.type === "health" && (log.medication || log.dose) ? (
-          <Text
-            variant={healthEmphasis ? "subheadStrong" : "footnote"}
-            tone={healthEmphasis ? undefined : "muted"}
-          >
-            {log.medication}
-            {log.medication && log.dose ? " · " : ""}
-            {log.dose ? `Dose: ${log.dose}` : ""}
-          </Text>
-        ) : null}
 
         <PauseTimelineIndicator pauseTimelineJson={log.pauseTimelineJson} />
 
