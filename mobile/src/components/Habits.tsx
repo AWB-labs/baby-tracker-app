@@ -20,6 +20,7 @@ import {
   saveHabits,
   computeHabitStats,
   makeCustomHabit,
+  editHabit,
   HABIT_CATALOG,
   HABIT_EMOJI_CHOICES,
   type HabitDef,
@@ -65,6 +66,11 @@ export default function Habits({
   const [showCustomize, setShowCustomize] = useState(false);
   const [newHabitName, setNewHabitName] = useState("");
   const [newHabitEmoji, setNewHabitEmoji] = useState(HABIT_EMOJI_CHOICES[0]);
+  // Which habit's row, if any, is showing its edit form in place of the
+  // normal row — never more than one at a time.
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editEmoji, setEditEmoji] = useState(HABIT_EMOJI_CHOICES[0]);
 
   // Per-baby config from the device.
   useEffect(() => {
@@ -201,6 +207,32 @@ export default function Habits({
     setNewHabitName("");
     setNewHabitEmoji(HABIT_EMOJI_CHOICES[0]);
   }, [newHabitName, newHabitEmoji, habits, addHabit, toast]);
+
+  const startEdit = useCallback((habit: HabitDef) => {
+    setEditingKey(habit.key);
+    setEditLabel(habit.label);
+    setEditEmoji(habit.emoji);
+  }, []);
+
+  const cancelEdit = useCallback(() => setEditingKey(null), []);
+
+  /** Rename and/or re-icon whichever habit is currently open for edit. */
+  const saveEdit = useCallback(() => {
+    if (!editingKey) return;
+    const name = editLabel.trim();
+    if (!name) return;
+    const dup = habits.some(
+      (h) => h.key !== editingKey && h.label.toLowerCase() === name.toLowerCase()
+    );
+    if (dup) {
+      toast.error(`You already have a habit called ${name}.`);
+      return;
+    }
+    persist(
+      habits.map((h) => (h.key === editingKey ? editHabit(h, name, editEmoji) : h))
+    );
+    setEditingKey(null);
+  }, [editingKey, editLabel, editEmoji, habits, persist, toast]);
 
   // Catalogue habits the family hasn't added yet — the "Add a habit" list.
   const available = HABIT_CATALOG.filter(
@@ -357,7 +389,10 @@ export default function Habits({
       {/* ----------------------------------------------------- customize */}
       <Sheet
         visible={showCustomize}
-        onClose={() => setShowCustomize(false)}
+        onClose={() => {
+          setShowCustomize(false);
+          cancelEdit();
+        }}
         title="Customize habits"
         subtitle="Add or remove the once-a-day routines on your Today screen. Each keeps its own streak."
         footer={
@@ -365,7 +400,10 @@ export default function Habits({
             label="Done"
             variant="primary"
             fullWidth
-            onPress={() => setShowCustomize(false)}
+            onPress={() => {
+              setShowCustomize(false);
+              cancelEdit();
+            }}
           />
         }
       >
@@ -385,20 +423,102 @@ export default function Habits({
                   : stat?.missed
                     ? "Missed yesterday · streak reset"
                     : "No streak yet";
+              const dividerStyle =
+                index > 0 && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth };
+
+              if (editingKey === habit.key) {
+                return (
+                  <View key={habit.key} style={[styles.custItem, dividerStyle]}>
+                    <View style={styles.custEditForm}>
+                      <Input
+                        label="Habit name"
+                        value={editLabel}
+                        onChangeText={setEditLabel}
+                        maxLength={30}
+                        autoFocus
+                        returnKeyType="done"
+                        onSubmitEditing={saveEdit}
+                      />
+                      {habit.custom && (
+                        <Text variant="caption" tone="subtle">
+                          Renaming starts this habit's streak over — its
+                          history is matched by name.
+                        </Text>
+                      )}
+                      <View style={styles.emojiRow}>
+                        {HABIT_EMOJI_CHOICES.map((choice) => {
+                          const selected = editEmoji === choice;
+                          return (
+                            <Pressable
+                              key={choice}
+                              onPress={() => setEditEmoji(choice)}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                              accessibilityLabel={`Icon ${choice}`}
+                              style={({ pressed }) => [
+                                styles.emojiChoice,
+                                {
+                                  backgroundColor: selected ? t.accent : t.accentSofter,
+                                  borderColor: selected ? t.accent : t.borderStrong,
+                                  opacity: pressed ? PRESSED_OPACITY : 1,
+                                },
+                              ]}
+                            >
+                              <Emoji size={18}>{choice}</Emoji>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      <View style={styles.formActions}>
+                        <Button
+                          label="Cancel"
+                          variant="ghost"
+                          onPress={cancelEdit}
+                          style={styles.flex}
+                        />
+                        <Button
+                          label="Save"
+                          variant="primary"
+                          disabled={!editLabel.trim()}
+                          onPress={saveEdit}
+                          style={styles.flex}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                );
+              }
+
               return (
                 <View
                   key={habit.key}
-                  style={[styles.custItem, index > 0 && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth }]}
+                  style={[styles.custItem, dividerStyle]}
                 >
-                  <View style={[styles.custEmoji, { backgroundColor: t.accentSoft }]}>
-                    <Emoji size={19}>{habit.emoji}</Emoji>
-                  </View>
-                  <View style={styles.custMid}>
-                    <Text variant="bodyStrong">{habit.label}</Text>
-                    <Text variant="caption" tone="subtle">
-                      {caption}
-                    </Text>
-                  </View>
+                  {/* The identity — icon and name — is what you'd tap to
+                      rename, same as an "Add a habit" row below is tapped to
+                      add. Reordering and removing stay dedicated icon buttons
+                      so they can't be triggered by the same tap. */}
+                  <Pressable
+                    onPress={() => startEdit(habit)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${habit.label}`}
+                    accessibilityHint="Change its name or icon"
+                    style={({ pressed }) => [
+                      styles.custMidPressable,
+                      { opacity: pressed ? PRESSED_OPACITY : 1 },
+                    ]}
+                  >
+                    <View style={[styles.custEmoji, { backgroundColor: t.accentSoft }]}>
+                      <Emoji size={19}>{habit.emoji}</Emoji>
+                    </View>
+                    <View style={styles.custMid}>
+                      <Text variant="bodyStrong">{habit.label}</Text>
+                      <Text variant="caption" tone="subtle">
+                        {caption}
+                      </Text>
+                    </View>
+                    <Icon name="edit" size="sm" color={t.textSubtle} />
+                  </Pressable>
                   <IconButton
                     icon="chevronUp"
                     label={`Move ${habit.label} up`}
@@ -562,6 +682,22 @@ const styles = StyleSheet.create({
     gap: space.sm,
     paddingVertical: space.md,
   },
+  // Wraps the icon + name + edit hint of a normal row so the whole identity
+  // is one tap target, sized to fill the row alongside the reorder/remove
+  // buttons that follow it as siblings.
+  custMidPressable: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    flex: 1,
+    minWidth: 0,
+  },
+  // Replaces a row's content while it's being renamed. `flex: 1` is what
+  // makes it fill the row's width — custItem is a row-flex with just this
+  // one child, which otherwise sizes to its content instead of stretching.
+  custEditForm: { flex: 1, gap: space.md },
+  formActions: { flexDirection: "row", gap: space.sm },
+  flex: { flex: 1 },
   custEmoji: {
     width: 38,
     height: 38,

@@ -33,7 +33,9 @@ export interface HabitDef {
   /**
    * Identity within this baby's config. A catalogue habit uses its own type;
    * a custom one gets a generated key, because all custom habits share the
-   * single "habit" server type and would otherwise collide.
+   * single "habit" server type and would otherwise collide. Stays stable
+   * across a rename — only `label`/`emoji` change, so a renamed custom habit
+   * doesn't need a fresh key.
    */
   key: string;
   /** The server log type a tick is written as. */
@@ -43,16 +45,25 @@ export interface HabitDef {
   enabled: boolean;
   /**
    * A habit the family made up. Its logs are type "habit" and are matched back
-   * to it by label, so renaming one starts its streak over — which is why the
-   * edit flow doesn't offer a rename.
+   * to it by label, so renaming one starts its streak over — today's tick and
+   * any history logged under the old name stop counting toward the new one.
    */
   custom?: boolean;
+  /**
+   * Set once the family has renamed or re-iconed a catalogue habit by hand.
+   * Without this, loadHabits would overwrite that choice with the catalogue
+   * default on the very next load, the same way it propagates a shipped
+   * rename to everyone who *hasn't* customized theirs.
+   */
+  edited?: boolean;
 }
 
-/** The emoji offered when inventing a habit. Deliberately a short list: a full
- *  picker is a lot of screen for a decision that barely matters. */
+/** The emoji offered when inventing — or renaming — a habit. Deliberately a
+ *  short list: a full picker is a lot of screen for a decision that barely
+ *  matters. 💊 covers the common case of a second, differently-named vitamin
+ *  or medicine habit alongside the catalogue's own "Vitamin". */
 export const HABIT_EMOJI_CHOICES = [
-  "⭐", "🍼", "🧸", "📚", "🎵", "🧴", "🪥", "🚼",
+  "⭐", "💊", "🍼", "🧸", "📚", "🎵", "🧴", "🪥", "🚼",
   "💧", "🌙", "🧦", "🩹", "🏃", "🎨", "🫧", "🌿",
 ];
 
@@ -100,6 +111,16 @@ export function makeCustomHabit(label: string, emoji: string): HabitDef {
   };
 }
 
+/**
+ * Apply a rename/re-icon from the edit sheet. The key is left untouched — for
+ * a custom habit it's only ever used for local list identity and duplicate
+ * detection, never for matching logs (that's `label`), so there's nothing to
+ * regenerate.
+ */
+export function editHabit(habit: HabitDef, label: string, emoji: string): HabitDef {
+  return { ...habit, label: label.trim(), emoji, edited: true };
+}
+
 function storageKey(babyId: number): string {
   return `babytracker_habits_${babyId}`;
 }
@@ -114,9 +135,12 @@ export async function loadHabits(babyId: number): Promise<HabitDef[]> {
     if (!Array.isArray(saved)) return DEFAULT_HABITS;
     // Honour the saved list exactly — including habits the family has removed.
     // Catalogue entries have their label and emoji refreshed from the catalogue
-    // so a shipped rename reaches an existing config, and any whose type has
-    // since been withdrawn are dropped. Custom ones are the family's own words
-    // and are passed through untouched.
+    // so a shipped rename reaches an existing config, unless the family has
+    // edited that entry themselves — that takes precedence and stops the
+    // refresh, same as a shipped rename would otherwise clobber it every load.
+    // Any catalogue entry whose type has since been withdrawn is dropped.
+    // Custom ones are the family's own words and are always passed through
+    // untouched.
     return saved
       .map((h): HabitDef | null => {
         if (h.custom) {
@@ -129,7 +153,9 @@ export async function loadHabits(babyId: number): Promise<HabitDef[]> {
         }
         const meta = CATALOG_BY_TYPE.get(h.type);
         if (!meta) return null;
-        return { ...h, key: h.type, label: meta.label, emoji: meta.emoji };
+        return h.edited
+          ? { ...h, key: h.type }
+          : { ...h, key: h.type, label: meta.label, emoji: meta.emoji };
       })
       .filter((h): h is HabitDef => h !== null);
   } catch {
