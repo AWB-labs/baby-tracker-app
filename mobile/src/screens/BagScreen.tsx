@@ -11,6 +11,7 @@ import {
   IconButton,
   Input,
   Button,
+  Sheet,
   EmptyState,
   SkeletonList,
   FadeInUp,
@@ -45,6 +46,9 @@ export default function BagScreen() {
   const [newLabel, setNewLabel] = useState("");
   const [adding, setAdding] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<BagItem | null>(null);
+  const [editingItem, setEditingItem] = useState<BagItem | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeBaby) {
@@ -103,6 +107,59 @@ export default function BagScreen() {
         )
       );
       toast.showError(err);
+    }
+  };
+
+  // Swaps this item's order with its neighbour's — a straight value swap, not
+  // a renumber of the whole list, so it's the same one-PATCH-per-item shape
+  // regardless of how many items there are or what their current values are.
+  const moveItem = async (item: BagItem, dir: -1 | 1) => {
+    const index = items.findIndex((i) => i.id === item.id);
+    const targetIndex = index + dir;
+    if (index < 0 || targetIndex < 0 || targetIndex >= items.length) return;
+    const target = items[targetIndex];
+
+    const previous = items;
+    setItems((prev) => {
+      const next = [...prev];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+    try {
+      await Promise.all([
+        updateBagItem(item.id, { order: target.order }),
+        updateBagItem(target.id, { order: item.order }),
+      ]);
+    } catch (err) {
+      setItems(previous);
+      toast.showError(err);
+    }
+  };
+
+  const openEdit = (item: BagItem) => {
+    setEditingItem(item);
+    setEditLabel(item.label);
+  };
+
+  const closeEdit = () => {
+    setEditingItem(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingItem) return;
+    const label = editLabel.trim();
+    if (!label) return;
+    setSavingEdit(true);
+    try {
+      const updated = await updateBagItem(editingItem.id, { label });
+      setItems((prev) =>
+        prev.map((i) => (i.id === updated.id ? updated : i))
+      );
+      setEditingItem(null);
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -166,11 +223,8 @@ export default function BagScreen() {
                   onPress={() => handleToggle(item)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: item.checked }}
-                  accessibilityLabel={item.label}
-                  style={({ pressed }) => [
-                    styles.checkRow,
-                    { opacity: pressed ? PRESSED_OPACITY : 1 },
-                  ]}
+                  accessibilityLabel={`Mark ${item.label} as packed`}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <View
                     style={[
@@ -192,6 +246,19 @@ export default function BagScreen() {
                       />
                     )}
                   </View>
+                </Pressable>
+                {/* The identity — the name itself — is what you'd tap to
+                    rename; the checkbox next to it stays a dedicated target
+                    so packing doesn't risk opening an edit form instead. */}
+                <Pressable
+                  onPress={() => openEdit(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${item.label}`}
+                  style={({ pressed }) => [
+                    styles.labelRow,
+                    { opacity: pressed ? PRESSED_OPACITY : 1 },
+                  ]}
+                >
                   <Text
                     variant="body"
                     numberOfLines={1}
@@ -204,6 +271,22 @@ export default function BagScreen() {
                     {item.label}
                   </Text>
                 </Pressable>
+                <IconButton
+                  icon="chevronUp"
+                  label={`Move ${item.label} up`}
+                  variant="ghost"
+                  size="sm"
+                  disabled={index === 0}
+                  onPress={() => moveItem(item, -1)}
+                />
+                <IconButton
+                  icon="chevronDown"
+                  label={`Move ${item.label} down`}
+                  variant="ghost"
+                  size="sm"
+                  disabled={index === items.length - 1}
+                  onPress={() => moveItem(item, 1)}
+                />
                 <IconButton
                   icon="trash"
                   label={`Remove ${item.label}`}
@@ -250,6 +333,40 @@ export default function BagScreen() {
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
       />
+
+      <Sheet
+        visible={editingItem !== null}
+        onClose={closeEdit}
+        title="Rename item"
+        footer={
+          <View style={styles.editActions}>
+            <Button
+              label="Cancel"
+              variant="ghost"
+              onPress={closeEdit}
+              style={styles.flex}
+            />
+            <Button
+              label="Save"
+              variant="primary"
+              loading={savingEdit}
+              disabled={!editLabel.trim()}
+              onPress={handleSaveEdit}
+              style={styles.flex}
+            />
+          </View>
+        }
+      >
+        <Input
+          label="Item"
+          value={editLabel}
+          onChangeText={setEditLabel}
+          maxLength={60}
+          autoFocus
+          returnKeyType="done"
+          onSubmitEditing={handleSaveEdit}
+        />
+      </Sheet>
     </Screen>
   );
 }
@@ -267,13 +384,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  checkRow: {
+  labelRow: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: space.sm,
     minWidth: 0,
   },
+  editActions: { flexDirection: "row", gap: space.sm },
   checkbox: {
     width: 24,
     height: 24,

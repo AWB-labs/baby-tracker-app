@@ -249,7 +249,7 @@ export default function Snapshot({
         <SnapshotCard
           pending={pending}
           emoji="🍼"
-          label="Milk balance"
+          label="Milk supply"
           value={units.formatVolume(availableMl)}
           valueColor={t.accentText}
           sub="Available · tap to correct"

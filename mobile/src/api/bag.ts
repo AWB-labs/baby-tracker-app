@@ -5,6 +5,7 @@ export interface BagItem {
   babyId: number;
   label: string;
   checked: boolean;
+  order: number;
   createdAt: string;
 }
 
@@ -26,6 +27,7 @@ export async function createBagItem(
 export interface UpdateBagItemInput {
   label?: string;
   checked?: boolean;
+  order?: number;
 }
 
 export async function updateBagItem(

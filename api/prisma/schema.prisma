@@ -172,6 +172,10 @@ model BagItem {
   babyId    Int
   label     String
   checked   Boolean  @default(false)
+  /// Manual sort position, lowest first. New items get one past the current
+  /// highest for their baby, so they append at the end by default; existing
+  /// items only move when a caregiver reorders them.
+  order     Int      @default(0)
   createdAt DateTime @default(now())
 
   baby Baby @relation(fields: [babyId], references: [id], onDelete: Cascade)

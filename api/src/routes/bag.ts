@@ -13,6 +13,7 @@ const BAG_ITEM_SELECT = {
   babyId: true,
   label: true,
   checked: true,
+  order: true,
   createdAt: true,
 } as const;
 
@@ -24,6 +25,7 @@ const createBagItemSchema = z.object({
 const updateBagItemSchema = z.object({
   label: z.string().trim().min(1).max(60).optional(),
   checked: z.boolean().optional(),
+  order: z.number().int().optional(),
 });
 
 /** GET /bag-items?babyId=X — one shared list per baby, not per caregiver. */
@@ -35,7 +37,9 @@ router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
 
   const items = await prisma.bagItem.findMany({
     where: { babyId },
-    orderBy: { createdAt: "asc" },
+    // createdAt breaks ties among rows that share an order — every row does,
+    // until the first reorder ever touches them.
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
     select: BAG_ITEM_SELECT,
   });
 
@@ -49,21 +53,32 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
 
   await requireBabyAccess(accountId, babyId);
 
+  // Appends to the end of this baby's list, not just "0" — a fresh item
+  // sharing the default with everything already there would sort wherever
+  // the createdAt tiebreaker happened to put it, which for an existing list
+  // is the middle as often as the end.
+  const last = await prisma.bagItem.aggregate({
+    where: { babyId },
+    _max: { order: true },
+  });
+  const order = (last._max.order ?? -1) + 1;
+
   const item = await prisma.bagItem.create({
-    data: { babyId, label },
+    data: { babyId, label, order },
     select: BAG_ITEM_SELECT,
   });
 
   res.status(201).json(item);
 });
 
-// PATCH /bag-items/:id — rename and/or toggle checked. Looked up by id alone,
-// same as a log entry: any caregiver of the baby may edit any item on its
-// list, whoever added it.
+// PATCH /bag-items/:id — rename, toggle checked, and/or move it (order is a
+// straight swap with a neighbour's value, decided client-side). Looked up by
+// id alone, same as a log entry: any caregiver of the baby may edit any item
+// on its list, whoever added it.
 router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
   const id = parseId(req.params.id, "item");
-  const { label, checked } = parseOrThrow(updateBagItemSchema, req.body);
+  const { label, checked, order } = parseOrThrow(updateBagItemSchema, req.body);
 
   const existing = await prisma.bagItem.findUnique({ where: { id } });
   if (!existing) {
@@ -76,6 +91,7 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
     data: {
       ...(label !== undefined ? { label } : {}),
       ...(checked !== undefined ? { checked } : {}),
+      ...(order !== undefined ? { order } : {}),
     },
     select: BAG_ITEM_SELECT,
   });

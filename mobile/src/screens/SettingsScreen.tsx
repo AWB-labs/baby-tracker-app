@@ -677,13 +677,13 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
 
-          {/* ---------- Baby's Bag ---------- */}
+          {/* ---------- Diaper Bag ---------- */}
           <View style={styles.section}>
-            <SectionHeader title="Baby's Bag" />
+            <SectionHeader title="Diaper Bag" />
             <Pressable
               onPress={() => navigation.navigate("Bag")}
               accessibilityRole="button"
-              accessibilityLabel={`Baby's Bag. ${
+              accessibilityLabel={`Diaper Bag. ${
                 bagItems.filter((i) => i.checked).length
               } of ${bagItems.length} packed. Opens the checklist.`}
               style={({ pressed }) => [
@@ -699,7 +699,7 @@ export default function SettingsScreen() {
                 <Emoji size={18}>🎒</Emoji>
               </View>
               <View style={styles.rowBody}>
-                <Text variant="subheadStrong">Baby's Bag</Text>
+                <Text variant="subheadStrong">Diaper Bag</Text>
                 <Text variant="caption" tone="subtle">
                   {bagItems.length === 0
                     ? "None yet — add what to pack"
