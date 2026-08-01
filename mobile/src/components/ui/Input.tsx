@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  Pressable,
   StyleSheet,
   TextInput,
   View,
@@ -8,7 +9,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useTheme } from "../../design/ThemeProvider";
-import { space, radius, type as typeTokens } from "../../design/tokens";
+import { space, radius, type as typeTokens, hitSlop } from "../../design/tokens";
 import { Icon } from "../../design/icons";
 import { Text } from "./primitives";
 
@@ -87,12 +88,17 @@ export function Input({
   containerStyle,
   onFocus,
   onBlur,
+  secureTextEntry,
   ...rest
 }: InputProps) {
   const t = useTheme();
   const [focused, setFocused] = useState(false);
+  // Own state, not a caller prop: every password field gets the toggle for
+  // free just by passing secureTextEntry, the same as it always has.
+  const [revealed, setRevealed] = useState(false);
 
   const borderColor = error ? t.danger : focused ? t.accent : t.border;
+  const isPassword = !!secureTextEntry;
 
   return (
     <Field
@@ -125,9 +131,21 @@ export function Input({
             setFocused(false);
             onBlur?.(e);
           }}
+          secureTextEntry={isPassword && !revealed}
           style={[styles.input, { color: t.text }]}
           {...rest}
         />
+        {isPassword && (
+          <Pressable
+            onPress={() => setRevealed((v) => !v)}
+            hitSlop={hitSlop}
+            accessibilityRole="button"
+            accessibilityLabel={revealed ? "Hide password" : "Show password"}
+            style={styles.eyeToggle}
+          >
+            <Icon name={revealed ? "eyeOff" : "eye"} size="sm" color={t.textSubtle} />
+          </Pressable>
+        )}
         {suffix && (
           <Text variant="subhead" tone="subtle" style={styles.suffix}>
             {suffix}
@@ -155,4 +173,5 @@ const styles = StyleSheet.create({
     ...typeTokens.body,
   },
   suffix: { marginLeft: space.sm },
+  eyeToggle: { marginLeft: space.sm },
 });
