@@ -41,23 +41,6 @@ function formatDateDisplay(d: Date): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
-function sameDay(a: Date, b: Date): boolean {
-  return a.toDateString() === b.toDateString();
-}
-
-function daysAgo(n: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-}
-
-/** Almost every after-the-fact entry is from the last couple of days. */
-const DAY_SHORTCUTS = [
-  { label: "Today", resolve: () => new Date() },
-  { label: "Yesterday", resolve: () => daysAgo(1) },
-  { label: "2 days ago", resolve: () => daysAgo(2) },
-];
-
 interface Props {
   visible: boolean;
   babyId: number;
@@ -396,28 +379,6 @@ export default function ManualEntryModal({
           </View>
         </Field>
       )}
-
-      {/* Most entries are for today or yesterday, so those are one tap rather
-          than a trip through a calendar wheel. */}
-      <Field label="When">
-        <ChipWrap>
-          {DAY_SHORTCUTS.map((shortcut) => {
-            const target = shortcut.resolve();
-            const selected = sameDay(date, target);
-            return (
-              <Chip
-                key={shortcut.label}
-                label={shortcut.label}
-                selected={selected}
-                onPress={() => {
-                  setDate(target);
-                  setOpenPicker(null);
-                }}
-              />
-            );
-          })}
-        </ChipWrap>
-      </Field>
 
       {dateField("Date", formatDateDisplay(date))}
       {datePicker(date, setDate)}
