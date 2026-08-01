@@ -1029,7 +1029,7 @@ export default function SettingsScreen() {
         icon="trash"
         title="Delete your account?"
         message={deleteAccountWarning(babies)}
-        confirmLabel="Delete account"
+        confirmLabel="Delete"
         onConfirm={handleDeleteAccount}
         onCancel={() => setConfirmDeleteAccount(false)}
         loading={deletingAccount}
