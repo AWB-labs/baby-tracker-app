@@ -16,6 +16,7 @@ import {
   Field,
   Segmented,
   Button,
+  IconButton,
 } from "../../components/ui";
 
 type Props = {
@@ -161,6 +162,14 @@ export default function SignupScreen({ navigation }: Props) {
       {/* Auth sits outside the tab navigator, so the content is centred and the
           tab-bar clearance Screen normally reserves is dropped. */}
       <Screen scroll contentStyle={styles.content}>
+        <IconButton
+          icon="chevronLeft"
+          label="Back to Welcome"
+          variant="surface"
+          onPress={() => navigation.goBack()}
+          style={styles.backBtn}
+        />
+
         <View style={styles.hero}>
           <View style={[styles.mark, { backgroundColor: t.accentSoft }]}>
             <Emoji size={44}>{mark}</Emoji>
@@ -238,6 +247,10 @@ const styles = StyleSheet.create({
     paddingBottom: space.xxxl,
     gap: space.xxl,
   },
+  // In flow, not absolute: the surrounding content is vertically centred as a
+  // block, and this is small enough that joining that block costs nothing —
+  // pinning it to the corner would need it exempted from that centring.
+  backBtn: { alignSelf: "flex-start" },
   hero: { alignItems: "center", gap: space.xs },
   mark: {
     width: 88,
