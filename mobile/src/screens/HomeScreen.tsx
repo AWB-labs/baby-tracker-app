@@ -82,9 +82,25 @@ export default function HomeScreen() {
   const pumpTimer = useTimer("pump", activeBaby?.id);
   const timers = { feed: feedTimer, sleep: sleepTimer, diaper: diaperTimer, pump: pumpTimer };
 
+  /**
+   * Bumped alongside every `refresh()` — poll, pull-to-refresh, or a save
+   * from any row below — so the milk balance knows to refetch.
+   *
+   * `logs.length` looked like it would do this for free, but `logs` is
+   * capped at HOME_FETCH_LIMIT: once an account has that many entries or
+   * more, a new pump just pushes the oldest row out of the fetched window
+   * and the array's length never moves, so nothing here changed the milk
+   * card is watching.
+   */
+  const [dataVersion, setDataVersion] = useState(0);
+  const refreshAndBump = useCallback(async () => {
+    await refresh();
+    setDataVersion((v) => v + 1);
+  }, [refresh]);
+
   const { balance: milkBalance, correct: correctMilkBalance } = useMilkBalance(
     activeBaby?.id,
-    logs.length
+    dataVersion
   );
   const [editingBalance, setEditingBalance] = useState(false);
   const [balanceDraft, setBalanceDraft] = useState("");
@@ -92,14 +108,14 @@ export default function HomeScreen() {
 
   // Another caregiver may be logging at the same time, so poll to stay in
   // sync — but only while this tab is on screen and the app is foregrounded.
-  usePolling(refresh, POLL_INTERVAL_MS);
+  usePolling(refreshAndBump, POLL_INTERVAL_MS);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refresh();
+    await refreshAndBump();
     setHabitsRefreshKey((k) => k + 1);
     setRefreshing(false);
-  }, [refresh]);
+  }, [refreshAndBump]);
 
   const lastByType = useMemo(() => {
     const map = new Map<TrackType, LogEntry | null>();
@@ -266,7 +282,7 @@ export default function HomeScreen() {
               type={type}
               babyId={activeBaby.id}
               enteredByName={enteredByName}
-              onLogSaved={refresh}
+              onLogSaved={refreshAndBump}
               timer={timers[type]}
               lastLog={lastByType.get(type) ?? null}
             />
@@ -277,7 +293,7 @@ export default function HomeScreen() {
       <Habits
         babyId={activeBaby.id}
         enteredByName={enteredByName}
-        onLogSaved={refresh}
+        onLogSaved={refreshAndBump}
         refreshKey={habitsRefreshKey}
       />
 
@@ -288,7 +304,7 @@ export default function HomeScreen() {
         babyId={activeBaby.id}
         babyName={activeBaby.name}
         enteredByName={enteredByName}
-        onSaved={refresh}
+        onSaved={refreshAndBump}
         onClose={() => setShowManual(false)}
       />
 
