@@ -16,6 +16,7 @@ import { isInstantLog } from "../lib/activities";
 import { formatDuration } from "../utils/formatDuration";
 import { Text, Emoji, Button, Input, Field, Sheet, Chip, ChipWrap } from "./ui";
 import { useToast } from "./Toast";
+import TimeField from "./TimeField";
 
 type ManualType = Extract<
   ActivityKey,
@@ -98,16 +99,11 @@ export default function ManualEntryModal({
   const [saving, setSaving] = useState(false);
 
   /**
-   * Which picker is open, if any.
-   *
-   * One value rather than three booleans, because three could all be true at
-   * once — and on iOS they were: the spinner is inline and was never closed, so
-   * tapping Date then Start left two stacked wheels shoving the form around,
-   * with no way to put either away.
+   * Whether the date calendar is open. Time no longer lives here — see
+   * TimeField — so this is just the one field now rather than a value shared
+   * across three.
    */
-  const [openPicker, setOpenPicker] = useState<"date" | "start" | "end" | null>(
-    null
-  );
+  const [openPicker, setOpenPicker] = useState<"date" | null>(null);
 
   const takesMl = activityType === "feed" || activityType === "pump";
   const isDiaper = activityType === "diaper";
@@ -208,17 +204,13 @@ export default function ManualEntryModal({
     }
   };
 
-  /** A field that opens its own picker and closes whichever was open. */
-  const pickerField = (
-    label: string,
-    value: string,
-    which: "date" | "start" | "end"
-  ) => {
-    const active = openPicker === which;
+  /** The date field that opens its own calendar below it. */
+  const dateField = (label: string, value: string) => {
+    const active = openPicker === "date";
     return (
       <Field label={label} style={styles.flex}>
         <Pressable
-          onPress={() => setOpenPicker(active ? null : which)}
+          onPress={() => setOpenPicker(active ? null : "date")}
           accessibilityRole="button"
           accessibilityLabel={`${label}: ${value}`}
           accessibilityState={{ expanded: active }}
@@ -226,8 +218,8 @@ export default function ManualEntryModal({
             styles.pickerBtn,
             {
               backgroundColor: active ? t.accentSoft : t.accentSofter,
-              // The open field is outlined, so it's obvious which one the wheel
-              // below is actually editing.
+              // The open field is outlined, so it's obvious the calendar
+              // below belongs to it.
               borderColor: active ? t.accent : t.borderStrong,
               opacity: pressed ? 0.7 : 1,
             },
@@ -240,36 +232,23 @@ export default function ManualEntryModal({
   };
 
   /**
-   * The wheel, plus a way to put it away.
+   * The calendar, plus a way to put it away.
    *
-   * iOS renders the spinner inline and never dismisses it on its own, so
-   * without an explicit Done there is no way to close one — which is what made
-   * this sheet feel stuck. Android's dialog closes itself, so it gets no button.
+   * iOS renders it inline and never dismisses on its own, so without an
+   * explicit Done there'd be no way to close it. Android's dialog closes
+   * itself, so it gets no button. Time used to share this same shape, but
+   * moved to TimeField — see there for why.
    */
-  const picker = (
-    which: "date" | "start" | "end",
-    mode: "date" | "time",
-    value: Date,
-    onPick: (next: Date) => void
-  ) =>
-    openPicker === which ? (
+  const datePicker = (value: Date, onPick: (next: Date) => void) =>
+    openPicker === "date" ? (
       <View style={styles.pickerWrap}>
         <DateTimePicker
           value={value}
-          mode={mode}
-          // A calendar grid for the date — Android's own dialog already is
-          // one — but time stays a spinner: a grid of days doesn't have an
-          // equivalent for picking a time of day.
-          display={
-            Platform.OS === "ios"
-              ? mode === "date"
-                ? "inline"
-                : "spinner"
-              : "default"
-          }
+          mode="date"
+          display={Platform.OS === "ios" ? "inline" : "default"}
           accentColor={t.accent}
           themeVariant={isDark ? "dark" : "light"}
-          maximumDate={mode === "date" ? new Date() : undefined}
+          maximumDate={new Date()}
           onChange={(_, picked) => {
             if (Platform.OS !== "ios") setOpenPicker(null);
             if (picked) onPick(picked);
@@ -440,23 +419,34 @@ export default function ManualEntryModal({
         </ChipWrap>
       </Field>
 
-      {pickerField("Date", formatDateDisplay(date), "date")}
-      {picker("date", "date", date, setDate)}
+      {dateField("Date", formatDateDisplay(date))}
+      {datePicker(date, setDate)}
 
       {isInstant ? (
-        pickerField("Time", formatTimeDisplay(startTime), "start")
+        <TimeField
+          label="Time"
+          value={startTime}
+          onChange={(picked) => {
+            setStartTime(picked);
+            setEndTime(picked);
+          }}
+        />
       ) : (
         <View style={styles.rowGap}>
-          {pickerField("Start time", formatTimeDisplay(startTime), "start")}
-          {pickerField("End time", formatTimeDisplay(endTime), "end")}
+          <TimeField
+            label="Start time"
+            value={startTime}
+            onChange={setStartTime}
+            style={styles.flex}
+          />
+          <TimeField
+            label="End time"
+            value={endTime}
+            onChange={setEndTime}
+            style={styles.flex}
+          />
         </View>
       )}
-
-      {picker("start", "time", startTime, (picked) => {
-        setStartTime(picked);
-        if (isInstant) setEndTime(picked);
-      })}
-      {picker("end", "time", endTime, setEndTime)}
 
       {/* The resulting length, stated plainly. Picking 2:00 AM to 9:24 PM is
           easy to do by accident on a wheel, and a nineteen-hour nap saved in

@@ -16,10 +16,7 @@ import { isInstantLog } from "../lib/activities";
 import { HEALTH_CONDITIONS, type HealthCondition } from "../lib/health";
 import { getErrorMessage } from "../lib/errors";
 import { Text, Emoji, Button, IconButton, Input, Field, Sheet, ConfirmDialog } from "./ui";
-
-function formatTimeDisplay(d: Date): string {
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
-}
+import TimeField from "./TimeField";
 
 function formatDateDisplay(d: Date): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
@@ -98,8 +95,6 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
   const [deleting, setDeleting] = useState(false);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
 
   const handleSave = useCallback(async () => {
     if (saving) return;
@@ -287,61 +282,29 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
       )}
 
       {usesSingleTime ? (
-        <>
-          {pickerField("Time", formatTimeDisplay(startTime), () =>
-            setShowStartPicker(true)
-          )}
-          {showStartPicker && (
-            <DateTimePicker
-              value={startTime}
-              mode="time"
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={(_, tm) => {
-                setShowStartPicker(Platform.OS === "ios");
-                if (tm) {
-                  setStartTime(tm);
-                  setEndTime(tm);
-                }
-              }}
-            />
-          )}
-        </>
-      ) : (
-        // The two time pickers are deliberately siblings of this row, not
-        // children of it: nested inside a flex-wrap row, an opened spinner —
-        // full sheet width, unconstrained — competed for space against these
-        // two flex:1 buttons and squeezed both labels down to a sliver a few
-        // points wide, wrapping "Start time" into an unreadable column.
-        <View style={styles.rowGap}>
-          {pickerField("Start time", formatTimeDisplay(startTime), () =>
-            setShowStartPicker(true)
-          )}
-          {pickerField("End time", formatTimeDisplay(endTime), () =>
-            setShowEndPicker(true)
-          )}
-        </View>
-      )}
-      {!usesSingleTime && showStartPicker && (
-        <DateTimePicker
+        <TimeField
+          label="Time"
           value={startTime}
-          mode="time"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(_, tm) => {
-            setShowStartPicker(Platform.OS === "ios");
-            if (tm) setStartTime(tm);
+          onChange={(picked) => {
+            setStartTime(picked);
+            setEndTime(picked);
           }}
         />
-      )}
-      {!usesSingleTime && showEndPicker && (
-        <DateTimePicker
-          value={endTime}
-          mode="time"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(_, tm) => {
-            setShowEndPicker(Platform.OS === "ios");
-            if (tm) setEndTime(tm);
-          }}
-        />
+      ) : (
+        <View style={styles.rowGap}>
+          <TimeField
+            label="Start time"
+            value={startTime}
+            onChange={setStartTime}
+            style={styles.flex}
+          />
+          <TimeField
+            label="End time"
+            value={endTime}
+            onChange={setEndTime}
+            style={styles.flex}
+          />
+        </View>
       )}
 
       {log.type === "sleep" && (
