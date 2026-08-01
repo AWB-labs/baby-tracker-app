@@ -20,6 +20,7 @@ import ResetPasswordScreen from "../screens/auth/ResetPasswordScreen";
 import ParentProfileScreen from "../screens/auth/ParentProfileScreen";
 import JoinOrCreateScreen from "../screens/auth/JoinOrCreateScreen";
 import SetupBabyScreen from "../screens/auth/SetupBabyScreen";
+import OnboardingCarouselScreen from "../screens/auth/OnboardingCarouselScreen";
 import AppTabs from "./AppTabs";
 
 export type AuthStackParamList = {
@@ -36,6 +37,7 @@ export type AppStackParamList = {
   ParentProfile: undefined;
   JoinOrCreate: undefined;
   SetupBaby: undefined;
+  Onboarding: undefined;
   Main: undefined;
 };
 
@@ -74,12 +76,16 @@ function AuthNavigator() {
 
 function AppNavigator() {
   const { babies, loading } = useBaby();
-  const { account } = useAuth();
+  const { account, justSignedUp } = useAuth();
   // Whether this session has said "I'm starting a new family" — only matters
   // for the create path. The join path never needs it: claiming an invite
   // populates `babies` directly, so the ordinary babies.length checks below
   // carry it the rest of the way into Main on their own.
   const [wantsToCreate, setWantsToCreate] = useState(false);
+  // Whether the onboarding carousel has been shown (or skipped) yet this
+  // session. Local, not persisted: justSignedUp already resets on every
+  // fresh launch, so there's nothing to remember across app restarts either.
+  const [carouselDone, setCarouselDone] = useState(false);
   // Registers this device's token as soon as there's a session to attach it
   // to — not gated on ever opening Reminders, which used to mean an account
   // that never visited that one screen never received anything.
@@ -105,6 +111,10 @@ function AppNavigator() {
    */
   const needsProfile = babies.length === 0 && !account?.relation;
   const needsIntent = !needsProfile && babies.length === 0 && !wantsToCreate;
+  // Only someone who just created this account, this session, and has a baby
+  // to show for it (their own, or one they were auto-joined to) — an existing
+  // account signing in on a new device must never see this.
+  const needsOnboarding = justSignedUp && !carouselDone && babies.length > 0;
 
   return (
     <AppStack.Navigator screenOptions={{ headerShown: false }}>
@@ -116,6 +126,10 @@ function AppNavigator() {
         </AppStack.Screen>
       ) : babies.length === 0 ? (
         <AppStack.Screen name="SetupBaby" component={SetupBabyScreen} />
+      ) : needsOnboarding ? (
+        <AppStack.Screen name="Onboarding">
+          {() => <OnboardingCarouselScreen onDone={() => setCarouselDone(true)} />}
+        </AppStack.Screen>
       ) : (
         // Settings now lives inside the tabs as Account, so the app stack is
         // just the tab container.

@@ -21,6 +21,13 @@ interface AuthContextValue extends AuthState {
   signOut: () => Promise<void>;
   /** Delete the account server-side, then clear everything it left on-device. */
   deleteAccount: () => Promise<void>;
+  /**
+   * True for the rest of this app session once signUp() has succeeded, never
+   * set by signIn(). The onboarding carousel is gated on this rather than on
+   * anything persisted — an existing account logging in on a new device must
+   * never see it, only someone who just created one right now.
+   */
+  justSignedUp: boolean;
   /** Replace the cached account after settings change. */
   setAccount: (account: AccountInfo) => void;
   /**
@@ -47,6 +54,7 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [sessionExpiredAt, setSessionExpiredAt] = useState<number | null>(null);
+  const [justSignedUp, setJustSignedUp] = useState(false);
   const [state, setState] = useState<AuthState>({
     token: null,
     account: null,
@@ -82,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (name: string, email: string, password: string) => {
       const res = await signup(name, email, password);
       await persist(res.token, res.account);
+      setJustSignedUp(true);
       return res.claimedInvites ?? 0;
     },
     []
@@ -90,6 +99,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     const res = await login(email, password);
     await persist(res.token, res.account);
+    // Defensive: an odd sign-up-then-sign-back-in sequence in one session
+    // must not leave a stale flag pointed at whoever's signing in now.
+    setJustSignedUp(false);
     return res.claimedInvites ?? 0;
   }, []);
 
@@ -138,6 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signOut,
         deleteAccount,
+        justSignedUp,
         setAccount,
         sessionExpiredAt,
         acknowledgeSessionExpiry,
