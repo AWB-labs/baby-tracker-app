@@ -68,6 +68,7 @@ const AVATAR_EMOJIS = [
   "🦁", "🐼", "🐯", "🐶", "🐱", "🐹", "🐷", "🐮",
   "🐸", "🦄", "🐘", "🐢", "🦋", "🐬", "🌸", "🌷",
   "🌈", "⭐", "🌟", "🌙", "☀️", "🍼", "🧸", "🎀",
+  "🦆", "🦉", "🦔", "🐝", "🐞", "🐙",
 ];
 
 const APPEARANCE_OPTIONS: { value: Appearance; label: string; icon: "auto" | "sun" | "moon" }[] = [
