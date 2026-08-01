@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, Share, StyleSheet, View } from "react-native";
+import { Pressable, Share, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useTheme, useThemeContext, type Appearance } from "../design/ThemeProvider";
@@ -71,6 +71,9 @@ const AVATAR_EMOJIS = [
   "🦆", "🦉", "🦔", "🐝", "🐞", "🐙",
 ];
 
+/** Tiles per row in the avatar picker — sized to fill the row, not a fixed 48px. */
+const EMOJI_COLUMNS = 6;
+
 const APPEARANCE_OPTIONS: { value: Appearance; label: string; icon: "auto" | "sun" | "moon" }[] = [
   { value: "system", label: "System", icon: "auto" },
   { value: "light", label: "Light", icon: "sun" },
@@ -138,6 +141,19 @@ export default function SettingsScreen() {
   } = useSettings();
   const navigation =
     useNavigation<NativeStackNavigationProp<AccountStackParamList>>();
+
+  const { width: windowWidth } = useWindowDimensions();
+  // Fixed insets between the window edge and the emoji grid: Screen's own
+  // horizontal padding, then the Appearance card's padding around it — both
+  // space.lg on each side. A flat 48px tile leaves a sliver of dead space on
+  // most phone widths (just short of fitting one more); sizing tiles to what
+  // actually remains fills the row exactly instead.
+  const emojiTileSize = Math.max(
+    36,
+    Math.floor(
+      (windowWidth - space.lg * 4 - space.sm * (EMOJI_COLUMNS - 1)) / EMOJI_COLUMNS
+    )
+  );
 
   const [members, setMembers] = useState<BabyMember[]>([]);
   const [invites, setInvites] = useState<PendingInvite[]>([]);
@@ -818,6 +834,8 @@ export default function SettingsScreen() {
                           style={({ pressed }) => [
                             styles.emojiTile,
                             {
+                              width: emojiTileSize,
+                              height: emojiTileSize,
                               backgroundColor: selected
                                 ? t.accentSoft
                                 : t.accentSofter,
@@ -1128,8 +1146,8 @@ const styles = StyleSheet.create({
     borderWidth: 3,
   },
   emojiTile: {
-    width: 48,
-    height: 48,
+    // width/height are computed per-render (see emojiTileSize) so the row
+    // always fills the available width exactly, on any device.
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
