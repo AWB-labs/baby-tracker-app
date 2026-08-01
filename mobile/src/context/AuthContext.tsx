@@ -6,7 +6,7 @@ import React, {
   useCallback,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { signup, login, AccountInfo } from "../api/auth";
+import { signup, login, deleteAccount as deleteAccountRequest, AccountInfo } from "../api/auth";
 import { setUnauthorizedHandler } from "../api/client";
 
 interface AuthState {
@@ -19,6 +19,8 @@ interface AuthContextValue extends AuthState {
   signUp: (name: string, email: string, password: string) => Promise<number>;
   signIn: (email: string, password: string) => Promise<number>;
   signOut: () => Promise<void>;
+  /** Delete the account server-side, then clear everything it left on-device. */
+  deleteAccount: () => Promise<void>;
   /** Replace the cached account after settings change. */
   setAccount: (account: AccountInfo) => void;
   /**
@@ -30,6 +32,16 @@ interface AuthContextValue extends AuthState {
   sessionExpiredAt: number | null;
   acknowledgeSessionExpiry: () => void;
 }
+
+/** Everything auth (or account deletion) leaves on-device; cleared as a set so no path forgets one. */
+const AUTH_STORAGE_KEYS = [
+  "babytracker_token",
+  "babytracker_account",
+  "babytracker_activeBabyId",
+  "babytracker_settings",
+  "babytracker_babies",
+  "babytracker_push_token",
+];
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -82,12 +94,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    await AsyncStorage.multiRemove([
-      "babytracker_token",
-      "babytracker_account",
-      "babytracker_activeBabyId",
-      "babytracker_settings",
-    ]);
+    await AsyncStorage.multiRemove(AUTH_STORAGE_KEYS);
+    setState({ token: null, account: null, loading: false });
+  }, []);
+
+  // Delete server-side first, while the token still works — clearing storage
+  // up front would make the request go out unauthenticated instead.
+  const deleteAccount = useCallback(async () => {
+    await deleteAccountRequest();
+    await AsyncStorage.multiRemove(AUTH_STORAGE_KEYS);
     setState({ token: null, account: null, loading: false });
   }, []);
 
@@ -105,12 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUnauthorizedHandler(() => {
       setState((prev) => {
         if (!prev.token) return prev;
-        AsyncStorage.multiRemove([
-          "babytracker_token",
-          "babytracker_account",
-          "babytracker_activeBabyId",
-          "babytracker_settings",
-        ]).catch(() => {});
+        AsyncStorage.multiRemove(AUTH_STORAGE_KEYS).catch(() => {});
         setSessionExpiredAt(Date.now());
         return { token: null, account: null, loading: false };
       });
@@ -127,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signIn,
         signOut,
+        deleteAccount,
         setAccount,
         sessionExpiredAt,
         acknowledgeSessionExpiry,

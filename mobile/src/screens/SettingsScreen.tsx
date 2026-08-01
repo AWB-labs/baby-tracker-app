@@ -51,6 +51,7 @@ import { getBagItems, type BagItem } from "../api/bag";
 import { updateBaby } from "../api/babies";
 import DobField from "../components/DobField";
 import { updateSettings, type UnitSystem } from "../api/settings";
+import type { Baby } from "../api/auth";
 import type { AccountStackParamList } from "../navigation/AppTabs";
 
 const GENDER_OPTIONS: { value: "girl" | "boy"; label: string }[] = [
@@ -86,13 +87,48 @@ interface PendingRemoval {
   label: string;
 }
 
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+}
+
+/**
+ * What deleting the account actually costs, in plain terms — it differs by
+ * role, so a caregiver isn't scared with "permanently deleted" language that
+ * only applies to babies they own, and an owner isn't given false comfort
+ * that "their entries stay" when the whole baby goes with them.
+ */
+function deleteAccountWarning(babies: Baby[]): string {
+  const owned = babies.filter((b) => b.role === "owner").map((b) => b.name);
+  const caregiving = babies.filter((b) => b.role !== "owner").map((b) => b.name);
+  const parts: string[] = [];
+
+  if (owned.length > 0) {
+    parts.push(
+      `${joinNames(owned)}'s entire ${
+        owned.length > 1 ? "histories" : "history"
+      } — feeds, sleep, everything — will be permanently deleted for every caregiver.`
+    );
+  }
+  if (caregiving.length > 0) {
+    parts.push(
+      owned.length > 0
+        ? `Your own entries on ${joinNames(caregiving)} will stay behind.`
+        : `You'll lose access to ${joinNames(caregiving)} — your entries stay, but you won't be able to sign back in with this account.`
+    );
+  }
+  parts.push("This can't be undone.");
+  return parts.join(" ");
+}
+
 export default function SettingsScreen() {
   const t = useTheme();
   const { appearance, setAppearance } = useThemeContext();
   const toast = useToast();
   const units = useUnits();
-  const { account, signOut, setAccount } = useAuth();
-  const { activeBaby, refreshBabies } = useBaby();
+  const { account, signOut, deleteAccount, setAccount } = useAuth();
+  const { activeBaby, babies, refreshBabies } = useBaby();
   const {
     unitSystem,
     notificationsEnabled,
@@ -122,6 +158,8 @@ export default function SettingsScreen() {
   const [joining, setJoining] = useState(false);
   const [savingRelation, setSavingRelation] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const [savingField, setSavingField] = useState<string | null>(null);
 
@@ -316,6 +354,21 @@ export default function SettingsScreen() {
   };
 
   // --- Reminders ---
+
+  // --- Delete account ---
+
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      await deleteAccount();
+      // Nothing else to do: the token going null flips the root navigator to
+      // the signed-out stack, which unmounts this screen.
+    } catch (err) {
+      setDeletingAccount(false);
+      setConfirmDeleteAccount(false);
+      toast.showError(err);
+    }
+  };
 
   // --- Preferences ---
 
@@ -794,6 +847,16 @@ export default function SettingsScreen() {
             fullWidth
             onPress={signOut}
           />
+
+          <Divider style={styles.divider} />
+
+          <Button
+            label="Delete my account"
+            icon="trash"
+            variant="danger"
+            fullWidth
+            onPress={() => setConfirmDeleteAccount(true)}
+          />
         </>
       )}
 
@@ -959,6 +1022,17 @@ export default function SettingsScreen() {
         }
         onConfirm={confirmRemoval}
         onCancel={() => setPendingRemoval(null)}
+      />
+
+      <ConfirmDialog
+        visible={confirmDeleteAccount}
+        icon="trash"
+        title="Delete your account?"
+        message={deleteAccountWarning(babies)}
+        confirmLabel="Delete account"
+        onConfirm={handleDeleteAccount}
+        onCancel={() => setConfirmDeleteAccount(false)}
+        loading={deletingAccount}
       />
     </Screen>
   );

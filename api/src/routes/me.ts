@@ -63,4 +63,23 @@ router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
   });
 });
 
+/**
+ * DELETE /me — permanently delete the signed-in account.
+ *
+ * A single delete, entirely driven by the FK behaviour declared in the
+ * schema: every baby this account owns cascades away in full (members,
+ * invites, vaccines, bag items, reminders and logs — the whole record, for
+ * every caregiver on it, not just this one), while babies it merely
+ * caregives cascade only this account's own membership, reminders and push
+ * tokens. Logs it authored on someone else's baby outlive it — ActivityLog's
+ * account relation is SetNull, not Cascade, so those rows stay in the baby's
+ * history with accountId cleared instead of disappearing with the author.
+ */
+router.delete("/", authMiddleware, async (req, res: Response): Promise<void> => {
+  const { accountId } = req as AuthRequest;
+
+  await prisma.account.delete({ where: { id: accountId } });
+  res.status(204).send();
+});
+
 export default router;

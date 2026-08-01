@@ -87,3 +87,12 @@ export async function getMe(): Promise<MeResponse> {
   const res = await apiClient.get<MeResponse>("/me");
   return res.data;
 }
+
+/**
+ * Permanently delete the signed-in account. Babies it owns are deleted in
+ * full, for every caregiver; babies it only helps with keep their history —
+ * this account's own entries stay, just no longer attributed to a live login.
+ */
+export async function deleteAccount(): Promise<void> {
+  await apiClient.delete("/me");
+}

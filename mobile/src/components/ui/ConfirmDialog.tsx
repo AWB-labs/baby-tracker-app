@@ -18,6 +18,8 @@ export interface ConfirmDialogProps {
   onCancel: () => void;
   icon?: IconName;
   destructive?: boolean;
+  /** Disables both buttons and spins the confirm button while it's in flight. */
+  loading?: boolean;
 }
 
 /**
@@ -35,11 +37,15 @@ export function ConfirmDialog({
   onCancel,
   icon = "trash",
   destructive = true,
+  loading = false,
 }: ConfirmDialogProps) {
   const { theme: t, isDark } = useThemeContext();
+  const cancel = () => {
+    if (!loading) onCancel();
+  };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={cancel}>
       <View style={styles.overlay}>
         {/* Frosted backdrop instead of a flat black wash — the same treatment
             the sheets use, so every dismissable layer reads as one system. */}
@@ -65,7 +71,7 @@ export function ConfirmDialog({
             it — title, message, both buttons — stops being reachable. */}
         <Pressable
           style={styles.backdrop}
-          onPress={onCancel}
+          onPress={cancel}
           accessibilityRole="button"
           accessibilityLabel={cancelLabel}
         />
@@ -100,13 +106,16 @@ export function ConfirmDialog({
             <Button
               label={cancelLabel}
               variant="secondary"
-              onPress={onCancel}
+              onPress={cancel}
+              disabled={loading}
               style={styles.action}
             />
             <Button
               label={confirmLabel}
               variant={destructive ? "danger" : "primary"}
               onPress={onConfirm}
+              loading={loading}
+              disabled={loading}
               style={styles.action}
             />
           </View>

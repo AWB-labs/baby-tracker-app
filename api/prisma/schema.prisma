@@ -245,8 +245,12 @@ model Profile {
 model ActivityLog {
   id Int @id @default(autoincrement())
   // The account that wrote this entry. Authorship only — access is decided by
-  // BabyMember, so any caregiver of the baby can edit or delete it.
-  accountId       Int
+  // BabyMember, so any caregiver of the baby can edit or delete it. Nullable
+  // because a caregiver who deletes their account leaves the baby's history
+  // behind: SetNull orphans the entry instead of taking it with them, unlike
+  // Baby's own cascade, which does delete every log when an owner's account
+  // goes.
+  accountId       Int?
   babyId          Int
   profileId       Int?
   type            String // feed|pump|sleep|diaper|shower|vitamin|nailcut|growth|health
@@ -274,7 +278,7 @@ model ActivityLog {
   pauseTimelineJson String?  @db.Text
   createdAt         DateTime @default(now())
 
-  account Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
   baby    Baby     @relation(fields: [babyId], references: [id], onDelete: Cascade)
   profile Profile? @relation(fields: [profileId], references: [id])
 
