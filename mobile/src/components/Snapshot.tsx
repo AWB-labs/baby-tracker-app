@@ -178,7 +178,10 @@ export default function Snapshot({
           sleepTimer.isActive
             ? formatTimer(sleepTimer.elapsed)
             : lastSleep
-              ? formatRelativeTime(lastSleep.startTime)
+              ? // Counted from when it ended, not when it started — "how long
+                // has the baby been awake" is the useful question, and for an
+                // hours-long nap those are very different numbers.
+                formatRelativeTime(lastSleep.endTime ?? lastSleep.startTime)
               : "None yet"
         }
         valueColor={sleepTone.text}
@@ -187,7 +190,7 @@ export default function Snapshot({
             ? null
             : lastSleep
               ? [
-                  formatTime(lastSleep.startTime),
+                  formatTime(lastSleep.endTime ?? lastSleep.startTime),
                   lastSleep.durationMinutes
                     ? formatDuration(lastSleep.durationMinutes)
                     : null,
@@ -209,8 +212,8 @@ export default function Snapshot({
                 sleepTimer.elapsed / 60
               )} minutes. Opens the sleep log.`
             : lastSleep
-              ? `Last sleep ${formatRelativeTime(
-                  lastSleep.startTime
+              ? `Last sleep ended ${formatRelativeTime(
+                  lastSleep.endTime ?? lastSleep.startTime
                 )}. Opens the sleep log.`
               : "No sleeps yet. Opens the sleep log."
         }

@@ -240,6 +240,17 @@ export default function TrackRow({
   /** Context line under the activity name while idle. */
   const idleMeta = (() => {
     if (!lastLog) return "Nothing yet";
+    if (type === "sleep") {
+      // Unlike the others, a sleep reads better counted from when it ended:
+      // "how long has the baby been awake" is the useful question, and for
+      // an hours-long nap, "started" and "ended" can be very different, more
+      // alarming-looking numbers.
+      const rel = formatRelativeTime(lastLog.endTime ?? lastLog.startTime);
+      const dur = lastLog.durationMinutes
+        ? formatDuration(lastLog.durationMinutes)
+        : null;
+      return [rel, dur].filter(Boolean).join(" · ");
+    }
     const rel = formatRelativeTime(lastLog.startTime);
     if (type === "feed" || type === "pump") {
       const side =
@@ -251,12 +262,6 @@ export default function TrackRow({
     if (type === "diaper") {
       const meta = lastLog.diaperStatus ? DIAPER_META[lastLog.diaperStatus] : null;
       return [rel, meta?.label].filter(Boolean).join(" · ");
-    }
-    if (type === "sleep") {
-      const dur = lastLog.durationMinutes
-        ? formatDuration(lastLog.durationMinutes)
-        : null;
-      return [rel, dur].filter(Boolean).join(" · ");
     }
     return rel;
   })();
