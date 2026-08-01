@@ -161,6 +161,8 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
   const instant = isInstantLog(log.type, {
     side: log.side,
     amountMl: log.amountMl,
+    startTime: log.startTime,
+    endTime: log.endTime,
   });
   const crossesDays =
     !instant && log.endTime ? dayOffset(log.startTime, log.endTime) : 0;

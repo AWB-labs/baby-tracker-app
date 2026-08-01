@@ -28,17 +28,31 @@ const INSTANT_TYPES: ReadonlySet<string> = new Set([
 interface InstantLogFields {
   side?: string | null;
   amountMl?: number | string | null;
+  /**
+   * The real times, when they're known. A bottle can now be either an
+   * instant volume log or a timed session (started the same way as
+   * breastfeeding, just with no side), so when both times are on hand
+   * they're checked directly instead of guessed at — the side/amount guess
+   * below only stands in for a form that has no record yet to check, e.g.
+   * while a manual entry is still being filled out.
+   */
+  startTime?: Date | string | null;
+  endTime?: Date | string | null;
 }
 
-// A feed or a pump goes either way: measured in ml (no side) it is a moment;
-// with a side it is timed.
+// A feed or a pump goes either way: measured in ml (no side) it is usually a
+// moment, but with matching start/end times rather than differing ones it is
+// timed — same as breastfeeding, just without a side to switch between.
 export function isInstantLog(
   type: string,
   fields: InstantLogFields = {}
 ): boolean {
   if (INSTANT_TYPES.has(type)) return true;
   if (type !== "feed" && type !== "pump") return false;
-  const { side, amountMl } = fields;
+  const { side, amountMl, startTime, endTime } = fields;
+  if (startTime != null && endTime != null) {
+    return new Date(startTime).getTime() === new Date(endTime).getTime();
+  }
   const hasMl = amountMl !== undefined && amountMl !== null && amountMl !== "";
   return hasMl && !side;
 }

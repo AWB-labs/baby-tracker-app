@@ -34,14 +34,13 @@ const DIAPER_OPTIONS = Object.entries(DIAPER_META).map(([value, meta]) => ({
 interface Config {
   hasSides: boolean;
   hasAmount: boolean;
-  amountLabel?: string;
 }
 
 const CONFIG: Record<string, Config> = {
-  // Feed is breast (L/R timed) with a bottle shortcut: a bottle saves as a
-  // `feed` with a volume and no side, exactly as the database has always stored
-  // it — no separate type on the wire.
-  feed: { hasSides: true, hasAmount: true, amountLabel: "Bottle" },
+  // Feed is breast (L/R, timed) with a bottle option that's timed the same
+  // way — no side, and the amount is asked for on finish rather than up
+  // front, since the point is how much was actually taken, not poured.
+  feed: { hasSides: true, hasAmount: true },
   // Pump is breast pumping — timed per side, like a feed.
   pump: { hasSides: true, hasAmount: false },
   sleep: { hasSides: false, hasAmount: false },
@@ -97,7 +96,6 @@ export default function TrackRow({
   const [note, setNote] = useState("");
   const [diaperStatus, setDiaperStatus] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [showAmount, setShowAmount] = useState(false);
   /**
    * Nap or night, asked when a sleep is finished.
    *
@@ -112,12 +110,15 @@ export default function TrackRow({
 
   const amountValue = units.parseVolume(amount);
   const amountValid = !isNaN(amountValue) && amountValue > 0;
+  // A feed timer started with no side (the bottle button) rather than L/R.
+  // handleStop() doesn't clear activeSide, so this still reads correctly
+  // once the finish sheet is open.
+  const isBottleFeed = type === "feed" && timer.activeSide == null;
 
   const reset = useCallback(() => {
     setNote("");
     setDiaperStatus(null);
     setAmount("");
-    setShowAmount(false);
     setSleepKind("nap");
   }, []);
 
@@ -141,13 +142,14 @@ export default function TrackRow({
         side: timer.activeSide,
         diaperStatus: type === "diaper" ? diaperStatus : null,
         sleepKind: type === "sleep" ? sleepKind : null,
-        // A finished pump is measured, not annotated: the useful thing to
-        // capture is how much came out, so that sheet asks for millilitres
-        // where every other activity asks for a note.
-        amountMl: type === "pump" && amountValid ? amountValue : null,
+        // A finished pump — or a bottle feed, timed the same way — is
+        // measured, not annotated: the useful thing to capture is how much
+        // came out or was drunk, so that sheet asks for millilitres where
+        // every other activity asks for a note.
+        amountMl: (type === "pump" || isBottleFeed) && amountValid ? amountValue : null,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
-        comments: type === "pump" ? null : note.trim() || null,
+        comments: type === "pump" || isBottleFeed ? null : note.trim() || null,
         enteredByName,
         pauseTimeline: timeline.length > 0 ? timeline : null,
       });
@@ -162,34 +164,7 @@ export default function TrackRow({
     }
   }, [
     babyId, type, timer, diaperStatus, note, amountValid, amountValue, sleepKind,
-    enteredByName, onLogSaved, toast, label, reset,
-  ]);
-
-  const saveAmount = useCallback(async () => {
-    if (!amountValid || saving) return;
-    const now = new Date();
-    setSaving(true);
-    try {
-      await createLog({
-        babyId,
-        type,
-        side: null,
-        amountMl: amountValue,
-        startTime: now.toISOString(),
-        endTime: now.toISOString(),
-        enteredByName,
-      });
-      onLogSaved();
-      toast.success(`${units.formatVolume(amountValue)} logged.`);
-      reset();
-    } catch (err) {
-      toast.showError(err);
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    amountValid, amountValue, saving, babyId, type,
-    enteredByName, onLogSaved, toast, units, reset,
+    isBottleFeed, enteredByName, onLogSaved, toast, label, reset,
   ]);
 
   /*
@@ -228,12 +203,10 @@ export default function TrackRow({
     ? "status"
     : timer.showComment
       ? "note"
-      : showAmount
-        ? "amount"
-        : null;
+      : null;
 
   // Hold the last shown kind through the dismiss animation.
-  const lastSheet = useRef<"status" | "note" | "amount">("note");
+  const lastSheet = useRef<"status" | "note">("note");
   if (sheet) lastSheet.current = sheet;
   const shown = sheet ?? lastSheet.current;
 
@@ -432,6 +405,7 @@ export default function TrackRow({
           label={label}
           config={config}
           diaperStatus={diaperStatus}
+          isBottleFeed={isBottleFeed}
           elapsed={timer.elapsed}
           amount={amount}
           amountValid={amountValid}
@@ -447,7 +421,6 @@ export default function TrackRow({
           onChangeNote={setNote}
           sleepKind={sleepKind}
           onChangeSleepKind={setSleepKind}
-          onSaveAmount={saveAmount}
           onSaveSession={saveSession}
         />
       </>
@@ -483,6 +456,7 @@ export default function TrackRow({
             <MiniButton
               label="Log"
               icon="plus"
+              fixed
               a11y="Log a diaper change"
               onPress={timer.openDiaperStatus}
             />
@@ -503,8 +477,8 @@ export default function TrackRow({
               {config.hasAmount && (
                 <MiniButton
                   emoji="🍼"
-                  a11y={`Log a bottle ${label.toLowerCase()} by volume`}
-                  onPress={() => setShowAmount(true)}
+                  a11y={`Start a bottle ${label.toLowerCase()}`}
+                  onPress={() => timer.handleStart()}
                 />
               )}
             </>
@@ -512,6 +486,7 @@ export default function TrackRow({
             <MiniButton
               label="Start"
               icon="play"
+              fixed
               a11y={`Start ${label.toLowerCase()}`}
               onPress={() => timer.handleStart()}
             />
@@ -526,6 +501,7 @@ export default function TrackRow({
         label={label}
         config={config}
         diaperStatus={diaperStatus}
+        isBottleFeed={isBottleFeed}
         elapsed={timer.elapsed}
         amount={amount}
         amountValid={amountValid}
@@ -541,7 +517,6 @@ export default function TrackRow({
         onChangeNote={setNote}
         sleepKind={sleepKind}
         onChangeSleepKind={setSleepKind}
-        onSaveAmount={saveAmount}
         onSaveSession={saveSession}
       />
     </>
@@ -549,13 +524,17 @@ export default function TrackRow({
 }
 
 /** Compact start action — a letter, a word, or an emoji. `wide` gives the
- *  single-letter L/R taps a more comfortable, tappable footprint. */
+ *  single-letter L/R taps a more comfortable, tappable footprint. `fixed`
+ *  gives a standalone action (Start, Log) a shared width, so a row's button
+ *  doesn't run wider or narrower than another row's just because its label
+ *  is a different length. */
 function MiniButton({
   label,
   emoji,
   icon,
   a11y,
   wide,
+  fixed,
   onPress,
 }: {
   label?: string;
@@ -563,6 +542,7 @@ function MiniButton({
   icon?: "plus" | "play";
   a11y: string;
   wide?: boolean;
+  fixed?: boolean;
   onPress: () => void;
 }) {
   const t = useTheme();
@@ -575,6 +555,7 @@ function MiniButton({
       style={({ pressed }) => [
         styles.mini,
         wide && styles.miniWide,
+        fixed && styles.miniFixed,
         {
           backgroundColor: t.accentSofter,
           borderColor: t.borderStrong,
@@ -608,6 +589,7 @@ function TrackSheet({
   label,
   config,
   diaperStatus,
+  isBottleFeed,
   elapsed,
   amount,
   amountValid,
@@ -620,15 +602,17 @@ function TrackSheet({
   onChangeAmount,
   onChangeNote,
   onChangeSleepKind,
-  onSaveAmount,
   onSaveSession,
 }: {
-  shown: "status" | "note" | "amount";
+  shown: "status" | "note";
   visible: boolean;
   type: TrackType;
   label: string;
   config: Config;
   diaperStatus: string | null;
+  /** A feed session started with no side — the bottle button, timed the same
+   *  as breastfeeding — so finishing asks for the amount, not a note. */
+  isBottleFeed: boolean;
   elapsed: number;
   amount: string;
   amountValid: boolean;
@@ -641,35 +625,27 @@ function TrackSheet({
   onChangeAmount: (value: string) => void;
   onChangeNote: (value: string) => void;
   onChangeSleepKind: (kind: "nap" | "night") => void;
-  onSaveAmount: () => void;
   onSaveSession: () => void;
 }) {
   const t = useTheme();
+  const asksForAmount = type === "pump" || isBottleFeed;
   return (
     <Sheet
       visible={visible}
       onClose={onClose}
-      title={
-        shown === "status"
-          ? "What was it?"
-          : shown === "amount"
-            ? config.amountLabel ?? "Amount"
-            : `Save this ${label.toLowerCase()}?`
-      }
+      title={shown === "status" ? "What was it?" : `Save this ${label.toLowerCase()}?`}
       subtitle={
         shown === "status"
           ? "Tap one to continue"
-          : shown === "amount"
-            ? "Logged as a one-off, not timed"
-            : type === "diaper"
-              ? DIAPER_META[diaperStatus ?? ""]?.label
-              : `${formatTimer(elapsed)} elapsed`
+          : type === "diaper"
+            ? DIAPER_META[diaperStatus ?? ""]?.label
+            : `${formatTimer(elapsed)} elapsed`
       }
       footer={
         shown === "status" ? undefined : (
           <View style={styles.controlRow}>
             <Button
-              label={shown === "amount" ? "Cancel" : "Discard"}
+              label="Discard"
               variant="ghost"
               onPress={onClose}
               style={styles.flex}
@@ -678,15 +654,9 @@ function TrackSheet({
               label="Save"
               variant="primary"
               loading={saving}
-              // A blank pump amount is fine — a half-typed one is not.
-              disabled={
-                (shown === "amount" && !amountValid) ||
-                (shown === "note" &&
-                  type === "pump" &&
-                  amount.length > 0 &&
-                  !amountValid)
-              }
-              onPress={shown === "amount" ? onSaveAmount : onSaveSession}
+              // A blank amount is fine — a half-typed one is not.
+              disabled={asksForAmount && amount.length > 0 && !amountValid}
+              onPress={onSaveSession}
               style={styles.flex}
             />
           </View>
@@ -717,21 +687,6 @@ function TrackSheet({
             </Pressable>
           ))}
         </View>
-      ) : shown === "amount" ? (
-        <Input
-          label="How much?"
-          suffix={units.volume}
-          value={amount}
-          onChangeText={onChangeAmount}
-          placeholder={units.system === "metric" ? "120" : "4"}
-          keyboardType="decimal-pad"
-          autoFocus
-          error={
-            amount.length > 0 && !amountValid
-              ? "Enter an amount greater than zero."
-              : null
-          }
-        />
       ) : type === "sleep" ? (
         /* Nap or night, then the note. Which one it was is the difference
            between "slept 11 hours" and "slept 11 hours across six naps", and
@@ -778,12 +733,12 @@ function TrackSheet({
             returnKeyType="done"
           />
         </>
-      ) : type === "pump" ? (
-        /* Finishing a pump asks for the yield rather than a note — that number
-           is the point of the session, and burying it behind a manual entry
-           afterwards is how it goes unrecorded. */
+      ) : asksForAmount ? (
+        /* Finishing a pump or a bottle asks for the yield rather than a note —
+           that number is the point of the session, and burying it behind a
+           manual entry afterwards is how it goes unrecorded. */
         <Input
-          label="How much did you pump?"
+          label={isBottleFeed ? "How much did they drink?" : "How much did you pump?"}
           suffix={units.volume}
           helper="Leave it blank if you didn't measure."
           value={amount}
@@ -853,6 +808,9 @@ const styles = StyleSheet.create({
   },
   // Single-letter L/R get a touch more width so they don't read as cramped.
   miniWide: { minWidth: 60 },
+  // A fixed rather than minimum width — otherwise "Start" and "Log" render at
+  // two different sizes purely because the words are different lengths.
+  miniFixed: { width: 96, minWidth: 0 },
 
   /* running */
   // No outer margin: this used to sit inset within one shared unpadded Card;

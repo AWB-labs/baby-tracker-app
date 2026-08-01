@@ -50,6 +50,8 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
   const usesSingleTime = isInstantLog(log.type, {
     side: log.side,
     amountMl: log.amountMl,
+    startTime: log.startTime,
+    endTime: log.endTime,
   });
   // A pump or bottle feed can record how much — whether or not this
   // particular entry had an amount when it was first logged. A timed session

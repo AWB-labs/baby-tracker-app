@@ -288,9 +288,12 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
     throw badRequest("That end time isn't valid.", "bad_end");
   }
 
-  // An instant activity is a moment, not a span. Pin its end to its start so no
-  // client can record a shower as something that took time.
-  if (isInstantLog(type, { side, amountMl })) {
+  // A genuinely instant activity is a moment, not a span — pin its end to its
+  // start so no client can record a shower as something that took time. A
+  // bottle passes the same times it was sent (equal for a quick volume log,
+  // different for a timed one), so isInstantLog checks those directly rather
+  // than assuming "no side" always means "instant" the way it used to.
+  if (isInstantLog(type, { side, amountMl, startTime: start, endTime: end })) {
     end = start;
   }
   // A backwards range yields a negative duration, which corrupts day totals.
@@ -483,26 +486,31 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
   // Recompute the duration whenever either end of the range moved.
   if (data.startTime !== undefined || data.endTime !== undefined) {
     const finalStart = (data.startTime as Date) ?? existing.startTime;
+    const finalEnd =
+      data.endTime === null
+        ? null
+        : ((data.endTime as Date | undefined) ?? existing.endTime);
     // `in` rather than `??`: an edit that explicitly clears a side or an amount
     // sets it to null, and null is exactly what decides whether the log is a
     // moment or a span. `??` would silently fall back to the stale value.
+    // Real times are checked first for a bottle — it can now be either an
+    // instant volume log or a timed session.
     const instant = isInstantLog(existing.type, {
       side: "side" in data ? (data.side as string | null) : existing.side,
       amountMl:
         "amountMl" in data ? (data.amountMl as number | null) : existing.amountMl,
+      startTime: finalStart,
+      endTime: finalEnd,
     });
 
     if (instant) {
-      // An instant activity is a moment, not a span: pin the end to the start
-      // instead of trusting the client's. Editing one can no longer invent a
-      // duration, and a row that already carries one is healed on save.
+      // A genuinely instant activity is a moment, not a span: pin the end to
+      // the start instead of trusting the client's. Editing one can no
+      // longer invent a duration, and a row that already carries one is
+      // healed on save.
       data.endTime = finalStart;
       data.durationMinutes = 0;
     } else {
-      const finalEnd =
-        data.endTime === null
-          ? null
-          : ((data.endTime as Date | undefined) ?? existing.endTime);
       if (finalStart && finalEnd) {
         // A backwards range yields a negative duration, which corrupts day totals.
         if (finalEnd.getTime() < finalStart.getTime()) {
