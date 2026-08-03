@@ -59,6 +59,14 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
   // cleared, as long as the side is still there to anchor the entry.
   const editsAmountMl = log.type === "pump" || log.type === "feed";
 
+  // Only a feed or pump session actually anchored by a side (not a bottle,
+  // which has none) can have it changed — switching which side it was is the
+  // point, not adding or clearing the concept of a side altogether.
+  const editsSide =
+    (log.type === "feed" || log.type === "pump") && !!log.side;
+  const [side, setSide] = useState<"left" | "right">(
+    log.side === "right" ? "right" : "left"
+  );
   const [date, setDate] = useState(() => new Date(log.startTime));
   const [startTime, setStartTime] = useState(() => new Date(log.startTime));
   const [endTime, setEndTime] = useState(() =>
@@ -106,6 +114,7 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
 
     if (log.type === "diaper") payload.diaperStatus = diaperStatus;
     if (log.type === "sleep") payload.sleepKind = sleepKind;
+    if (editsSide) payload.side = side;
 
     if (editsAmountMl) {
       if (amountMl.trim()) {
@@ -183,9 +192,9 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
       setSaving(false);
     }
   }, [
-    saving, comments, log, diaperStatus, sleepKind, editsAmountMl, amountMl,
-    weight, height, condition, fever, medication, dose, date, startTime,
-    endTime, usesSingleTime, units, onSaved, onClose,
+    saving, comments, log, diaperStatus, sleepKind, editsSide, side,
+    editsAmountMl, amountMl, weight, height, condition, fever, medication,
+    dose, date, startTime, endTime, usesSingleTime, units, onSaved, onClose,
   ]);
 
   const handleDelete = useCallback(async () => {
@@ -336,6 +345,40 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
                     style={{ color: selected ? t.onAccent : t.accentText }}
                   >
                     {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Field>
+      )}
+
+      {editsSide && (
+        <Field label="Side">
+          <View style={styles.tileGrid}>
+            {(["left", "right"] as const).map((value) => {
+              const selected = side === value;
+              return (
+                <Pressable
+                  key={value}
+                  onPress={() => setSide(value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={value === "left" ? "Left" : "Right"}
+                  accessibilityState={{ selected }}
+                  style={({ pressed }) => [
+                    styles.tile,
+                    {
+                      backgroundColor: selected ? t.accent : t.accentSofter,
+                      borderColor: selected ? t.accent : t.borderStrong,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Text
+                    variant="subheadStrong"
+                    style={{ color: selected ? t.onAccent : t.accentText }}
+                  >
+                    {value === "left" ? "Left" : "Right"}
                   </Text>
                 </Pressable>
               );
