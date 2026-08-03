@@ -17,11 +17,18 @@ import {
   Segmented,
   Button,
   IconButton,
+  screenContentPadding,
 } from "../../components/ui";
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, "Signup">;
 };
+
+// Absolutely-positioned children ignore their parent's padding in React
+// Native (unlike CSS, where top:0/left:0 lands at the padding edge) — so the
+// back button needs Screen's own inset added back by hand, or it sits flush
+// against the true screen edge instead of matching everything else's margin.
+const SCREEN_INSET = screenContentPadding();
 
 type Gender = "girl" | "boy";
 
@@ -247,10 +254,18 @@ const styles = StyleSheet.create({
     paddingBottom: space.xxxl,
     gap: space.xxl,
   },
-  // In flow, not absolute: the surrounding content is vertically centred as a
-  // block, and this is small enough that joining that block costs nothing —
-  // pinning it to the corner would need it exempted from that centring.
-  backBtn: { alignSelf: "flex-start" },
+  // Absolute, not in flow: the surrounding content is vertically centred as a
+  // block, and a taller form (name + email + password) centres low enough
+  // that an in-flow button here read as pushed down the screen rather than a
+  // normal top-left back button. Explicit inset because RN's absolute
+  // positioning ignores the parent's own padding — top:0/left:0 would sit
+  // flush against the true screen edge, not matched to everything else.
+  backBtn: {
+    position: "absolute",
+    top: SCREEN_INSET.paddingTop,
+    left: SCREEN_INSET.paddingHorizontal,
+    zIndex: 1,
+  },
   hero: { alignItems: "center", gap: space.xs },
   mark: {
     width: 88,
