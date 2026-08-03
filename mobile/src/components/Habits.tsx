@@ -1,5 +1,11 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius, DISABLED_OPACITY, PRESSED_OPACITY } from "../design/tokens";
 import { Icon } from "../design/icons";
@@ -50,6 +56,9 @@ interface Props {
  * silently resetting, so yesterday's slip is visible without being scolding.
  * Which habits appear, and in what order, is chosen in the customize sheet.
  */
+/** Emoji tiles per row in the icon pickers below. */
+const EMOJI_COLUMNS = 7;
+
 export default function Habits({
   babyId,
   enteredByName,
@@ -58,6 +67,17 @@ export default function Habits({
 }: Props) {
   const t = useTheme();
   const toast = useToast();
+
+  const { width: windowWidth } = useWindowDimensions();
+  // Sheet pads its content by space.lg on each side; a flat 44px tile leaves a
+  // dead gap most rows are just short of filling one more of. Sizing tiles to
+  // what's actually left fills the row exactly, on any device.
+  const emojiTileSize = Math.max(
+    36,
+    Math.floor(
+      (windowWidth - space.lg * 2 - space.xs * (EMOJI_COLUMNS - 1)) / EMOJI_COLUMNS
+    )
+  );
 
   const [habits, setHabits] = useState<HabitDef[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -458,6 +478,8 @@ export default function Habits({
                               style={({ pressed }) => [
                                 styles.emojiChoice,
                                 {
+                                  width: emojiTileSize,
+                                  height: emojiTileSize,
                                   backgroundColor: selected ? t.accent : t.accentSofter,
                                   borderColor: selected ? t.accent : t.borderStrong,
                                   opacity: pressed ? PRESSED_OPACITY : 1,
@@ -575,6 +597,8 @@ export default function Habits({
                   style={({ pressed }) => [
                     styles.emojiChoice,
                     {
+                      width: emojiTileSize,
+                      height: emojiTileSize,
                       backgroundColor: selected ? t.accent : t.accentSofter,
                       borderColor: selected ? t.accent : t.borderStrong,
                       opacity: pressed ? PRESSED_OPACITY : 1,
@@ -706,11 +730,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   custMid: { flex: 1, minWidth: 0, gap: 1 },
-  // Wraps to as many rows as it needs; each choice is a 44pt touch target.
+  // Wraps to as many rows as it needs; each choice's size is computed (see
+  // emojiTileSize) so the row fills its width exactly instead of a flat 44px
+  // leaving a dead gap.
   emojiRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
   emojiChoice: {
-    width: 44,
-    height: 44,
     borderRadius: radius.md,
     borderWidth: 2,
     alignItems: "center",
