@@ -2,22 +2,19 @@
 import { StyleSheet, View } from "react-native";
 import { useTheme } from "../design/ThemeProvider";
 import { useActivityTone, DIAPER_META } from "../design/activity";
-import { space, radius } from "../design/tokens";
+import { space } from "../design/tokens";
 import { Icon } from "../design/icons";
 import { PressableCard, Text, Emoji } from "./ui";
-import { formatTime, formatTimer, formatRelativeTime } from "../utils/formatTime";
+import { formatTime, formatRelativeTime } from "../utils/formatTime";
 import { formatDuration } from "../utils/formatDuration";
 import { summarise } from "../lib/greeting";
 import { useUnits } from "../context/SettingsContext";
 import type { LogEntry, MilkBalance } from "../api/logs";
-import type { UseTimerResult } from "../hooks/useTimer";
 
 interface Props {
   logs: LogEntry[];
   /** True while the first fetch for this baby is still in flight. */
   loading?: boolean;
-  feedTimer: UseTimerResult;
-  sleepTimer: UseTimerResult;
   /** Open the Log tab, optionally pre-filtered to one activity. */
   onOpenLog: (filter?: string) => void;
   /** Open the Insights tab. */
@@ -54,15 +51,14 @@ function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
  *
  * This replaces the old stack of banners: each card is a door, not a notice —
  * feed, sleep and diaper open the Log filtered to that activity, and the
- * day-so-far card opens Insights. While a feed or sleep is running its card
- * switches to the live timer, so the screen never shows a stale "1h ago"
- * beside an activity that is happening.
+ * day-so-far card opens Insights. Feed and sleep always read "last one was…",
+ * never a live running clock — that clock already lives, bigger and with its
+ * own controls, in the Track row below; duplicating it up here just to save a
+ * glance conflicted with the row's own centred timer instead of matching it.
  */
 export default function Snapshot({
   logs,
   loading = false,
-  feedTimer,
-  sleepTimer,
   onOpenLog,
   onOpenInsights,
   milkBalance,
@@ -93,12 +89,6 @@ export default function Snapshot({
   const lastDiaper = useMemo(() => latestOfType(logs, "diaper"), [logs]);
   const today = useMemo(() => summarise(logs), [logs]);
 
-  const feedSide =
-    feedTimer.activeSide === "left"
-      ? "Left"
-      : feedTimer.activeSide === "right"
-        ? "Right"
-        : null;
   const lastFeedSide =
     lastFeed?.side === "left" ? "Left" : lastFeed?.side === "right" ? "Right" : null;
   const diaperMeta = lastDiaper?.diaperStatus
@@ -130,41 +120,22 @@ export default function Snapshot({
       <SnapshotCard
         pending={pending}
         emoji={feedTone.emoji}
-        label={feedTimer.isActive ? "Feed" : "Last feed"}
-        value={
-          feedTimer.isActive
-            ? formatTimer(feedTimer.elapsed)
-            : lastFeed
-              ? formatRelativeTime(lastFeed.startTime)
-              : "None yet"
-        }
+        label="Last feed"
+        value={lastFeed ? formatRelativeTime(lastFeed.startTime) : "None yet"}
         valueColor={feedTone.text}
         sub={
-          feedTimer.isActive
-            ? null
-            : lastFeed
-              ? [formatTime(lastFeed.startTime), lastFeedSide]
-                  .filter(Boolean)
-                  .join(" · ")
-              : "Tap to see feeds"
-        }
-        live={
-          feedTimer.isActive
-            ? feedTimer.paused
-              ? "Paused"
-              : `Feeding${feedSide ? ` · ${feedSide}` : ""}`
-            : null
+          lastFeed
+            ? [formatTime(lastFeed.startTime), lastFeedSide]
+                .filter(Boolean)
+                .join(" · ")
+            : "Tap to see feeds"
         }
         accessibilityLabel={
-          feedTimer.isActive
-            ? `Feeding now, ${Math.floor(feedTimer.elapsed / 60)} minutes${
-                feedSide ? `, ${feedSide} side` : ""
+          lastFeed
+            ? `Last feed ${formatRelativeTime(lastFeed.startTime)}${
+                lastFeedSide ? `, ${lastFeedSide} side` : ""
               }. Opens the feed log.`
-            : lastFeed
-              ? `Last feed ${formatRelativeTime(lastFeed.startTime)}${
-                  lastFeedSide ? `, ${lastFeedSide} side` : ""
-                }. Opens the feed log.`
-              : "No feeds yet. Opens the feed log."
+            : "No feeds yet. Opens the feed log."
         }
         onPress={() => onOpenLog("feed")}
       />
@@ -173,49 +144,34 @@ export default function Snapshot({
       <SnapshotCard
         pending={pending}
         emoji={sleepTone.emoji}
-        label={sleepTimer.isActive ? "Sleep" : "Last sleep"}
+        label="Last sleep"
         value={
-          sleepTimer.isActive
-            ? formatTimer(sleepTimer.elapsed)
-            : lastSleep
-              ? // Counted from when it ended, not when it started — "how long
-                // has the baby been awake" is the useful question, and for an
-                // hours-long nap those are very different numbers.
-                formatRelativeTime(lastSleep.endTime ?? lastSleep.startTime)
-              : "None yet"
+          lastSleep
+            ? // Counted from when it ended, not when it started — "how long
+              // has the baby been awake" is the useful question, and for an
+              // hours-long nap those are very different numbers.
+              formatRelativeTime(lastSleep.endTime ?? lastSleep.startTime)
+            : "None yet"
         }
         valueColor={sleepTone.text}
         sub={
-          sleepTimer.isActive
-            ? null
-            : lastSleep
-              ? [
-                  formatTime(lastSleep.endTime ?? lastSleep.startTime),
-                  lastSleep.durationMinutes
-                    ? formatDuration(lastSleep.durationMinutes)
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : "Tap to see naps"
-        }
-        live={
-          sleepTimer.isActive
-            ? sleepTimer.paused
-              ? "Paused"
-              : "Napping now"
-            : null
+          lastSleep
+            ? [
+                formatTime(lastSleep.endTime ?? lastSleep.startTime),
+                lastSleep.durationMinutes
+                  ? formatDuration(lastSleep.durationMinutes)
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : "Tap to see naps"
         }
         accessibilityLabel={
-          sleepTimer.isActive
-            ? `Napping now, ${Math.floor(
-                sleepTimer.elapsed / 60
-              )} minutes. Opens the sleep log.`
-            : lastSleep
-              ? `Last sleep ended ${formatRelativeTime(
-                  lastSleep.endTime ?? lastSleep.startTime
-                )}. Opens the sleep log.`
-              : "No sleeps yet. Opens the sleep log."
+          lastSleep
+            ? `Last sleep ended ${formatRelativeTime(
+                lastSleep.endTime ?? lastSleep.startTime
+              )}. Opens the sleep log.`
+            : "No sleeps yet. Opens the sleep log."
         }
         onPress={() => onOpenLog("sleep")}
       />
@@ -283,7 +239,6 @@ function SnapshotCard({
   valueColor,
   valueSmall = false,
   sub,
-  live = null,
   pending = false,
   accessibilityLabel,
   onPress,
@@ -294,7 +249,6 @@ function SnapshotCard({
   valueColor: string;
   valueSmall?: boolean;
   sub: string | null;
-  live?: string | null;
   /** First fetch still in flight: hold the card's shape, not its content. */
   pending?: boolean;
   accessibilityLabel: string;
@@ -307,7 +261,6 @@ function SnapshotCard({
   if (pending) {
     value = "—";
     sub = " ";
-    live = null;
   }
   return (
     <PressableCard
@@ -334,14 +287,7 @@ function SnapshotCard({
         {value}
       </Text>
 
-      {live ? (
-        <View style={styles.liveRow}>
-          <View style={[styles.liveDot, { backgroundColor: t.success }]} />
-          <Text variant="caption" style={{ color: t.success, fontWeight: "700" }}>
-            {live}
-          </Text>
-        </View>
-      ) : sub ? (
+      {sub ? (
         <Text variant="caption" tone="subtle" tabular numberOfLines={1}>
           {sub}
         </Text>
@@ -377,6 +323,4 @@ const styles = StyleSheet.create({
     gap: space.xs,
     flexShrink: 1,
   },
-  liveRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
-  liveDot: { width: 7, height: 7, borderRadius: radius.pill },
 });

@@ -230,8 +230,6 @@ export default function HomeScreen() {
           <Snapshot
             logs={logs}
             loading={loading}
-            feedTimer={feedTimer}
-            sleepTimer={sleepTimer}
             onOpenLog={(filter) => navigation.navigate("Activity", { filter })}
             onOpenInsights={() => navigation.navigate("Analytics")}
             milkBalance={milkBalance}
