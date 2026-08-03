@@ -20,7 +20,7 @@ interface AuthContextValue extends AuthState {
   signIn: (email: string, password: string) => Promise<number>;
   signOut: () => Promise<void>;
   /** Delete the account server-side, then clear everything it left on-device. */
-  deleteAccount: () => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
   /**
    * True for the rest of this app session once signUp() has succeeded, never
    * set by signIn(). The onboarding carousel is gated on this rather than on
@@ -112,8 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Delete server-side first, while the token still works — clearing storage
   // up front would make the request go out unauthenticated instead.
-  const deleteAccount = useCallback(async () => {
-    await deleteAccountRequest();
+  const deleteAccount = useCallback(async (password: string) => {
+    await deleteAccountRequest(password);
     await AsyncStorage.multiRemove(AUTH_STORAGE_KEYS);
     setState({ token: null, account: null, loading: false });
   }, []);

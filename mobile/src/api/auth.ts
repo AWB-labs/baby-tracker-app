@@ -92,7 +92,10 @@ export async function getMe(): Promise<MeResponse> {
  * Permanently delete the signed-in account. Babies it owns are deleted in
  * full, for every caregiver; babies it only helps with keep their history —
  * this account's own entries stay, just no longer attributed to a live login.
+ *
+ * Requires the current password: a valid session isn't proof the person
+ * holding the phone right now is the one who decided to do this.
  */
-export async function deleteAccount(): Promise<void> {
-  await apiClient.delete("/me");
+export async function deleteAccount(password: string): Promise<void> {
+  await apiClient.delete("/me", { data: { password } });
 }

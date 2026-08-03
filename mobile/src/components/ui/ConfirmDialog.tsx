@@ -20,6 +20,9 @@ export interface ConfirmDialogProps {
   destructive?: boolean;
   /** Disables both buttons and spins the confirm button while it's in flight. */
   loading?: boolean;
+  /** Extra input rendered between the message and the actions, e.g. a
+   *  password field for a confirmation that needs re-authentication. */
+  children?: React.ReactNode;
 }
 
 /**
@@ -38,6 +41,7 @@ export function ConfirmDialog({
   icon = "trash",
   destructive = true,
   loading = false,
+  children,
 }: ConfirmDialogProps) {
   const { theme: t, isDark } = useThemeContext();
   const cancel = () => {
@@ -102,6 +106,7 @@ export function ConfirmDialog({
           <Text variant="subhead" tone="muted" center style={styles.message}>
             {message}
           </Text>
+          {children ? <View style={styles.children}>{children}</View> : null}
           <View style={styles.actions}>
             <Button
               label={cancelLabel}
@@ -151,6 +156,8 @@ const styles = StyleSheet.create({
     marginBottom: space.xs,
   },
   message: { maxWidth: 260 },
+  // Full width, not maxWidth: 260 like the message — an Input needs the room.
+  children: { alignSelf: "stretch", width: "100%", marginTop: space.xs },
   actions: {
     flexDirection: "row",
     gap: space.sm,

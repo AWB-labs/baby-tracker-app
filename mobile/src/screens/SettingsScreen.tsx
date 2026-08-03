@@ -32,6 +32,7 @@ import { useBaby } from "../context/BabyContext";
 import BabySwitcher from "../components/BabySwitcher";
 import { useSettings, useUnits } from "../context/SettingsContext";
 import { useToast } from "../components/Toast";
+import { toFriendlyError } from "../lib/errors";
 import {
   getMembers,
   addMember,
@@ -177,6 +178,8 @@ export default function SettingsScreen() {
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deletePasswordError, setDeletePasswordError] = useState<string | null>(null);
 
   const [savingField, setSavingField] = useState<string | null>(null);
 
@@ -375,15 +378,27 @@ export default function SettingsScreen() {
   // --- Delete account ---
 
   const handleDeleteAccount = async () => {
+    if (!deletePassword) {
+      setDeletePasswordError("Enter your password to confirm.");
+      return;
+    }
+    setDeletePasswordError(null);
     setDeletingAccount(true);
     try {
-      await deleteAccount();
+      await deleteAccount(deletePassword);
       // Nothing else to do: the token going null flips the root navigator to
       // the signed-out stack, which unmounts this screen.
     } catch (err) {
       setDeletingAccount(false);
-      setConfirmDeleteAccount(false);
-      toast.showError(err);
+      // A wrong password keeps the dialog open so it can be retried in
+      // place; anything else (network, server) closes it and falls back to
+      // a toast, matching every other destructive action on this screen.
+      if (toFriendlyError(err).code === "wrong_password") {
+        setDeletePasswordError("That password isn't right.");
+      } else {
+        setConfirmDeleteAccount(false);
+        toast.showError(err);
+      }
     }
   };
 
@@ -867,7 +882,11 @@ export default function SettingsScreen() {
             onPress={signOut}
           />
 
-          <Divider style={styles.divider} />
+          {/* No extra margin here — Screen's own gap between top-level
+              siblings already separates it from Sign out on both sides;
+              styles.divider's larger margin is tuned for the Appearance
+              card's denser internal layout, not this bare button stack. */}
+          <Divider />
 
           <Button
             label="Delete my account"
@@ -1050,9 +1069,29 @@ export default function SettingsScreen() {
         message={deleteAccountWarning(babies)}
         confirmLabel="Delete"
         onConfirm={handleDeleteAccount}
-        onCancel={() => setConfirmDeleteAccount(false)}
+        onCancel={() => {
+          setConfirmDeleteAccount(false);
+          setDeletePassword("");
+          setDeletePasswordError(null);
+        }}
         loading={deletingAccount}
-      />
+      >
+        <Input
+          label="Confirm your password"
+          value={deletePassword}
+          onChangeText={(v) => {
+            setDeletePassword(v);
+            if (deletePasswordError) setDeletePasswordError(null);
+          }}
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="Your password"
+          error={deletePasswordError}
+          returnKeyType="done"
+          onSubmitEditing={handleDeleteAccount}
+        />
+      </ConfirmDialog>
     </Screen>
   );
 }
