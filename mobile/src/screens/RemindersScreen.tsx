@@ -350,7 +350,13 @@ export default function RemindersScreen() {
               <Button
                 label="Delete"
                 variant="danger"
-                onPress={() => setPendingDelete(draft.editing)}
+                onPress={() => {
+                  // Close this sheet before opening the confirm dialog — two
+                  // Modals stacked at once is exactly the kind of thing that
+                  // leaves the top one unreachable, depending on platform.
+                  setPendingDelete(draft.editing);
+                  setDraft(null);
+                }}
                 style={styles.flex}
               />
             ) : (
