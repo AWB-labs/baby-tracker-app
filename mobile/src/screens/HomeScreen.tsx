@@ -24,17 +24,13 @@ import {
   SectionHeader,
   Text,
   EmptyState,
-  Sheet,
-  Input,
-  Button,
 } from "../components/ui";
 import Snapshot from "../components/Snapshot";
 import TrackRow, { type TrackType } from "../components/TrackRow";
 import Habits from "../components/Habits";
 import BabySwitcher from "../components/BabySwitcher";
 import ManualEntryModal from "../components/ManualEntryModal";
-import { useToast } from "../components/Toast";
-import { useUnits } from "../context/SettingsContext";
+import MilkSupplyModal from "../components/MilkSupplyModal";
 import { greetingFor, formatBabyAge } from "../lib/greeting";
 import type { LogEntry } from "../api/logs";
 import type { TabParamList } from "../navigation/AppTabs";
@@ -71,8 +67,6 @@ export default function HomeScreen() {
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
   const insets = useSafeAreaInsets();
   const t = useTheme();
-  const units = useUnits();
-  const toast = useToast();
 
   // The timers live here, not in the rows: the snapshot needs to read the
   // same running feed/sleep the track rows control.
@@ -102,9 +96,7 @@ export default function HomeScreen() {
     activeBaby?.id,
     dataVersion
   );
-  const [editingBalance, setEditingBalance] = useState(false);
-  const [balanceDraft, setBalanceDraft] = useState("");
-  const [savingBalance, setSavingBalance] = useState(false);
+  const [showMilkSupply, setShowMilkSupply] = useState(false);
 
   // Another caregiver may be logging at the same time, so poll to stay in
   // sync — but only while this tab is on screen and the app is foregrounded.
@@ -148,29 +140,6 @@ export default function HomeScreen() {
     [activeBaby.gender === "girl" ? "Girl" : "Boy", age]
       .filter(Boolean)
       .join(" · ") || "Here's today";
-
-  const openBalanceEdit = () => {
-    const availableMl = milkBalance ? Math.max(0, milkBalance.balanceMl) : 0;
-    setBalanceDraft(units.toDisplayVolume(availableMl));
-    setEditingBalance(true);
-  };
-
-  const handleSaveBalance = async () => {
-    const ml = units.parseVolume(balanceDraft);
-    if (isNaN(ml) || ml < 0) {
-      toast.error(`Enter an amount in ${units.volume}, zero or more.`);
-      return;
-    }
-    setSavingBalance(true);
-    try {
-      await correctMilkBalance(ml);
-      setEditingBalance(false);
-    } catch (err) {
-      toast.showError(err);
-    } finally {
-      setSavingBalance(false);
-    }
-  };
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
@@ -233,7 +202,7 @@ export default function HomeScreen() {
             onOpenLog={(filter) => navigation.navigate("Activity", { filter })}
             onOpenInsights={() => navigation.navigate("Analytics")}
             milkBalance={milkBalance}
-            onOpenMilkBalance={openBalanceEdit}
+            onOpenMilkBalance={() => setShowMilkSupply(true)}
           />
         </View>
       </LinearGradient>
@@ -306,51 +275,22 @@ export default function HomeScreen() {
         onClose={() => setShowManual(false)}
       />
 
-      <Sheet
-        visible={editingBalance}
-        onClose={() => setEditingBalance(false)}
-        title="Correct the balance"
-        subtitle="Overrides the running total — future pumps and bottles still move it from here."
-        footer={
-          <View style={styles.balanceActions}>
-            <Button
-              label="Cancel"
-              variant="ghost"
-              onPress={() => setEditingBalance(false)}
-              style={styles.flex}
-            />
-            <Button
-              label="Save"
-              variant="primary"
-              loading={savingBalance}
-              onPress={handleSaveBalance}
-              style={styles.flex}
-            />
-          </View>
-        }
-      >
-        <Input
-          label="Available"
-          suffix={units.volume}
-          value={balanceDraft}
-          onChangeText={setBalanceDraft}
-          keyboardType="decimal-pad"
-          autoFocus
-          returnKeyType="done"
-          onSubmitEditing={handleSaveBalance}
-        />
-      </Sheet>
+      <MilkSupplyModal
+        visible={showMilkSupply}
+        onClose={() => setShowMilkSupply(false)}
+        babyId={activeBaby.id}
+        milkBalance={milkBalance}
+        onCorrect={correctMilkBalance}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  flex: { flex: 1 },
   section: { gap: space.sm },
   center: { alignItems: "center" },
   trackList: { gap: space.sm },
-  balanceActions: { flexDirection: "row", gap: space.sm },
   // Pinned full-width pink header; the bottom corners round into the blush
   // content that scrolls beneath it.
   hero: {
