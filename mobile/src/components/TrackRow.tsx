@@ -333,7 +333,7 @@ export default function TrackRow({
               onPress={() => timer.adjustStart(-60)}
             />
             <Text variant="caption" tone="subtle">
-              adjust start · 1 min
+              adjust timer · 1 min
             </Text>
             <IconButton
               icon="plus"
