@@ -23,6 +23,7 @@ import {
   Text,
   Emoji,
   Button,
+  IconButton,
   Input,
   Field,
   Sheet,
@@ -37,6 +38,7 @@ import { useBaby } from "../context/BabyContext";
 import { useAuth } from "../context/AuthContext";
 import BabySwitcher from "../components/BabySwitcher";
 import StatCard from "../components/StatCard";
+import EditLogModal from "../components/EditLogModal";
 import { formatMinutes } from "../utils/formatDuration";
 import { formatDateLabel } from "../utils/formatTime";
 import { overlapMinutes } from "../lib/dayMath";
@@ -175,16 +177,20 @@ function GrowthHistory({
   onClose,
   entries,
   babyName,
+  onChanged,
 }: {
   visible: boolean;
   onClose: () => void;
   /** Oldest first, as the screen keeps them. */
   entries: LogEntry[];
   babyName: string;
+  /** Refetches the underlying logs after an edit or delete. */
+  onChanged: () => void | Promise<void>;
 }) {
   const t = useTheme();
   const units = useUnits();
   const growthTone = useActivityTone("growth");
+  const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
 
   // Deltas need the previous *recorded* value for that measure, which isn't
   // simply the previous row: a visit that weighed but didn't measure height
@@ -205,69 +211,93 @@ function GrowthHistory({
   }, [entries]);
 
   return (
-    <Sheet
-      visible={visible}
-      onClose={onClose}
-      title="Growth history"
-      subtitle={`Every measurement recorded for ${babyName}`}
-      footer={<Button label="Done" variant="primary" fullWidth onPress={onClose} />}
-    >
-      {rows.map(({ log, weightDelta, heightDelta }, index) => (
-        <View
-          key={log.id}
-          accessible
-          accessibilityLabel={`${formatDateLabel(log.startTime)}: ${[
-            log.weightKg != null ? units.formatWeight(log.weightKg) : null,
-            log.heightCm != null ? units.formatHeight(log.heightCm) : null,
-          ]
-            .filter(Boolean)
-            .join(", ")}`}
-          style={[
-            styles.growthRowItem,
-            index > 0 && {
-              borderTopColor: t.border,
-              borderTopWidth: StyleSheet.hairlineWidth,
-            },
-          ]}
-        >
-          <View style={styles.flex}>
-            <Text variant="subheadStrong">{formatDateLabel(log.startTime)}</Text>
-            <Text variant="caption" tone="subtle">
-              by {log.enteredByName}
-            </Text>
-          </View>
+    <>
+      <Sheet
+        visible={visible}
+        onClose={onClose}
+        title="Growth history"
+        subtitle={`Every measurement recorded for ${babyName}`}
+        footer={<Button label="Done" variant="primary" fullWidth onPress={onClose} />}
+      >
+        {rows.map(({ log, weightDelta, heightDelta }, index) => (
+          <View
+            key={log.id}
+            style={[
+              styles.growthRowItem,
+              index > 0 && {
+                borderTopColor: t.border,
+                borderTopWidth: StyleSheet.hairlineWidth,
+              },
+            ]}
+          >
+            <View
+              style={styles.flex}
+              accessible
+              accessibilityLabel={`${formatDateLabel(log.startTime)}: ${[
+                log.weightKg != null ? units.formatWeight(log.weightKg) : null,
+                log.heightCm != null ? units.formatHeight(log.heightCm) : null,
+              ]
+                .filter(Boolean)
+                .join(", ")}`}
+            >
+              <Text variant="subheadStrong">{formatDateLabel(log.startTime)}</Text>
+              <Text variant="caption" tone="subtle">
+                by {log.enteredByName}
+              </Text>
+            </View>
 
-          <View style={styles.growthValues}>
-            {log.weightKg != null && (
-              <View style={styles.growthValue}>
-                <Text variant="bodyStrong" tabular style={{ color: growthTone.text }}>
-                  {units.formatWeight(log.weightKg)}
-                </Text>
-                {weightDelta !== null && (
-                  <Text variant="caption" tone="subtle" tabular>
-                    {weightDelta >= 0 ? "+" : "−"}
-                    {units.formatWeight(Math.abs(weightDelta))}
+            <View style={styles.growthValues}>
+              {log.weightKg != null && (
+                <View style={styles.growthValue}>
+                  <Text variant="bodyStrong" tabular style={{ color: growthTone.text }}>
+                    {units.formatWeight(log.weightKg)}
                   </Text>
-                )}
-              </View>
-            )}
-            {log.heightCm != null && (
-              <View style={styles.growthValue}>
-                <Text variant="bodyStrong" tabular style={{ color: growthTone.text }}>
-                  {units.formatHeight(log.heightCm)}
-                </Text>
-                {heightDelta !== null && (
-                  <Text variant="caption" tone="subtle" tabular>
-                    {heightDelta >= 0 ? "+" : "−"}
-                    {units.formatHeight(Math.abs(heightDelta))}
+                  {weightDelta !== null && (
+                    <Text variant="caption" tone="subtle" tabular>
+                      {weightDelta >= 0 ? "+" : "−"}
+                      {units.formatWeight(Math.abs(weightDelta))}
+                    </Text>
+                  )}
+                </View>
+              )}
+              {log.heightCm != null && (
+                <View style={styles.growthValue}>
+                  <Text variant="bodyStrong" tabular style={{ color: growthTone.text }}>
+                    {units.formatHeight(log.heightCm)}
                   </Text>
-                )}
-              </View>
-            )}
+                  {heightDelta !== null && (
+                    <Text variant="caption" tone="subtle" tabular>
+                      {heightDelta >= 0 ? "+" : "−"}
+                      {units.formatHeight(Math.abs(heightDelta))}
+                    </Text>
+                  )}
+                </View>
+              )}
+            </View>
+
+            <IconButton
+              icon="edit"
+              label={`Edit measurement from ${formatDateLabel(log.startTime)}`}
+              variant="surface"
+              size="sm"
+              onPress={() => setEditingLog(log)}
+            />
           </View>
-        </View>
-      ))}
-    </Sheet>
+        ))}
+      </Sheet>
+
+      {/* Rendered alongside the sheet rather than inside it: EditLogModal is
+          its own Modal layer, and Modals stack fine regardless of where they
+          sit in the tree. */}
+      {editingLog && (
+        <EditLogModal
+          key={editingLog.id}
+          log={editingLog}
+          onClose={() => setEditingLog(null)}
+          onSaved={onChanged}
+        />
+      )}
+    </>
   );
 }
 
@@ -554,6 +584,7 @@ export default function InsightsScreen() {
             onClose={() => setShowGrowthHistory(false)}
             entries={growthLogs}
             babyName={activeBaby.name}
+            onChanged={refresh}
           />
 
           {/* ----------------------------------------------- sleep pattern */}
