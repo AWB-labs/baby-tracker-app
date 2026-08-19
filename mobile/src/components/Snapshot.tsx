@@ -30,6 +30,9 @@ interface Props {
   milkBalance?: MilkBalance | null;
   /** Open the balance-correction sheet. */
   onOpenMilkBalance?: () => void;
+  /** Nappies on hand — see useDiaperStock. Null while loading or unknown,
+   *  in which case the diaper card simply shows no stock line. */
+  diaperStock?: number | null;
 }
 
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
@@ -63,6 +66,7 @@ export default function Snapshot({
   onOpenInsights,
   milkBalance,
   onOpenMilkBalance,
+  diaperStock,
 }: Props) {
   const t = useTheme();
   const units = useUnits();
@@ -193,11 +197,32 @@ export default function Snapshot({
                 .join(" · ")
             : "Tap to see changes"
         }
+        // Stock isn't part of "last diaper" so much as it's the only other
+        // fact about diapers worth a glance here — set from the manual-entry
+        // sheet, not this card, so there's nothing to tap in this line alone.
+        footer={
+          !pending && diaperStock != null ? (
+            <Text
+              variant="caption"
+              tabular
+              numberOfLines={1}
+              style={{ color: diaperStock > 0 ? t.textSubtle : t.warning }}
+            >
+              {diaperStock > 0 ? `${diaperStock} in stock` : "Out of stock"}
+            </Text>
+          ) : null
+        }
         accessibilityLabel={
           lastDiaper
             ? `Last diaper ${formatRelativeTime(lastDiaper.startTime)}${
                 diaperMeta ? `, ${diaperMeta.label}` : ""
-              }. Opens the diaper log.`
+              }.${
+                diaperStock != null
+                  ? diaperStock > 0
+                    ? ` ${diaperStock} in stock.`
+                    : " Out of stock."
+                  : ""
+              } Opens the diaper log.`
             : "No diaper changes yet. Opens the diaper log."
         }
         onPress={() => onOpenLog("diaper")}
@@ -239,6 +264,7 @@ function SnapshotCard({
   valueColor,
   valueSmall = false,
   sub,
+  footer,
   pending = false,
   accessibilityLabel,
   onPress,
@@ -249,6 +275,9 @@ function SnapshotCard({
   valueColor: string;
   valueSmall?: boolean;
   sub: string | null;
+  /** A second line under `sub`, for a card with a fact beyond "the last one
+   *  was…" to show — currently just the diaper card's stock count. */
+  footer?: React.ReactNode;
   /** First fetch still in flight: hold the card's shape, not its content. */
   pending?: boolean;
   accessibilityLabel: string;
@@ -292,6 +321,8 @@ function SnapshotCard({
           {sub}
         </Text>
       ) : null}
+
+      {footer}
     </PressableCard>
   );
 }

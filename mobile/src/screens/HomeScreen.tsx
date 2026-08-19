@@ -18,6 +18,7 @@ import { useLogs } from "../hooks/useLogs";
 import { usePolling } from "../hooks/usePolling";
 import { useTimer } from "../hooks/useTimer";
 import { useMilkBalance } from "../hooks/useMilkBalance";
+import { useDiaperStock } from "../hooks/useDiaperStock";
 import { useActiveTimers } from "../hooks/useActiveTimers";
 import {
   Screen,
@@ -105,6 +106,11 @@ export default function HomeScreen() {
     dataVersion
   );
   const [showMilkSupply, setShowMilkSupply] = useState(false);
+
+  const { count: diaperStock, refresh: refreshDiaperStock } = useDiaperStock(
+    activeBaby?.id,
+    dataVersion
+  );
 
   // Another caregiver may be logging at the same time, so poll to stay in
   // sync — but only while this tab is on screen and the app is foregrounded.
@@ -211,6 +217,7 @@ export default function HomeScreen() {
             onOpenInsights={() => navigation.navigate("Analytics")}
             milkBalance={milkBalance}
             onOpenMilkBalance={() => setShowMilkSupply(true)}
+            diaperStock={diaperStock}
           />
         </View>
       </LinearGradient>
@@ -285,6 +292,8 @@ export default function HomeScreen() {
         enteredByName={enteredByName}
         onSaved={refreshAndBump}
         onClose={() => setShowManual(false)}
+        diaperStock={diaperStock}
+        onDiaperStockChanged={refreshDiaperStock}
       />
 
       <MilkSupplyModal

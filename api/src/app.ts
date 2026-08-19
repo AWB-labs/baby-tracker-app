@@ -12,6 +12,7 @@ import authRouter from "./routes/auth";
 import meRouter from "./routes/me";
 import babiesRouter from "./routes/babies";
 import membersRouter from "./routes/members";
+import diaperStockRouter from "./routes/diaperStock";
 import logsRouter from "./routes/logs";
 import activeTimersRouter from "./routes/activeTimers";
 import vaccinesRouter from "./routes/vaccines";
@@ -53,6 +54,7 @@ app.use("/me", meRouter);
 app.use("/babies", babiesRouter);
 // Caregiver management hangs off a baby: /babies/:babyId/members
 app.use("/babies", membersRouter);
+app.use("/babies", diaperStockRouter);
 app.use("/logs", logsRouter);
 app.use("/active-timers", activeTimersRouter);
 app.use("/vaccines", vaccinesRouter);

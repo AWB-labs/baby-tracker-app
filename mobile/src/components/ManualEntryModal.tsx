@@ -10,8 +10,10 @@ import {
   type ActivityKey,
 } from "../design/activity";
 import { space, radius } from "../design/tokens";
+import { Icon } from "../design/icons";
 import { useUnits } from "../context/SettingsContext";
 import { createLog } from "../api/logs";
+import { adjustDiaperStock } from "../api/diaperStock";
 import { isInstantLog } from "../lib/activities";
 import { formatDuration } from "../utils/formatDuration";
 import { Text, Emoji, Button, Input, Field, Sheet, Chip, ChipWrap } from "./ui";
@@ -49,6 +51,10 @@ interface Props {
   enteredByName: string;
   onSaved: () => void;
   onClose: () => void;
+  /** Nappies on hand right now, for the stock line below the diaper fields. */
+  diaperStock?: number | null;
+  /** A restock or a use changed the count — refetch it. */
+  onDiaperStockChanged?: () => void;
 }
 
 /**
@@ -65,6 +71,8 @@ export default function ManualEntryModal({
   enteredByName,
   onSaved,
   onClose,
+  diaperStock,
+  onDiaperStockChanged,
 }: Props) {
   const t = useTheme();
   const { isDark } = useThemeContext();
@@ -81,6 +89,13 @@ export default function ManualEntryModal({
   const [endTime, setEndTime] = useState(new Date());
   const [comments, setComments] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Whether saving this diaper change also draws one from stock. Reseeded
+  // whenever diaper is (re)selected, so it always starts matching what stock
+  // actually allows rather than remembering a stale choice from last time.
+  const [useFromStock, setUseFromStock] = useState(false);
+  const [restockAmount, setRestockAmount] = useState("");
+  const [restocking, setRestocking] = useState(false);
 
   /**
    * Whether the date calendar is open. Time no longer lives here — see
@@ -156,6 +171,8 @@ export default function ManualEntryModal({
     setEndTime(new Date());
     setComments("");
     setOpenPicker(null);
+    setUseFromStock(false);
+    setRestockAmount("");
     onClose();
   };
 
@@ -179,12 +196,42 @@ export default function ManualEntryModal({
         enteredByName,
       });
       onSaved();
+      // Best-effort: the change itself is already saved either way, so a
+      // failed stock update shouldn't read as the entry having failed too.
+      if (isDiaper && useFromStock) {
+        try {
+          await adjustDiaperStock(babyId, -1);
+          onDiaperStockChanged?.();
+        } catch {
+          // The count just won't reflect this one until corrected by hand.
+        }
+      }
       toast.success("Entry saved.");
       handleClose();
     } catch (err) {
       toast.showError(err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const restockValue = parseInt(restockAmount, 10);
+  const restockValid = !isNaN(restockValue) && restockValue > 0;
+
+  /** Add to stock right away — this is inventory, not a thing that happened
+   *  to the baby, so it doesn't wait on the rest of the form or create a log. */
+  const handleRestock = async () => {
+    if (!restockValid || restocking) return;
+    setRestocking(true);
+    try {
+      await adjustDiaperStock(babyId, restockValue);
+      onDiaperStockChanged?.();
+      toast.success(`Added ${restockValue} to diaper stock.`);
+      setRestockAmount("");
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setRestocking(false);
     }
   };
 
@@ -285,7 +332,12 @@ export default function ManualEntryModal({
                   setSide(null);
                   setAmount("");
                 }
-                if (type !== "diaper") setDiaperStatus(null);
+                if (type !== "diaper") {
+                  setDiaperStatus(null);
+                  setUseFromStock(false);
+                } else {
+                  setUseFromStock((diaperStock ?? 0) > 0);
+                }
               }}
             />
           ))}
@@ -381,6 +433,79 @@ export default function ManualEntryModal({
             })}
           </View>
         </Field>
+      )}
+
+      {isDiaper && (
+        <View
+          style={[
+            styles.stockBox,
+            { backgroundColor: t.accentSofter, borderColor: t.border },
+          ]}
+        >
+          <View style={styles.stockHead}>
+            <Text variant="caption" tone="muted">
+              Diaper stock
+            </Text>
+            <Text variant="subheadStrong" tabular>
+              {diaperStock == null
+                ? "—"
+                : diaperStock > 0
+                  ? `${diaperStock} left`
+                  : "Out of stock"}
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => setUseFromStock((v) => !v)}
+            disabled={!diaperStock}
+            accessibilityRole="checkbox"
+            accessibilityState={{
+              checked: useFromStock,
+              disabled: !diaperStock,
+            }}
+            accessibilityLabel="Use one from stock for this change"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={({ pressed }) => [
+              styles.stockCheckRow,
+              { opacity: !diaperStock ? 0.5 : pressed ? 0.7 : 1 },
+            ]}
+          >
+            <View
+              style={[
+                styles.checkbox,
+                {
+                  backgroundColor: useFromStock ? t.success : "transparent",
+                  borderColor: useFromStock ? t.success : t.borderStrong,
+                },
+              ]}
+            >
+              {useFromStock && (
+                <Icon name="check" size="xs" color={t.textInverse} strokeWidth={3} />
+              )}
+            </View>
+            <Text variant="subhead">Use one from stock for this change</Text>
+          </Pressable>
+
+          <View style={styles.restockRow}>
+            <Input
+              label="Add to stock"
+              helper="A new pack arrived — this doesn't create a log entry."
+              keyboardType="number-pad"
+              value={restockAmount}
+              onChangeText={setRestockAmount}
+              placeholder="e.g. 50"
+              containerStyle={styles.flex}
+            />
+            <Button
+              label="Add"
+              variant="secondary"
+              size="sm"
+              loading={restocking}
+              disabled={!restockValid}
+              onPress={handleRestock}
+            />
+          </View>
+        </View>
       )}
 
       {dateField("Date", formatDateDisplay(date))}
@@ -483,4 +608,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: space.xxs,
   },
+  stockBox: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: space.md,
+    gap: space.md,
+  },
+  stockHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  stockCheckRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  restockRow: { flexDirection: "row", alignItems: "flex-end", gap: space.sm },
 });

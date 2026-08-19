@@ -79,6 +79,11 @@ model Baby {
   /// adjusting the total from wherever a caregiver last corrected it to,
   /// instead of a manual edit being silently overwritten by the next log.
   milkBalanceAdjustmentMl Float @default(0)
+  /// How many nappies are on hand, unlike the milk balance above not derived
+  /// from anything — there's no log type a "diaper bought" event belongs to,
+  /// so this is the number itself, moved directly by a restock or a use
+  /// rather than computed from history each time it's read.
+  diaperStockCount        Int   @default(0)
 
   owner        Account       @relation("BabyOwner", fields: [ownerAccountId], references: [id], onDelete: Cascade)
   members      BabyMember[]
