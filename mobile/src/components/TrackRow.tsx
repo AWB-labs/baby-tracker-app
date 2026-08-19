@@ -23,6 +23,13 @@ import { useToast } from "./Toast";
 import { useUnits } from "../context/SettingsContext";
 import type { UseTimerResult } from "../hooks/useTimer";
 import { createLog, type LogEntry } from "../api/logs";
+import {
+  startActiveTimer,
+  endActiveTimer,
+  TimerConflictError,
+  type ActiveTimerRecord,
+  type TimerType,
+} from "../api/activeTimers";
 import { formatTimer, formatRelativeTime, formatTime } from "../utils/formatTime";
 import { formatDuration } from "../utils/formatDuration";
 
@@ -49,6 +56,15 @@ const CONFIG: Record<string, Config> = {
 
 export type TrackType = "feed" | "pump" | "sleep" | "diaper";
 
+// Only these three are ever claimed as a server-side lock — a diaper change
+// is logged instantly (see openDiaperStatus) and never shows a running clock
+// for a second caregiver to collide with.
+const GERUND: Partial<Record<TrackType, string>> = {
+  feed: "feeding",
+  pump: "pumping",
+  sleep: "sleeping",
+};
+
 // Shared with EditLogModal, and defined once in design/activity.ts so the two
 // don't drift into describing "nap" differently.
 const SLEEP_KINDS = (
@@ -67,6 +83,15 @@ interface Props {
   timer: UseTimerResult;
   /** Most recent entry of this type, for the idle row's context line. */
   lastLog: LogEntry | null;
+  /**
+   * Someone else's feed/pump/sleep already running for this baby, from
+   * another caregiver's device — undefined/null when this activity is free.
+   * Only meaningful for feed, pump and sleep; diaper never sets it.
+   */
+  remoteActive?: ActiveTimerRecord | null;
+  /** Ask the screen to refetch active timers right away, instead of waiting
+   *  for the next poll — used after a claim, a release, or a lost race. */
+  onActiveTimersChanged?: () => void;
 }
 
 /**
@@ -85,6 +110,8 @@ export default function TrackRow({
   onLogSaved,
   timer,
   lastLog,
+  remoteActive,
+  onActiveTimersChanged,
 }: Props) {
   const t = useTheme();
   const tone = useActivityTone(type);
@@ -122,10 +149,60 @@ export default function TrackRow({
     setSleepKind("nap");
   }, []);
 
+  /** Release this row's server-side lock, if it holds one. Best-effort: a
+   *  request that never lands just leaves the lock in place until it goes
+   *  stale on its own, rather than blocking the local flow on a retry. */
+  const releaseLock = useCallback(() => {
+    if (!GERUND[type]) return;
+    endActiveTimer(babyId, type as TimerType).catch(() => {});
+    onActiveTimersChanged?.();
+  }, [type, babyId, onActiveTimersChanged]);
+
   const cancelAll = useCallback(() => {
     reset();
     timer.handleCancel();
-  }, [reset, timer]);
+    releaseLock();
+  }, [reset, timer, releaseLock]);
+
+  /**
+   * Claim the server-side lock before actually starting the local clock, so
+   * two caregivers reaching for the same activity within the same instant
+   * don't both end up timing it. Diaper isn't a lock-worthy type — it never
+   * shows a running clock (see openDiaperStatus), so it starts straight away.
+   */
+  const claimAndStart = useCallback(
+    async (side?: "left" | "right") => {
+      const gerund = GERUND[type];
+      if (!gerund) {
+        timer.handleStart(side);
+        return;
+      }
+      try {
+        await startActiveTimer({
+          babyId,
+          type: type as TimerType,
+          side: side ?? null,
+          startTime: new Date().toISOString(),
+          enteredByName,
+        });
+        timer.handleStart(side);
+      } catch (err) {
+        if (err instanceof TimerConflictError) {
+          toast.error(
+            `${label} is already running${
+              err.timer ? ` — started by ${err.timer.enteredByName}` : ""
+            }.`
+          );
+          // Our view of who's running what was stale enough to miss this —
+          // refetch now instead of waiting out the rest of the poll interval.
+          onActiveTimersChanged?.();
+        } else {
+          toast.showError(err);
+        }
+      }
+    },
+    [type, babyId, enteredByName, timer, label, toast, onActiveTimersChanged]
+  );
 
   /** Save the finished timed session (or the nappy change). */
   const saveSession = useCallback(async () => {
@@ -157,6 +234,7 @@ export default function TrackRow({
       toast.success(`${label} saved.`);
       reset();
       timer.handleCancel();
+      releaseLock();
     } catch (err) {
       toast.showError(err);
     } finally {
@@ -164,7 +242,7 @@ export default function TrackRow({
     }
   }, [
     babyId, type, timer, diaperStatus, note, amountValid, amountValue, sleepKind,
-    isBottleFeed, enteredByName, onLogSaved, toast, label, reset,
+    isBottleFeed, enteredByName, onLogSaved, toast, label, reset, releaseLock,
   ]);
 
   /*
@@ -427,6 +505,40 @@ export default function TrackRow({
     );
   }
 
+  /* --------------------------------------------------------- locked row */
+
+  // Someone else already has this timer running — shown instead of the idle
+  // row's Start controls, not alongside them, so there's nothing here to tap
+  // into a duplicate session with.
+  if (remoteActive) {
+    return (
+      <Card
+        padded={false}
+        style={styles.row}
+        accessible
+        accessibilityLabel={`${label}: currently ${GERUND[type]}, started by ${
+          remoteActive.enteredByName
+        } ${formatRelativeTime(remoteActive.startTime)}`}
+      >
+        <View style={styles.left}>
+          <View style={[styles.iconChip, { backgroundColor: tone.soft }]}>
+            <Emoji size={22}>{tone.emoji}</Emoji>
+          </View>
+          <View style={styles.nameCol}>
+            <Text variant="bodyStrong" numberOfLines={1}>
+              {label}
+            </Text>
+            <Text variant="caption" tone="subtle" numberOfLines={1}>
+              Currently {GERUND[type]} · by {remoteActive.enteredByName}
+            </Text>
+          </View>
+        </View>
+
+        <Badge tone="success">Running</Badge>
+      </Card>
+    );
+  }
+
   /* ------------------------------------------------------------- idle row */
 
   return (
@@ -466,19 +578,19 @@ export default function TrackRow({
                 label="L"
                 wide
                 a11y={`Start ${label.toLowerCase()} on the left`}
-                onPress={() => timer.handleStart("left")}
+                onPress={() => claimAndStart("left")}
               />
               <MiniButton
                 label="R"
                 wide
                 a11y={`Start ${label.toLowerCase()} on the right`}
-                onPress={() => timer.handleStart("right")}
+                onPress={() => claimAndStart("right")}
               />
               {config.hasAmount && (
                 <MiniButton
                   emoji="🍼"
                   a11y={`Start a bottle ${label.toLowerCase()}`}
-                  onPress={() => timer.handleStart()}
+                  onPress={() => claimAndStart()}
                 />
               )}
             </>
@@ -488,7 +600,7 @@ export default function TrackRow({
               icon="play"
               fixed
               a11y={`Start ${label.toLowerCase()}`}
-              onPress={() => timer.handleStart()}
+              onPress={() => claimAndStart()}
             />
           )}
         </View>

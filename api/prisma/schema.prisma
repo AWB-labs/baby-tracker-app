@@ -39,6 +39,7 @@ model Account {
   invitesSent    BabyInvite[]    @relation("InviteSender")
   profiles       Profile[]
   logs           ActivityLog[]
+  activeTimers   ActiveTimer[]
   reminders      Reminder[]
   pushTokens     PushToken[]
   passwordResets PasswordReset[]
@@ -79,13 +80,14 @@ model Baby {
   /// instead of a manual edit being silently overwritten by the next log.
   milkBalanceAdjustmentMl Float @default(0)
 
-  owner     Account       @relation("BabyOwner", fields: [ownerAccountId], references: [id], onDelete: Cascade)
-  members   BabyMember[]
-  invites   BabyInvite[]
-  reminders Reminder[]
-  logs      ActivityLog[]
-  vaccines  Vaccine[]
-  bagItems  BagItem[]
+  owner        Account       @relation("BabyOwner", fields: [ownerAccountId], references: [id], onDelete: Cascade)
+  members      BabyMember[]
+  invites      BabyInvite[]
+  reminders    Reminder[]
+  logs         ActivityLog[]
+  activeTimers ActiveTimer[]
+  vaccines     Vaccine[]
+  bagItems     BagItem[]
 }
 
 /// Who may read and write a baby's logs. This is the only source of truth for
@@ -283,4 +285,34 @@ model ActivityLog {
   profile Profile? @relation(fields: [profileId], references: [id])
 
   @@index([babyId, startTime])
+}
+
+/// The lock that stops a second caregiver starting the same timed activity
+/// while one is already running. One row per (baby, type) while a feed, pump
+/// or sleep is in progress — created the moment a timer starts, removed the
+/// moment it's finished or discarded. Not history: the ActivityLog row it
+/// becomes is only written once the session is actually saved, same as
+/// before this existed.
+model ActiveTimer {
+  id            Int      @id @default(autoincrement())
+  babyId        Int
+  type          String // feed | pump | sleep
+  // Whoever's device claimed the lock. Nullable for the same reason as
+  // ActivityLog.accountId — an account can be deleted without erasing the
+  // lock (though in practice it's cleared within minutes either way).
+  accountId     Int?
+  enteredByName String
+  /// True start of the activity, unaffected by pauses — same meaning as
+  /// ActivityLog.startTime once this becomes one.
+  startTime     DateTime
+  side          String? // left | right, for feed/pump
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  baby    Baby     @relation(fields: [babyId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  // One running timer per activity per baby — a second caregiver's attempt to
+  // start the same type collides with this instead of creating a duplicate.
+  @@unique([babyId, type])
 }

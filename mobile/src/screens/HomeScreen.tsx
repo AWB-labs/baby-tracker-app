@@ -18,6 +18,7 @@ import { useLogs } from "../hooks/useLogs";
 import { usePolling } from "../hooks/usePolling";
 import { useTimer } from "../hooks/useTimer";
 import { useMilkBalance } from "../hooks/useMilkBalance";
+import { useActiveTimers } from "../hooks/useActiveTimers";
 import {
   Screen,
   ScreenHeader,
@@ -76,6 +77,13 @@ export default function HomeScreen() {
   const pumpTimer = useTimer("pump", activeBaby?.id);
   const timers = { feed: feedTimer, sleep: sleepTimer, diaper: diaperTimer, pump: pumpTimer };
 
+  // Who — if anyone — has a feed, pump or sleep already running for this baby
+  // from another caregiver's device, so a second person can't start the same
+  // one on top of it.
+  const { activeByType, refresh: refreshActiveTimers } = useActiveTimers(
+    activeBaby?.id
+  );
+
   /**
    * Bumped alongside every `refresh()` — poll, pull-to-refresh, or a save
    * from any row below — so the milk balance knows to refetch.
@@ -104,10 +112,10 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshAndBump();
+    await Promise.all([refreshAndBump(), refreshActiveTimers()]);
     setHabitsRefreshKey((k) => k + 1);
     setRefreshing(false);
-  }, [refreshAndBump]);
+  }, [refreshAndBump, refreshActiveTimers]);
 
   const lastByType = useMemo(() => {
     const map = new Map<TrackType, LogEntry | null>();
@@ -252,6 +260,10 @@ export default function HomeScreen() {
               onLogSaved={refreshAndBump}
               timer={timers[type]}
               lastLog={lastByType.get(type) ?? null}
+              remoteActive={
+                type === "diaper" ? null : activeByType[type] ?? null
+              }
+              onActiveTimersChanged={refreshActiveTimers}
             />
           ))}
         </View>
