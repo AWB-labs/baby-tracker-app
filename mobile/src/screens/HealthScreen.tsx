@@ -23,6 +23,7 @@ import {
 import { useToast } from "../components/Toast";
 import { useUnits } from "../context/SettingsContext";
 import { useLogs } from "../hooks/useLogs";
+import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
 import { useBaby } from "../context/BabyContext";
 import { useAuth } from "../context/AuthContext";
 import BabySwitcher from "../components/BabySwitcher";
@@ -43,7 +44,7 @@ function formatTimeDisplay(d: Date): string {
 }
 
 function formatDateDisplay(d: Date): string {
-  return d.toLocaleDateString([], {
+  return d.toLocaleDateString(DATE_LOCALE, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -282,9 +283,11 @@ export default function HealthScreen() {
             value={date}
             mode="date"
             display={Platform.OS === "ios" ? "spinner" : "default"}
+            locale={DATE_LOCALE}
+            minimumDate={MIN_PICKABLE_DATE}
             onChange={(_, d) => {
               setShowDatePicker(Platform.OS === "ios");
-              if (d) setDate(d);
+              setDate((prev) => safePickedDate(d, prev));
             }}
           />
         )}

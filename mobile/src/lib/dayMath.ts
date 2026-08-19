@@ -1,3 +1,5 @@
+import { DATE_LOCALE } from "./calendar";
+
 /**
  * Minutes of a log's [start, end] span that fall within the local calendar day
  * beginning at `dayStart` (local midnight). Splits an overnight log across the
@@ -35,7 +37,7 @@ export function dayOffset(startIso: string, endIso: string): number {
 
 /** "Mar 25" */
 export function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString([], {
+  return new Date(iso).toLocaleDateString(DATE_LOCALE, {
     month: "short",
     day: "numeric",
   });

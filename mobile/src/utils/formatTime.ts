@@ -1,3 +1,5 @@
+import { DATE_LOCALE } from "../lib/calendar";
+
 /** Format an ISO timestamp as 12-hour time, e.g. "2:30 PM" */
 export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], {
@@ -22,7 +24,7 @@ export function formatDateLabel(iso: string): string {
 
   if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  return d.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
 }
 
 /** Format an ISO string as a date label with weekday: "Mon, Mar 25" */
@@ -34,7 +36,7 @@ export function formatDateLabelLong(iso: string): string {
 
   if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], {
+  return d.toLocaleDateString(DATE_LOCALE, {
     weekday: "short",
     month: "short",
     day: "numeric",

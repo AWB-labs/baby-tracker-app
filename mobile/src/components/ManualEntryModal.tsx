@@ -17,6 +17,7 @@ import { formatDuration } from "../utils/formatDuration";
 import { Text, Emoji, Button, Input, Field, Sheet, Chip, ChipWrap } from "./ui";
 import { useToast } from "./Toast";
 import TimeField from "./TimeField";
+import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
 
 type ManualType = Extract<
   ActivityKey,
@@ -38,7 +39,7 @@ function formatTimeDisplay(d: Date): string {
 }
 
 function formatDateDisplay(d: Date): string {
-  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric", year: "numeric" });
 }
 
 interface Props {
@@ -231,10 +232,12 @@ export default function ManualEntryModal({
           display={Platform.OS === "ios" ? "inline" : "default"}
           accentColor={t.accent}
           themeVariant={isDark ? "dark" : "light"}
+          locale={DATE_LOCALE}
           maximumDate={new Date()}
+          minimumDate={MIN_PICKABLE_DATE}
           onChange={(_, picked) => {
             if (Platform.OS !== "ios") setOpenPicker(null);
-            if (picked) onPick(picked);
+            onPick(safePickedDate(picked, value));
           }}
         />
         {Platform.OS === "ios" && (

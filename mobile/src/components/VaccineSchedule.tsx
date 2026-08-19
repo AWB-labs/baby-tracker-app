@@ -22,6 +22,7 @@ import {
   type VaccineMonth,
   type VaccineRecord,
 } from "../api/vaccines";
+import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
 
 interface Props {
   babyId: number;
@@ -31,7 +32,7 @@ interface Props {
 }
 
 function formatGivenDate(iso: string): string {
-  return new Date(iso).toLocaleDateString([], {
+  return new Date(iso).toLocaleDateString(DATE_LOCALE, {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -430,10 +431,12 @@ export default function VaccineSchedule({ babyId, babyName, dob }: Props) {
                 value={givenDate}
                 mode="date"
                 maximumDate={new Date()}
+                minimumDate={MIN_PICKABLE_DATE}
+                locale={DATE_LOCALE}
                 display={Platform.OS === "ios" ? "spinner" : "default"}
                 onChange={(_, d) => {
                   setShowDatePicker(Platform.OS === "ios");
-                  if (d) setGivenDate(d);
+                  setGivenDate((prev) => safePickedDate(d, prev));
                 }}
               />
             )}

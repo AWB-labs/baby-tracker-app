@@ -40,7 +40,7 @@ import StatCard from "../components/StatCard";
 import { formatMinutes } from "../utils/formatDuration";
 import { formatDateLabel } from "../utils/formatTime";
 import { overlapMinutes } from "../lib/dayMath";
-import { findRhythms, describeRhythm, MIN_DAYS } from "../lib/rhythms";
+import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
 import { createLog, type LogEntry } from "../api/logs";
 
 /* -------------------------------------------------------------------------- */
@@ -66,7 +66,7 @@ interface DayStats {
 }
 
 function formatDateShort(d: Date): string {
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  return d.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
 }
 
 function computeAllDayStats(logs: LogEntry[]): DayStats[] {
@@ -139,7 +139,7 @@ const DATE_OPTIONS = [
 ];
 
 function formatDateDisplay(d: Date): string {
-  return d.toLocaleDateString([], {
+  return d.toLocaleDateString(DATE_LOCALE, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -271,191 +271,6 @@ function GrowthHistory({
   );
 }
 
-/** How many days back the nap/night split is measured over. */
-const SLEEP_SPLIT_DAYS = 7;
-
-/**
- * Night sleep against daytime naps.
- *
- * Total sleep alone hides the thing parents actually care about: eleven hours
- * spread over six naps is a very different week from eleven hours in one
- * stretch. Only entries that were labelled count — the split is drawn from what
- * someone chose at the time, never inferred from the clock, so an unlabelled
- * backlog is reported as unlabelled rather than guessed into one column.
- */
-function SleepSplit({ logs }: { logs: LogEntry[] }) {
-  const t = useTheme();
-  const tones = useActivityTones();
-
-  const split = useMemo(() => {
-    const since = Date.now() - SLEEP_SPLIT_DAYS * 86_400_000;
-    let napMinutes = 0;
-    let nightMinutes = 0;
-    let napCount = 0;
-    let nightCount = 0;
-    let unlabelled = 0;
-    // Which calendar days actually have a labelled sleep — the divisor for
-    // "naps a day" below. A baby tracked for only 4 of these days shouldn't
-    // have their naps averaged over 7; that silently understates the rate on
-    // a new baby, or on any family that doesn't log every single day.
-    const trackedDays = new Set<string>();
-
-    for (const log of logs) {
-      if (log.type !== "sleep") continue;
-      if (new Date(log.startTime).getTime() < since) continue;
-      const mins = log.durationMinutes ?? 0;
-      if (log.sleepKind === "night") {
-        nightMinutes += mins;
-        nightCount += 1;
-        trackedDays.add(new Date(log.startTime).toDateString());
-      } else if (log.sleepKind === "nap") {
-        napMinutes += mins;
-        napCount += 1;
-        trackedDays.add(new Date(log.startTime).toDateString());
-      } else {
-        unlabelled += 1;
-      }
-    }
-    return {
-      napMinutes,
-      nightMinutes,
-      napCount,
-      nightCount,
-      unlabelled,
-      trackedDays: trackedDays.size,
-    };
-  }, [logs]);
-
-  const total = split.napMinutes + split.nightMinutes;
-  // Nothing labelled yet means nothing to say. The section appears on its own
-  // once a few sleeps have been marked.
-  if (total === 0) return null;
-
-  const nightShare = Math.round((split.nightMinutes / total) * 100);
-
-  return (
-    <View style={styles.section}>
-      <SectionHeader title={`Night vs naps, last ${SLEEP_SPLIT_DAYS} days`} />
-      <Card style={styles.rhythmCard}>
-        {/* One bar rather than two numbers: the ratio is the point, and a
-            proportion is read faster than it is calculated. */}
-        <View style={[styles.splitBar, { backgroundColor: tones.sleep.soft }]}>
-          <View
-            style={[
-              styles.splitFill,
-              { width: `${nightShare}%`, backgroundColor: tones.sleep.main },
-            ]}
-          />
-        </View>
-
-        <View style={styles.splitLegend}>
-          <View style={styles.rowCenter}>
-            <Emoji size={14}>🌙</Emoji>
-            <Text variant="subheadStrong" tabular>
-              {formatMinutes(split.nightMinutes)}
-            </Text>
-            <Text variant="caption" tone="subtle">
-              night · {split.nightCount}
-            </Text>
-          </View>
-          <View style={styles.rowCenter}>
-            <Emoji size={14}>☀️</Emoji>
-            <Text variant="subheadStrong" tabular>
-              {formatMinutes(split.napMinutes)}
-            </Text>
-            <Text variant="caption" tone="subtle">
-              naps · {split.napCount}
-            </Text>
-          </View>
-        </View>
-
-        <Text variant="footnote" tone="subtle">
-          {nightShare}% of sleep came at night, across{" "}
-          {(split.napCount / Math.max(1, split.trackedDays)).toFixed(1)} naps
-          a day.
-        </Text>
-
-        {split.unlabelled > 0 && (
-          <Text variant="footnote" style={{ color: t.textSubtle }}>
-            {split.unlabelled} sleep{split.unlabelled === 1 ? "" : "s"} aren't
-            marked as a nap or a night, so they're left out.
-          </Text>
-        )}
-      </Card>
-    </View>
-  );
-}
-
-/**
- * Which activities are worth describing as a routine, and the verb each one
- * takes so the sentence reads naturally. A nappy change has no rhythm worth
- * reporting — they happen whenever they happen — so it isn't listed.
- */
-const RHYTHM_ACTIVITIES: { type: string; verb: string; emoji: string }[] = [
-  { type: "sleep", verb: "Sleeps", emoji: "😴" },
-  { type: "feed", verb: "Feeds", emoji: "🤱" },
-  { type: "pump", verb: "Pumping", emoji: "🍼" },
-  { type: "shower", verb: "Showers", emoji: "🚿" },
-  { type: "bath", verb: "Baths", emoji: "🛁" },
-  { type: "vitamin", verb: "Vitamin", emoji: "💊" },
-];
-
-/**
- * "Sleeps between 9:00 and 10:30 PM for about 2h."
- *
- * Learned from the baby's own history rather than configured: once an activity
- * has happened on a few separate days at a consistent hour, that hour is worth
- * saying out loud. Activities without enough history simply don't appear, so
- * the section grows into usefulness instead of showing empty rows.
- */
-function DailyRhythms({ logs }: { logs: LogEntry[] }) {
-  const t = useTheme();
-
-  const found = useMemo(
-    () =>
-      RHYTHM_ACTIVITIES.map((activity) => ({
-        ...activity,
-        rhythms: findRhythms(logs, activity.type),
-      })).filter((a) => a.rhythms.length > 0),
-    [logs]
-  );
-
-  if (found.length === 0) return null;
-
-  return (
-    <View style={styles.section}>
-      <SectionHeader title="Daily rhythm" />
-      <Card style={styles.rhythmCard}>
-        {found.map((activity, activityIndex) => (
-          <View key={activity.type} style={styles.rhythmGroup}>
-            {activityIndex > 0 ? (
-              <View style={[styles.rhythmRule, { backgroundColor: t.border }]} />
-            ) : null}
-            {activity.rhythms.map((rhythm, i) => {
-              const { lead, detail } = describeRhythm(activity.verb, rhythm);
-              return (
-                <View key={`${activity.type}-${i}`} style={styles.rhythmRow}>
-                  <Emoji size={18}>{activity.emoji}</Emoji>
-                  <View style={styles.flex}>
-                    <Text variant="subheadStrong">{lead}</Text>
-                    <Text variant="caption" tone="subtle">
-                      {detail}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        ))}
-      </Card>
-      <Text variant="footnote" tone="subtle">
-        Averages from the last few weeks. A pattern appears once it has happened
-        on at least {MIN_DAYS} separate days.
-      </Text>
-    </View>
-  );
-}
-
 export default function InsightsScreen() {
   const t = useTheme();
   const tones = useActivityTones();
@@ -565,7 +380,7 @@ export default function InsightsScreen() {
       const day = new Date(Date.now() - ago * 86_400_000);
       const stat = byKey.get(day.toDateString());
       bars.push({
-        label: day.toLocaleDateString([], { weekday: "narrow" }),
+        label: day.toLocaleDateString(DATE_LOCALE, { weekday: "narrow" }),
         minutes: stat?.sleepTime ?? 0,
         isToday: ago === 0,
       });
@@ -646,8 +461,6 @@ export default function InsightsScreen() {
         <SkeletonList rows={4} />
       ) : (
         <>
-          <SleepSplit logs={logs} />
-          <DailyRhythms logs={logs} />
           {/* ------------------------------------------------------ growth */}
           <View style={styles.section}>
             <SectionHeader
@@ -918,9 +731,12 @@ export default function InsightsScreen() {
                 value={customDate}
                 mode="date"
                 display={Platform.OS === "ios" ? "spinner" : "default"}
+                locale={DATE_LOCALE}
+                maximumDate={new Date()}
+                minimumDate={MIN_PICKABLE_DATE}
                 onChange={(_, d) => {
                   setShowDatePicker(Platform.OS === "ios");
-                  if (d) setCustomDate(d);
+                  setCustomDate((prev) => safePickedDate(d, prev));
                 }}
               />
             )}
@@ -1091,7 +907,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { alignItems: "center" },
   section: { gap: space.sm },
-  rhythmCard: { gap: space.sm },
   growthRowItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -1100,17 +915,6 @@ const styles = StyleSheet.create({
   },
   growthValues: { flexDirection: "row", gap: space.lg },
   growthValue: { alignItems: "flex-end" },
-  splitBar: { height: 12, borderRadius: radius.pill, overflow: "hidden" },
-  splitFill: { height: "100%" },
-  splitLegend: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: space.sm,
-  },
-  rhythmGroup: { gap: space.sm },
-  rhythmRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
-  rhythmRule: { height: StyleSheet.hairlineWidth, marginVertical: space.xxs },
   cards: { gap: space.md },
   rowCenter: { flexDirection: "row", alignItems: "center", gap: space.sm },
   actions: { flexDirection: "row", gap: space.sm },

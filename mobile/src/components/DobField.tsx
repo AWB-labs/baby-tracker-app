@@ -8,6 +8,7 @@ import { Text } from "./ui/primitives";
 import { Field } from "./ui/Input";
 import { Button } from "./ui/Button";
 import { formatBabyAge } from "../lib/greeting";
+import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
 
 interface Props {
   /** ISO date string, or null when it hasn't been given. */
@@ -21,7 +22,7 @@ export function formatDob(dob: string | null | undefined): string | null {
   if (!dob) return null;
   const d = new Date(dob);
   if (isNaN(d.getTime())) return null;
-  return d.toLocaleDateString([], {
+  return d.toLocaleDateString(DATE_LOCALE, {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -113,9 +114,13 @@ export default function DobField({ value, onChange, label = "Date of birth" }: P
             display={Platform.OS === "ios" ? "inline" : "default"}
             accentColor={t.accent}
             themeVariant={isDark ? "dark" : "light"}
+            // The calendar the wheel counts in, pinned to match the label
+            // above it rather than following the phone's region.
+            locale={DATE_LOCALE}
             // Nobody is born tomorrow, and a future date would render a
             // negative age everywhere it's shown.
             maximumDate={new Date()}
+            minimumDate={MIN_PICKABLE_DATE}
             onChange={(event, d) => {
               // Android reports the dismissal itself; without this, backing
               // out of the dialog silently sets today's date. iOS's inline
@@ -125,7 +130,10 @@ export default function DobField({ value, onChange, label = "Date of birth" }: P
                 setShowPicker(false);
                 return;
               }
-              if (d) onChange(d.toISOString());
+              // A date the picker can't have meant — the epoch it falls back
+              // to when a value lands outside its range — leaves the field on
+              // what was there before instead of being saved.
+              if (d) onChange(safePickedDate(d, valid ?? fallbackToday).toISOString());
             }}
           />
           {Platform.OS === "ios" && (

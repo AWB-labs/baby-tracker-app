@@ -17,9 +17,10 @@ import { HEALTH_CONDITIONS, type HealthCondition } from "../lib/health";
 import { getErrorMessage } from "../lib/errors";
 import { Text, Emoji, Button, IconButton, Input, Field, Sheet, ConfirmDialog } from "./ui";
 import TimeField from "./TimeField";
+import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
 
 function formatDateDisplay(d: Date): string {
-  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric", year: "numeric" });
 }
 
 const SLEEP_KIND_OPTIONS = (
@@ -276,9 +277,11 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
             display={Platform.OS === "ios" ? "inline" : "default"}
             accentColor={t.accent}
             themeVariant={isDark ? "dark" : "light"}
+            locale={DATE_LOCALE}
+            minimumDate={MIN_PICKABLE_DATE}
             onChange={(_, d) => {
               setShowDatePicker(Platform.OS === "ios");
-              if (d) setDate(d);
+              setDate((prev) => safePickedDate(d, prev));
             }}
           />
           {Platform.OS === "ios" && (
