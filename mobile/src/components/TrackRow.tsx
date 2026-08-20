@@ -161,19 +161,32 @@ export default function TrackRow({
     setSleepKind("nap");
   }, []);
 
-  /** Release this row's server-side lock, if it holds one. Best-effort: a
-   *  request that never lands just leaves the lock in place until it goes
-   *  stale on its own, rather than blocking the local flow on a retry. */
-  const releaseLock = useCallback(() => {
+  /**
+   * Release this row's server-side lock, if it holds one.
+   *
+   * Awaited before refreshing, not fire-and-forget: refreshing first (or in
+   * parallel) could win the race against the DELETE actually landing, so the
+   * refetch still finds the just-released lock still there — and with the
+   * local timer already cleared by this point, the row reads that as an
+   * unadopted session again and re-adopts it, restarting the clock right
+   * after it was saved. A request that never lands at all just leaves the
+   * lock in place until it goes stale on its own, rather than blocking the
+   * local flow on a retry.
+   */
+  const releaseLock = useCallback(async () => {
     if (!GERUND[type]) return;
-    endActiveTimer(babyId, type as TimerType).catch(() => {});
+    try {
+      await endActiveTimer(babyId, type as TimerType);
+    } catch {
+      // Best-effort — see above.
+    }
     onActiveTimersChanged?.();
   }, [type, babyId, onActiveTimersChanged]);
 
-  const cancelAll = useCallback(() => {
+  const cancelAll = useCallback(async () => {
     reset();
     timer.handleCancel();
-    releaseLock();
+    await releaseLock();
   }, [reset, timer, releaseLock]);
 
   /**
@@ -246,7 +259,7 @@ export default function TrackRow({
       toast.success(`${label} saved.`);
       reset();
       timer.handleCancel();
-      releaseLock();
+      await releaseLock();
     } catch (err) {
       toast.showError(err);
     } finally {
