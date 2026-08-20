@@ -159,3 +159,42 @@ export function formatDays(stored: string | null | undefined): string {
   }
   return days.map((d) => WEEKDAY_LABELS[d]).join(", ");
 }
+
+/* -------------------------------------------------------------------------- */
+/* Every N days                                                               */
+/* -------------------------------------------------------------------------- */
+
+const DAY_MS = 86_400_000;
+export const MIN_EVERY_DAYS = 1;
+export const MAX_EVERY_DAYS = 60;
+
+/**
+ * Is `now` due for an "every N days" reminder?
+ *
+ * Counted from whenever it last actually fired, not from a fixed origin —
+ * self-correcting rather than accumulating drift. A reminder that missed a
+ * beat (a dead scheduler, a lost push token) picks its N-day spacing back up
+ * from whenever it truly last reached someone, instead of quietly landing on
+ * origin+N, origin+2N, … regardless of what actually happened. Falls back to
+ * `createdAt` for one that has never fired.
+ *
+ * Pure and exported so the timing rule can be tested without a database.
+ */
+export function isDueByInterval(input: {
+  everyDays: number;
+  createdAt: Date;
+  lastNotifiedAt: Date | null;
+  tzOffsetMinutes: number | null;
+  now: Date;
+}): boolean {
+  const anchor = input.lastNotifiedAt ?? input.createdAt;
+  const anchorDay = Date.parse(localDayKey(anchor, input.tzOffsetMinutes));
+  const nowDay = Date.parse(localDayKey(input.now, input.tzOffsetMinutes));
+  const diffDays = Math.round((nowDay - anchorDay) / DAY_MS);
+  return diffDays >= input.everyDays;
+}
+
+/** "Every day" / "Every 3 days" — for the notification and the UI. */
+export function formatEveryDays(days: number): string {
+  return days === 1 ? "Every day" : `Every ${days} days`;
+}

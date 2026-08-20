@@ -209,7 +209,14 @@ model Reminder {
   /// Which days this may fire on, as sorted comma-separated weekday numbers
   /// (0 = Sunday … 6 = Saturday) — "1,2,3,4,5" for weekdays only. Null means
   /// every day, which is what every reminder created before this existed is.
+  /// Mutually exclusive with `everyDays` — set together, never both active.
   daysOfWeek      String?
+  /// The other schedule mode: fire every N days instead of on chosen
+  /// weekdays — a nail cut every 10 days, say, rather than always Tuesdays.
+  /// Counted from whenever this last actually fired (lastNotifiedAt), or
+  /// from `createdAt` if it never has — see isDueByInterval. Null means this
+  /// reminder uses `daysOfWeek` instead.
+  everyDays       Int?
   /// The device's UTC offset in minutes when the reminder was set, so both
   /// "Tuesday" and "9am" mean the caregiver's rather than the server's. Null
   /// falls back to UTC. Stored rather than derived because the server has no
@@ -266,6 +273,7 @@ model ActivityLog {
   diaperStatus    String? // empty|wet|dirty|wet_and_dirty
   weightKg        Float?
   heightCm        Float?
+  headCircumferenceCm Float?
   /// "nap" | "night", on a sleep entry. Null on everything else, and on sleeps
   /// recorded before the distinction existed — which is why nothing derives it
   /// from the clock as a fallback: a 7pm start is a nap in one household and

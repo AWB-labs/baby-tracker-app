@@ -9,6 +9,8 @@ import {
   parseDays,
   MIN_TIME_OF_DAY,
   MAX_TIME_OF_DAY,
+  MIN_EVERY_DAYS,
+  MAX_EVERY_DAYS,
 } from "../lib/reminders";
 import { badRequest, conflict, notFound } from "../lib/httpError";
 import { parseOrThrow, parseId } from "../lib/validate";
@@ -22,6 +24,7 @@ const REMINDER_SELECT = {
   label: true,
   timeOfDay: true,
   daysOfWeek: true,
+  everyDays: true,
   tzOffsetMinutes: true,
   enabled: true,
   lastNotifiedAt: true,
@@ -39,7 +42,9 @@ function present<T extends StoredReminder>(reminder: T) {
 }
 
 /**
- * When the reminder fires: a wall-clock time on chosen days.
+ * When the reminder fires: a wall-clock time, on either chosen days or every
+ * N days — the two schedule modes are mutually exclusive (see the model
+ * comment on Reminder.everyDays).
  *
  * `timeOfDay` is minutes after local midnight, which the client computes from
  * its own picker — sending an hour and a minute separately only invites the two
@@ -49,6 +54,7 @@ function present<T extends StoredReminder>(reminder: T) {
 const scheduleFields = {
   timeOfDay: z.number().int().min(MIN_TIME_OF_DAY).max(MAX_TIME_OF_DAY).optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).nullable().optional(),
+  everyDays: z.number().int().min(MIN_EVERY_DAYS).max(MAX_EVERY_DAYS).nullable().optional(),
   // Minutes to ADD to UTC for the caregiver's local time, i.e. +180 for Cairo.
   tzOffsetMinutes: z.number().int().min(-840).max(840).nullable().optional(),
 };
@@ -106,7 +112,7 @@ router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
 router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
 
-  const { babyId, type, label, timeOfDay, daysOfWeek, tzOffsetMinutes } =
+  const { babyId, type, label, timeOfDay, daysOfWeek, everyDays, tzOffsetMinutes } =
     parseOrThrow(createReminderSchema, req.body);
 
   await requireBabyAccess(accountId, babyId);
@@ -136,7 +142,10 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
       type,
       label: label?.trim() || null,
       timeOfDay: timeOfDay!,
-      daysOfWeek: serialiseDays(daysOfWeek),
+      // The two schedule modes are mutually exclusive — an interval clears
+      // any weekday restriction, since it's the one actually in effect.
+      daysOfWeek: everyDays ? null : serialiseDays(daysOfWeek),
+      everyDays: everyDays ?? null,
       // Always stored now, whether or not days are restricted: a time of day
       // can't be evaluated without knowing whose clock it is.
       tzOffsetMinutes: tzOffsetMinutes ?? null,
@@ -151,7 +160,7 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
 router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
   const id = parseId(req.params.id, "reminder");
-  const { label, enabled, timeOfDay, daysOfWeek, tzOffsetMinutes } =
+  const { label, enabled, timeOfDay, daysOfWeek, everyDays, tzOffsetMinutes } =
     parseOrThrow(updateReminderSchema, req.body);
 
   // Reminders are personal, so ownership is the whole check.
@@ -173,7 +182,13 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
     data.lastNotifiedAt = null;
   }
   if (daysOfWeek !== undefined) data.daysOfWeek = serialiseDays(daysOfWeek);
+  if (everyDays !== undefined) data.everyDays = everyDays ?? null;
   if (tzOffsetMinutes !== undefined) data.tzOffsetMinutes = tzOffsetMinutes ?? null;
+
+  // The two schedule modes are mutually exclusive — the client sends both
+  // together on any schedule change, but an interval taking effect always
+  // wins over a stale weekday restriction regardless.
+  if (data.everyDays) data.daysOfWeek = null;
 
   if (existing.type === "custom" && data.label === null) {
     throw badRequest("Give this reminder a name.", "label_required");

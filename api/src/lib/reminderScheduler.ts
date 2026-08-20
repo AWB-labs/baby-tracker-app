@@ -2,6 +2,7 @@ import prisma from "./prisma";
 import { sendPushNotifications, PushMessage } from "./push";
 import {
   isAllowedDay,
+  isDueByInterval,
   localDayKey,
   localMinutesOfDay,
   localMonthKey,
@@ -40,13 +41,28 @@ const FIRE_WINDOW_MINUTES = 180;
 export function shouldFire(input: {
   timeOfDay: number;
   daysOfWeek: string | null;
+  /** The other schedule mode — see isDueByInterval. Takes over from
+   *  daysOfWeek whenever set; the two are mutually exclusive. */
+  everyDays: number | null;
+  createdAt: Date;
   tzOffsetMinutes: number | null;
   lastNotifiedAt: Date | null;
   now: Date;
 }): boolean {
-  const { timeOfDay, daysOfWeek, tzOffsetMinutes, lastNotifiedAt, now } = input;
+  const {
+    timeOfDay,
+    daysOfWeek,
+    everyDays,
+    createdAt,
+    tzOffsetMinutes,
+    lastNotifiedAt,
+    now,
+  } = input;
 
-  if (!isAllowedDay({ daysOfWeek, tzOffsetMinutes, now })) return false;
+  const due = everyDays
+    ? isDueByInterval({ everyDays, createdAt, lastNotifiedAt, tzOffsetMinutes, now })
+    : isAllowedDay({ daysOfWeek, tzOffsetMinutes, now });
+  if (!due) return false;
 
   const nowMinutes = localMinutesOfDay(now, tzOffsetMinutes);
   if (nowMinutes < timeOfDay) return false;
@@ -123,6 +139,7 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
       label: true,
       timeOfDay: true,
       daysOfWeek: true,
+      everyDays: true,
       tzOffsetMinutes: true,
       lastNotifiedAt: true,
       createdAt: true,
@@ -199,6 +216,8 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
     const due = shouldFire({
       timeOfDay: reminder.timeOfDay,
       daysOfWeek: reminder.daysOfWeek,
+      everyDays: reminder.everyDays,
+      createdAt: reminder.createdAt,
       tzOffsetMinutes: reminder.tzOffsetMinutes,
       lastNotifiedAt: reminder.lastNotifiedAt,
       now,

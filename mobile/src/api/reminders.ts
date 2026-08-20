@@ -47,13 +47,22 @@ export interface Reminder {
   label: string | null;
   /** Minutes after local midnight — 540 is 9:00 AM. */
   timeOfDay: number;
-  /** Weekday numbers (0 = Sunday) this may fire on. Null means every day. */
+  /** Weekday numbers (0 = Sunday) this may fire on. Null means every day.
+   *  Mutually exclusive with `everyDays` — never both set. */
   daysOfWeek: number[] | null;
+  /** The other schedule mode: fire every N days instead of on chosen
+   *  weekdays. Null means this reminder uses `daysOfWeek` instead. */
+  everyDays: number | null;
   tzOffsetMinutes: number | null;
   enabled: boolean;
   lastNotifiedAt: string | null;
   createdAt: string;
 }
+
+export const MIN_EVERY_DAYS = 1;
+export const MAX_EVERY_DAYS = 60;
+/** What a new reminder's "every N days" mode starts at, before it's touched. */
+export const DEFAULT_EVERY_DAYS = 2;
 
 export const WEEKDAYS: { value: number; short: string; long: string }[] = [
   { value: 0, short: "Sun", long: "Sunday" },
@@ -88,6 +97,18 @@ export function formatDays(days: number[] | null | undefined): string {
     .join(", ");
 }
 
+/** "Every day" / "Every 3 days" */
+export function formatEveryDays(days: number): string {
+  return days === 1 ? "Every day" : `Every ${days} days`;
+}
+
+/** Which of the two mutually-exclusive schedule modes a reminder is in. */
+export function scheduleModeOf(r: {
+  everyDays: number | null;
+}): "days" | "interval" {
+  return r.everyDays ? "interval" : "days";
+}
+
 export async function getReminders(babyId: number): Promise<Reminder[]> {
   const res = await apiClient.get<Reminder[]>("/reminders", {
     params: { babyId },
@@ -101,6 +122,7 @@ export async function createReminder(data: {
   label?: string | null;
   timeOfDay: number;
   daysOfWeek?: number[] | null;
+  everyDays?: number | null;
 }): Promise<Reminder> {
   const res = await apiClient.post<Reminder>("/reminders", {
     ...data,
@@ -116,13 +138,16 @@ export async function updateReminder(
     enabled?: boolean;
     timeOfDay?: number;
     daysOfWeek?: number[] | null;
+    everyDays?: number | null;
   }
 ): Promise<Reminder> {
   const res = await apiClient.patch<Reminder>(`/reminders/${id}`, {
     ...data,
     // The offset travels with any change to *when* it fires, since the server
-    // reads the time and the days on the caregiver's clock.
-    ...(data.timeOfDay !== undefined || data.daysOfWeek !== undefined
+    // reads the time and the schedule on the caregiver's clock.
+    ...(data.timeOfDay !== undefined ||
+    data.daysOfWeek !== undefined ||
+    data.everyDays !== undefined
       ? { tzOffsetMinutes: localUtcOffsetMinutes() }
       : {}),
   });

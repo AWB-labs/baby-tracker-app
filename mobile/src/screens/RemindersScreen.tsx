@@ -18,6 +18,7 @@ import {
   EmptyState,
   Chip,
   ChipWrap,
+  Segmented,
   Sheet,
   SkeletonList,
   FadeInUp,
@@ -37,13 +38,25 @@ import {
   dateToTimeOfDay,
   DEFAULT_TIME_OF_DAY,
   formatDays,
+  formatEveryDays,
+  scheduleModeOf,
   MONTHLY_TYPES,
+  MIN_EVERY_DAYS,
+  MAX_EVERY_DAYS,
+  DEFAULT_EVERY_DAYS,
   WEEKDAYS,
   REMINDER_TYPES,
   REMINDER_META,
   type Reminder,
   type ReminderType,
 } from "../api/reminders";
+
+type ScheduleMode = "days" | "interval";
+
+const SCHEDULE_MODE_OPTIONS: { value: ScheduleMode; label: string }[] = [
+  { value: "days", label: "Specific days" },
+  { value: "interval", label: "Every X days" },
+];
 
 /** One-tap picks for the times parents actually choose. */
 const QUICK_TIMES: { label: string; minutes: number }[] = [
@@ -61,7 +74,11 @@ interface Draft {
   type: ReminderType;
   label: string;
   timeOfDay: number;
+  /** Which of the two mutually-exclusive schedules is showing — only one of
+   *  `days`/`everyDays` below is actually sent, based on this. */
+  scheduleMode: ScheduleMode;
   days: number[];
+  everyDays: number;
 }
 
 const FRESH_DRAFT: Draft = {
@@ -69,7 +86,9 @@ const FRESH_DRAFT: Draft = {
   type: "feed",
   label: "",
   timeOfDay: DEFAULT_TIME_OF_DAY,
+  scheduleMode: "days",
   days: [],
+  everyDays: DEFAULT_EVERY_DAYS,
 };
 
 /**
@@ -144,7 +163,9 @@ export default function RemindersScreen() {
       type: r.type,
       label: r.label ?? "",
       timeOfDay: r.timeOfDay,
+      scheduleMode: scheduleModeOf(r),
       days: r.daysOfWeek ?? [],
+      everyDays: r.everyDays ?? DEFAULT_EVERY_DAYS,
     });
   };
 
@@ -155,12 +176,19 @@ export default function RemindersScreen() {
       return;
     }
     setSaving(true);
+    // Always both, together — the two schedule modes are mutually exclusive
+    // server-side, and sending only the one that changed would leave a stale
+    // value from the other mode in place instead of clearing it.
+    const schedule =
+      draft.scheduleMode === "interval"
+        ? { daysOfWeek: null, everyDays: draft.everyDays }
+        : { daysOfWeek: draft.days.length > 0 ? draft.days : null, everyDays: null };
     try {
       if (draft.editing) {
         const updated = await updateReminder(draft.editing.id, {
           label: draft.label.trim() || null,
           timeOfDay: draft.timeOfDay,
-          daysOfWeek: draft.days.length > 0 ? draft.days : null,
+          ...schedule,
         });
         setReminders((prev) =>
           prev.map((r) => (r.id === updated.id ? updated : r))
@@ -172,14 +200,16 @@ export default function RemindersScreen() {
           type: draft.type,
           label: draft.label.trim() || null,
           timeOfDay: draft.timeOfDay,
-          daysOfWeek: draft.days.length > 0 ? draft.days : null,
+          ...schedule,
         });
         setReminders((prev) => [...prev, created]);
         toast.success(
           `You'll be reminded at ${formatTimeOfDay(created.timeOfDay)}${
-            created.daysOfWeek
-              ? ` on ${formatDays(created.daysOfWeek).toLowerCase()}`
-              : " every day"
+            created.everyDays
+              ? ` ${formatEveryDays(created.everyDays).toLowerCase()}`
+              : created.daysOfWeek
+                ? ` on ${formatDays(created.daysOfWeek).toLowerCase()}`
+                : " every day"
           }.`
         );
       }
@@ -278,6 +308,11 @@ export default function RemindersScreen() {
           {reminders.map((r, index) => {
             const meta = REMINDER_META.get(r.type);
             const name = r.label || meta?.label || r.type;
+            const scheduleLabel = MONTHLY_TYPES.has(r.type)
+              ? "Monthly"
+              : r.everyDays
+                ? formatEveryDays(r.everyDays)
+                : formatDays(r.daysOfWeek);
             return (
               <FadeInUp key={r.id} index={index}>
                 <Pressable
@@ -285,7 +320,7 @@ export default function RemindersScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Edit the ${name} reminder — at ${formatTimeOfDay(
                     r.timeOfDay
-                  )}, ${formatDays(r.daysOfWeek)}`}
+                  )}, ${scheduleLabel}`}
                   style={({ pressed }) => [
                     styles.row,
                     {
@@ -307,10 +342,7 @@ export default function RemindersScreen() {
                       {name}
                     </Text>
                     <Text variant="caption" tone="subtle" tabular>
-                      {formatTimeOfDay(r.timeOfDay)} ·{" "}
-                      {MONTHLY_TYPES.has(r.type)
-                        ? "Monthly"
-                        : formatDays(r.daysOfWeek)}
+                      {formatTimeOfDay(r.timeOfDay)} · {scheduleLabel}
                     </Text>
                   </View>
                   <Switch
@@ -473,52 +505,106 @@ export default function RemindersScreen() {
                 </Text>
               </Field>
             ) : (
-            /* Which days — nothing selected means every day. */
-            <Field
-              label="On these days"
-              helper={
-                draft.days.length === 0
-                  ? "Every day. Tap days to narrow it."
-                  : formatDays(draft.days)
-              }
-            >
-              <View style={styles.dayRow}>
-                {WEEKDAYS.map((day) => {
-                  const selected = draft.days.includes(day.value);
-                  return (
-                    <Pressable
-                      key={day.value}
+            <>
+              {/* Which schedule mode — specific weekdays, or a plain N-day
+                  repeat for something like a nail cut that isn't tied to
+                  particular days at all. */}
+              <Field label="How often">
+                <Segmented
+                  options={SCHEDULE_MODE_OPTIONS}
+                  value={draft.scheduleMode}
+                  onChange={(scheduleMode) => setDraft({ ...draft, scheduleMode })}
+                />
+              </Field>
+
+              {draft.scheduleMode === "interval" ? (
+                <Field
+                  label="Every how many days"
+                  helper={formatEveryDays(draft.everyDays)}
+                >
+                  <View style={styles.everyDaysRow}>
+                    <IconButton
+                      icon="minus"
+                      label="One fewer day"
+                      variant="surface"
+                      disabled={draft.everyDays <= MIN_EVERY_DAYS}
                       onPress={() =>
                         setDraft({
                           ...draft,
-                          days: selected
-                            ? draft.days.filter((d) => d !== day.value)
-                            : [...draft.days, day.value].sort((a, b) => a - b),
+                          everyDays: Math.max(MIN_EVERY_DAYS, draft.everyDays - 1),
                         })
                       }
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      accessibilityLabel={day.long}
-                      style={({ pressed }) => [
-                        styles.dayTile,
-                        {
-                          backgroundColor: selected ? t.accent : t.accentSofter,
-                          borderColor: selected ? t.accent : "transparent",
-                          opacity: pressed ? PRESSED_OPACITY : 1,
-                        },
-                      ]}
+                    />
+                    <Text
+                      variant="title2"
+                      tabular
+                      style={[styles.everyDaysValue, { color: t.accentText }]}
                     >
-                      <Text
-                        variant="caption"
-                        style={{ color: selected ? t.onAccent : t.accentText }}
-                      >
-                        {day.short}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </Field>
+                      {draft.everyDays}
+                    </Text>
+                    <IconButton
+                      icon="plus"
+                      label="One more day"
+                      variant="surface"
+                      disabled={draft.everyDays >= MAX_EVERY_DAYS}
+                      onPress={() =>
+                        setDraft({
+                          ...draft,
+                          everyDays: Math.min(MAX_EVERY_DAYS, draft.everyDays + 1),
+                        })
+                      }
+                    />
+                  </View>
+                </Field>
+              ) : (
+                /* Which days — nothing selected means every day. */
+                <Field
+                  label="On these days"
+                  helper={
+                    draft.days.length === 0
+                      ? "Every day. Tap days to narrow it."
+                      : formatDays(draft.days)
+                  }
+                >
+                  <View style={styles.dayRow}>
+                    {WEEKDAYS.map((day) => {
+                      const selected = draft.days.includes(day.value);
+                      return (
+                        <Pressable
+                          key={day.value}
+                          onPress={() =>
+                            setDraft({
+                              ...draft,
+                              days: selected
+                                ? draft.days.filter((d) => d !== day.value)
+                                : [...draft.days, day.value].sort((a, b) => a - b),
+                            })
+                          }
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          accessibilityLabel={day.long}
+                          style={({ pressed }) => [
+                            styles.dayTile,
+                            {
+                              backgroundColor: selected ? t.accent : t.accentSofter,
+                              borderColor: selected ? t.accent : "transparent",
+                              opacity: pressed ? PRESSED_OPACITY : 1,
+                            },
+                          ]}
+                        >
+                          <Text
+                            variant="caption"
+                            style={{ color: selected ? t.onAccent : t.accentText }}
+                          >
+                            {day.short}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </Field>
+              )}
+            </>
             )}
           </View>
         ) : null}
@@ -584,6 +670,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1.5,
   },
+  everyDaysRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.lg,
+  },
+  everyDaysValue: { minWidth: 40, textAlign: "center" },
   dayRow: { flexDirection: "row", gap: space.xs },
   dayTile: {
     flex: 1,
