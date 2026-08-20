@@ -336,7 +336,10 @@ export default function ManualEntryModal({
                   setDiaperStatus(null);
                   setUseFromStock(false);
                 } else {
-                  setUseFromStock((diaperStock ?? 0) > 0);
+                  // On by default — logging a diaper change almost always
+                  // means one came out of stock; a caregiver without stock
+                  // to draw from unchecks it rather than opting in each time.
+                  setUseFromStock(true);
                 }
               }}
             />
@@ -455,19 +458,19 @@ export default function ManualEntryModal({
             </Text>
           </View>
 
+          {/* Always toggleable, even with zero on hand — a caregiver can
+              still check it while, say, entering a restock and a change in
+              the same visit, and the server simply floors the count at zero
+              rather than treating a negative draw as an error. */}
           <Pressable
             onPress={() => setUseFromStock((v) => !v)}
-            disabled={!diaperStock}
             accessibilityRole="checkbox"
-            accessibilityState={{
-              checked: useFromStock,
-              disabled: !diaperStock,
-            }}
+            accessibilityState={{ checked: useFromStock }}
             accessibilityLabel="Use one from stock for this change"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={({ pressed }) => [
               styles.stockCheckRow,
-              { opacity: !diaperStock ? 0.5 : pressed ? 0.7 : 1 },
+              { opacity: pressed ? 0.7 : 1 },
             ]}
           >
             <View
