@@ -276,13 +276,21 @@ export default function TrackRow({
 
   const running = timer.isActive;
 
+  // Whether *any* local timer state exists for this activity, whether it's
+  // actively running or mid-finish (the note/amount sheet, showComment) or
+  // mid-status (diaper). isActive alone goes false during those sub-phases —
+  // that's what it's for, switching the row's own UI to the sheet instead of
+  // the clock — but it must not be mistaken for "this device has nothing",
+  // or a Finish tap would look identical to needing a fresh adopt.
+  const hasLocalTimer = timer.startTime !== null;
+
   // This account's own lock, running somewhere, but not on this device (a
   // second phone, or one that lost its local state) — take local control of
   // it rather than leaving it stuck with no way to end it from here. A
   // layout effect, not a regular one, so it lands before this render's paint
   // and the idle row never has a chance to flash first.
   const ownUnadoptedSession =
-    !running &&
+    !hasLocalTimer &&
     !!remoteActive &&
     viewerAccountId != null &&
     remoteActive.accountId === viewerAccountId;
@@ -300,7 +308,9 @@ export default function TrackRow({
 
   // Someone else's lock — read-only, informational.
   const lockedByOther =
-    !running && !!remoteActive && !ownUnadoptedSession ? remoteActive : null;
+    !hasLocalTimer && !!remoteActive && !ownUnadoptedSession
+      ? remoteActive
+      : null;
 
   /*
    * The true start, not the current segment's.
