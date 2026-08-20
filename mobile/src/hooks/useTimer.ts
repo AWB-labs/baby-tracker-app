@@ -72,6 +72,9 @@ export interface UseTimerResult {
   isActive: boolean;
   isRunning: boolean;
   handleStart: (side?: "left" | "right") => void;
+  /** Locally take over a session already running server-side under this
+   *  account but not started on this device — see the implementation. */
+  adopt: (input: { startTime: Date; side: "left" | "right" | null }) => void;
   handlePause: () => void;
   handleResume: () => void;
   handleStop: () => void; // opens the note form
@@ -197,6 +200,40 @@ export function useTimer(
         paused: false,
         pausedAtISO: null,
         activeSide: side || null,
+        timeline: timelineRef.current,
+      });
+    },
+    [babyId, persist]
+  );
+
+  /**
+   * Take local control of a session that's already running server-side under
+   * this same account, but that this device never started itself — a second
+   * phone, or one where the app's local storage was lost. Elapsed is counted
+   * from the true `startTime` the lock was created with rather than from now,
+   * so the clock and the eventual saved log both read correctly; everything
+   * after this (pause, adjust, finish, cancel) is the same local machinery
+   * handleStart sets up, just seeded from history instead of the present.
+   */
+  const adopt = useCallback(
+    (input: { startTime: Date; side: "left" | "right" | null }) => {
+      if (!babyId) return;
+      const { startTime: original, side } = input;
+      setActiveSide(side);
+      setStartTime(original);
+      setElapsed(Math.max(0, Math.floor((Date.now() - original.getTime()) / 1000)));
+      setPaused(false);
+      pausedElapsedRef.current = 0;
+      endTimeRef.current = null;
+      originalStartTimeRef.current = original;
+      timelineRef.current = [{ event: "started", at: original.toISOString() }];
+      persist({
+        originalStartTimeISO: original.toISOString(),
+        startTimeISO: original.toISOString(),
+        pausedElapsed: 0,
+        paused: false,
+        pausedAtISO: null,
+        activeSide: side,
         timeline: timelineRef.current,
       });
     },
@@ -406,6 +443,7 @@ export function useTimer(
     isActive,
     isRunning,
     handleStart,
+    adopt,
     handlePause,
     handleResume,
     handleStop,

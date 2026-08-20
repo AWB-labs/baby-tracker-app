@@ -1,4 +1,10 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from "react";
+﻿import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useTheme } from "../design/ThemeProvider";
 import {
@@ -84,11 +90,16 @@ interface Props {
   /** Most recent entry of this type, for the idle row's context line. */
   lastLog: LogEntry | null;
   /**
-   * Someone else's feed/pump/sleep already running for this baby, from
-   * another caregiver's device — undefined/null when this activity is free.
-   * Only meaningful for feed, pump and sleep; diaper never sets it.
+   * A feed/pump/sleep already running for this baby, from some device —
+   * undefined/null when this activity is free. Only meaningful for feed,
+   * pump and sleep; diaper never sets it. When it's this same account's own
+   * lock, the row silently takes local control of it (see the adopt effect)
+   * rather than showing it read-only.
    */
   remoteActive?: ActiveTimerRecord | null;
+  /** The signed-in account viewing this row, to tell "someone else has this
+   *  running" apart from "I do, just not from this device". */
+  viewerAccountId?: number;
   /** Ask the screen to refetch active timers right away, instead of waiting
    *  for the next poll — used after a claim, a release, or a lost race. */
   onActiveTimersChanged?: () => void;
@@ -111,6 +122,7 @@ export default function TrackRow({
   timer,
   lastLog,
   remoteActive,
+  viewerAccountId,
   onActiveTimersChanged,
 }: Props) {
   const t = useTheme();
@@ -263,6 +275,33 @@ export default function TrackRow({
   }, [type, timer.showComment]);
 
   const running = timer.isActive;
+
+  // This account's own lock, running somewhere, but not on this device (a
+  // second phone, or one that lost its local state) — take local control of
+  // it rather than leaving it stuck with no way to end it from here. A
+  // layout effect, not a regular one, so it lands before this render's paint
+  // and the idle row never has a chance to flash first.
+  const ownUnadoptedSession =
+    !running &&
+    !!remoteActive &&
+    viewerAccountId != null &&
+    remoteActive.accountId === viewerAccountId;
+  useLayoutEffect(() => {
+    if (!ownUnadoptedSession || !remoteActive) return;
+    timer.adopt({
+      startTime: new Date(remoteActive.startTime),
+      side: remoteActive.side,
+    });
+    // Only re-run if the session identity actually changes — timer itself is
+    // stable-ish but re-created per render in the parent, and including it
+    // here would re-adopt (and reset any local pause/adjust) every time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownUnadoptedSession, remoteActive?.id]);
+
+  // Someone else's lock — read-only, informational.
+  const lockedByOther =
+    !running && !!remoteActive && !ownUnadoptedSession ? remoteActive : null;
+
   /*
    * The true start, not the current segment's.
    *
@@ -509,16 +548,17 @@ export default function TrackRow({
 
   // Someone else already has this timer running — shown instead of the idle
   // row's Start controls, not alongside them, so there's nothing here to tap
-  // into a duplicate session with.
-  if (remoteActive) {
+  // into a duplicate session with. (This account's own lock never reaches
+  // here — see ownUnadoptedSession above, which takes local control instead.)
+  if (lockedByOther) {
     return (
       <Card
         padded={false}
         style={styles.row}
         accessible
         accessibilityLabel={`${label}: currently ${GERUND[type]}, started by ${
-          remoteActive.enteredByName
-        } ${formatRelativeTime(remoteActive.startTime)}`}
+          lockedByOther.enteredByName
+        } ${formatRelativeTime(lockedByOther.startTime)}`}
       >
         <View style={styles.left}>
           <View style={[styles.iconChip, { backgroundColor: tone.soft }]}>
@@ -529,7 +569,7 @@ export default function TrackRow({
               {label}
             </Text>
             <Text variant="caption" tone="subtle" numberOfLines={1}>
-              Currently {GERUND[type]} · by {remoteActive.enteredByName}
+              Currently {GERUND[type]} · by {lockedByOther.enteredByName}
             </Text>
           </View>
         </View>
@@ -537,6 +577,14 @@ export default function TrackRow({
         <Badge tone="success">Running</Badge>
       </Card>
     );
+  }
+
+  // Own session not yet adopted — the layout effect above fires before this
+  // paints, so in practice this is never actually seen; it exists only so
+  // the row renders *something* stable rather than a flash of Start buttons
+  // if a future change ever delays the effect.
+  if (ownUnadoptedSession) {
+    return null;
   }
 
   /* ------------------------------------------------------------- idle row */
