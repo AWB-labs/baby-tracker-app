@@ -260,6 +260,7 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
           diaperMeta ||
           log.weightKg != null ||
           log.heightCm != null ||
+          log.headCircumferenceCm != null ||
           (conditionMeta && !healthEmphasis) ||
           (log.feverCelsius != null && !healthEmphasis) ||
           log.medication ||
@@ -288,6 +289,11 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
             {log.heightCm != null && (
               <Pill emoji={MEASURE_EMOJI.height} bg={t.successSoft} fg={t.success}>
                 {units.formatHeight(log.heightCm)}
+              </Pill>
+            )}
+            {log.headCircumferenceCm != null && (
+              <Pill emoji={MEASURE_EMOJI.headCircumference} bg={t.infoSoft} fg={t.info}>
+                {units.formatHeight(log.headCircumferenceCm)}
               </Pill>
             )}
             {/* A health row's own tone IS the rose health pair. Suppressed

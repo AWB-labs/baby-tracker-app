@@ -21,6 +21,7 @@ const LOG_SELECT = {
   sleepKind: true,
   weightKg: true,
   heightCm: true,
+  headCircumferenceCm: true,
   healthCondition: true,
   medication: true,
   dose: true,
@@ -74,6 +75,7 @@ const createLogSchema = z
     sleepKind: z.enum(["nap", "night"]).nullable().optional(),
     weightKg: z.number().nullable().optional(),
     heightCm: z.number().nullable().optional(),
+    headCircumferenceCm: z.number().nullable().optional(),
     healthCondition: z.string().nullable().optional(),
     medication: z.string().nullable().optional(),
     dose: z.string().nullable().optional(),
@@ -96,10 +98,15 @@ const createLogSchema = z
         });
       }
     }
-    if (data.type === "growth" && !data.weightKg && !data.heightCm) {
+    if (
+      data.type === "growth" &&
+      !data.weightKg &&
+      !data.heightCm &&
+      !data.headCircumferenceCm
+    ) {
       ctx.addIssue({
         code: "custom",
-        message: "weightKg or heightCm required for growth",
+        message: "weightKg, heightCm or headCircumferenceCm required for growth",
         path: ["weightKg"],
       });
     }
@@ -265,6 +272,7 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
     sleepKind,
     weightKg,
     heightCm,
+    headCircumferenceCm,
     healthCondition,
     medication,
     dose,
@@ -325,6 +333,7 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
       sleepKind: type === "sleep" ? sleepKind ?? null : null,
       weightKg: type === "growth" ? weightKg ?? null : null,
       heightCm: type === "growth" ? heightCm ?? null : null,
+      headCircumferenceCm: type === "growth" ? headCircumferenceCm ?? null : null,
       healthCondition: type === "health" ? healthCondition ?? null : null,
       medication: type === "health" ? medication?.trim() || null : null,
       dose: type === "health" ? dose?.trim() || null : null,
@@ -353,6 +362,7 @@ const updateLogSchema = z.object({
   sleepKind: z.enum(["nap", "night"]).nullable().optional(),
   weightKg: z.number().nullable().optional(),
   heightCm: z.number().nullable().optional(),
+  headCircumferenceCm: z.number().nullable().optional(),
   healthCondition: z.string().nullable().optional(),
   medication: z.string().nullable().optional(),
   dose: z.string().nullable().optional(),
@@ -409,20 +419,32 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
     data.amountMl = body.amountMl;
   }
 
-  if (body.weightKg !== undefined || body.heightCm !== undefined) {
+  if (
+    body.weightKg !== undefined ||
+    body.heightCm !== undefined ||
+    body.headCircumferenceCm !== undefined
+  ) {
     if (existing.type !== "growth") {
       throw badRequest(
-        "Only a growth entry has a weight and height.",
+        "Only a growth entry has a weight, height or head circumference.",
         "wrong_type"
       );
     }
     const nextW = body.weightKg !== undefined ? body.weightKg : existing.weightKg;
     const nextH = body.heightCm !== undefined ? body.heightCm : existing.heightCm;
-    if (nextW == null && nextH == null) {
-      throw badRequest("Enter a weight or a height.", "growth_empty");
+    const nextHc =
+      body.headCircumferenceCm !== undefined
+        ? body.headCircumferenceCm
+        : existing.headCircumferenceCm;
+    if (nextW == null && nextH == null && nextHc == null) {
+      throw badRequest(
+        "Enter a weight, height or head circumference.",
+        "growth_empty"
+      );
     }
     data.weightKg = nextW;
     data.heightCm = nextH;
+    data.headCircumferenceCm = nextHc;
   }
 
   if (

@@ -84,10 +84,18 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
     log.amountMl !== null ? units.toDisplayVolume(log.amountMl) : ""
   );
   const [weight, setWeight] = useState(
-    log.weightKg !== null ? units.toDisplayWeight(log.weightKg) : ""
+    log.weightKg != null ? units.toDisplayWeight(log.weightKg) : ""
   );
   const [height, setHeight] = useState(
-    log.heightCm !== null ? units.toDisplayHeight(log.heightCm) : ""
+    log.heightCm != null ? units.toDisplayHeight(log.heightCm) : ""
+  );
+  const [headCircumference, setHeadCircumference] = useState(
+    // Loose check: an API not yet redeployed with this field omits the key
+    // entirely rather than sending it as null, and toDisplayHeight(undefined)
+    // crashes — this treats "missing" the same as "not recorded" either way.
+    log.headCircumferenceCm != null
+      ? units.toDisplayHeight(log.headCircumferenceCm)
+      : ""
   );
   const [condition, setCondition] = useState<HealthCondition | null>(
     log.healthCondition && log.healthCondition in CONDITION_META
@@ -138,12 +146,14 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
     if (log.type === "growth") {
       const w = weight.trim() ? units.parseWeight(weight) : null;
       const h = height.trim() ? units.parseHeight(height) : null;
-      if (w == null && h == null) {
-        setError("Enter a weight or height.");
+      const hc = headCircumference.trim() ? units.parseHeight(headCircumference) : null;
+      if (w == null && h == null && hc == null) {
+        setError("Enter a weight, height, or head circumference.");
         return;
       }
       payload.weightKg = w;
       payload.heightCm = h;
+      payload.headCircumferenceCm = hc;
     }
 
     if (log.type === "health") {
@@ -194,8 +204,9 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
     }
   }, [
     saving, comments, log, diaperStatus, sleepKind, editsSide, side,
-    editsAmountMl, amountMl, weight, height, condition, fever, medication,
-    dose, date, startTime, endTime, usesSingleTime, units, onSaved, onClose,
+    editsAmountMl, amountMl, weight, height, headCircumference, condition,
+    fever, medication, dose, date, startTime, endTime, usesSingleTime, units,
+    onSaved, onClose,
   ]);
 
   const handleDelete = useCallback(async () => {
@@ -403,26 +414,39 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
       )}
 
       {log.type === "growth" && (
-        <View style={styles.rowGap}>
+        <>
+          <View style={styles.rowGap}>
+            <Input
+              label="Weight"
+              suffix={units.weight}
+              value={weight}
+              onChangeText={setWeight}
+              keyboardType="decimal-pad"
+              placeholder={units.system === "metric" ? "4.5" : "9.9"}
+              containerStyle={styles.flex}
+            />
+            <Input
+              label="Height"
+              suffix={units.height}
+              value={height}
+              onChangeText={setHeight}
+              keyboardType="decimal-pad"
+              placeholder={units.system === "metric" ? "52" : "20.5"}
+              containerStyle={styles.flex}
+            />
+          </View>
+          {/* On its own row rather than a third column — its label wraps
+              to two lines at this width, which pushed just this one field's
+              box down out of line with Weight and Height beside it. */}
           <Input
-            label="Weight"
-            suffix={units.weight}
-            value={weight}
-            onChangeText={setWeight}
-            keyboardType="decimal-pad"
-            placeholder={units.system === "metric" ? "4.5" : "9.9"}
-            containerStyle={styles.flex}
-          />
-          <Input
-            label="Height"
+            label="Head circumference"
             suffix={units.height}
-            value={height}
-            onChangeText={setHeight}
+            value={headCircumference}
+            onChangeText={setHeadCircumference}
             keyboardType="decimal-pad"
-            placeholder={units.system === "metric" ? "52" : "20.5"}
-            containerStyle={styles.flex}
+            placeholder={units.system === "metric" ? "38" : "15"}
           />
-        </View>
+        </>
       )}
 
       {log.type === "health" && (

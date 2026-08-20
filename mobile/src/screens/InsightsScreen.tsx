@@ -190,6 +190,13 @@ function GrowthHistory({
   const t = useTheme();
   const units = useUnits();
   const growthTone = useActivityTone("growth");
+  // Two-step so the list sheet's Modal is fully gone before the edit sheet's
+  // Modal mounts — iOS silently drops a second simultaneous Modal, which is
+  // what made the edit button look like it did nothing. Tapping edit closes
+  // this sheet; once that close animation actually finishes (onClosed, not
+  // just the visible prop flipping), pendingEdit becomes editingLog and the
+  // edit sheet opens. Closing or saving the edit reopens this one.
+  const [pendingEdit, setPendingEdit] = useState<LogEntry | null>(null);
   const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
 
   // Deltas need the previous *recorded* value for that measure, which isn't
@@ -198,14 +205,20 @@ function GrowthHistory({
   const rows = useMemo(() => {
     let lastWeight: number | null = null;
     let lastHeight: number | null = null;
+    let lastHeadCircumference: number | null = null;
     const out = entries.map((log) => {
       const weightDelta =
         log.weightKg != null && lastWeight != null ? log.weightKg - lastWeight : null;
       const heightDelta =
         log.heightCm != null && lastHeight != null ? log.heightCm - lastHeight : null;
+      const headCircumferenceDelta =
+        log.headCircumferenceCm != null && lastHeadCircumference != null
+          ? log.headCircumferenceCm - lastHeadCircumference
+          : null;
       if (log.weightKg != null) lastWeight = log.weightKg;
       if (log.heightCm != null) lastHeight = log.heightCm;
-      return { log, weightDelta, heightDelta };
+      if (log.headCircumferenceCm != null) lastHeadCircumference = log.headCircumferenceCm;
+      return { log, weightDelta, heightDelta, headCircumferenceDelta };
     });
     return out.reverse();
   }, [entries]);
@@ -213,13 +226,19 @@ function GrowthHistory({
   return (
     <>
       <Sheet
-        visible={visible}
+        visible={visible && !pendingEdit && !editingLog}
         onClose={onClose}
+        onClosed={() => {
+          if (pendingEdit) {
+            setEditingLog(pendingEdit);
+            setPendingEdit(null);
+          }
+        }}
         title="Growth history"
         subtitle={`Every measurement recorded for ${babyName}`}
         footer={<Button label="Done" variant="primary" fullWidth onPress={onClose} />}
       >
-        {rows.map(({ log, weightDelta, heightDelta }, index) => (
+        {rows.map(({ log, weightDelta, heightDelta, headCircumferenceDelta }, index) => (
           <View
             key={log.id}
             style={[
@@ -236,6 +255,9 @@ function GrowthHistory({
               accessibilityLabel={`${formatDateLabel(log.startTime)}: ${[
                 log.weightKg != null ? units.formatWeight(log.weightKg) : null,
                 log.heightCm != null ? units.formatHeight(log.heightCm) : null,
+                log.headCircumferenceCm != null
+                  ? `head ${units.formatHeight(log.headCircumferenceCm)}`
+                  : null,
               ]
                 .filter(Boolean)
                 .join(", ")}`}
@@ -273,6 +295,19 @@ function GrowthHistory({
                   )}
                 </View>
               )}
+              {log.headCircumferenceCm != null && (
+                <View style={styles.growthValue}>
+                  <Text variant="bodyStrong" tabular style={{ color: growthTone.text }}>
+                    {units.formatHeight(log.headCircumferenceCm)}
+                  </Text>
+                  {headCircumferenceDelta !== null && (
+                    <Text variant="caption" tone="subtle" tabular>
+                      {headCircumferenceDelta >= 0 ? "+" : "−"}
+                      {units.formatHeight(Math.abs(headCircumferenceDelta))}
+                    </Text>
+                  )}
+                </View>
+              )}
             </View>
 
             <IconButton
@@ -280,15 +315,15 @@ function GrowthHistory({
               label={`Edit measurement from ${formatDateLabel(log.startTime)}`}
               variant="surface"
               size="sm"
-              onPress={() => setEditingLog(log)}
+              onPress={() => setPendingEdit(log)}
             />
           </View>
         ))}
       </Sheet>
 
-      {/* Rendered alongside the sheet rather than inside it: EditLogModal is
-          its own Modal layer, and Modals stack fine regardless of where they
-          sit in the tree. */}
+      {/* Mounted only once the list sheet above has actually finished
+          closing (see onClosed) — not a moment before, or its Modal and this
+          one would briefly both be on screen and iOS would drop this one. */}
       {editingLog && (
         <EditLogModal
           key={editingLog.id}
@@ -318,6 +353,7 @@ export default function InsightsScreen() {
   const [showForm, setShowForm] = useState(false);
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
+  const [headCircumference, setHeadCircumference] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [dateChoice, setDateChoice] = useState<"today" | "custom">("today");
@@ -343,17 +379,25 @@ export default function InsightsScreen() {
     [logs]
   );
   const weightEntries = useMemo(
-    () => growthLogs.filter((l) => l.weightKg !== null),
+    () => growthLogs.filter((l) => l.weightKg != null),
     [growthLogs]
   );
   const heightEntries = useMemo(
-    () => growthLogs.filter((l) => l.heightCm !== null),
+    () => growthLogs.filter((l) => l.heightCm != null),
+    [growthLogs]
+  );
+  const headCircumferenceEntries = useMemo(
+    () => growthLogs.filter((l) => l.headCircumferenceCm != null),
     [growthLogs]
   );
   const latestWeight = weightEntries[weightEntries.length - 1] ?? null;
   const prevWeight = weightEntries[weightEntries.length - 2] ?? null;
   const latestHeight = heightEntries[heightEntries.length - 1] ?? null;
   const prevHeight = heightEntries[heightEntries.length - 2] ?? null;
+  const latestHeadCircumference =
+    headCircumferenceEntries[headCircumferenceEntries.length - 1] ?? null;
+  const prevHeadCircumference =
+    headCircumferenceEntries[headCircumferenceEntries.length - 2] ?? null;
 
   const weightDelta =
     latestWeight?.weightKg != null && prevWeight?.weightKg != null
@@ -362,6 +406,12 @@ export default function InsightsScreen() {
   const heightDelta =
     latestHeight?.heightCm != null && prevHeight?.heightCm != null
       ? latestHeight.heightCm - prevHeight.heightCm
+      : null;
+  const headCircumferenceDelta =
+    latestHeadCircumference?.headCircumferenceCm != null &&
+    prevHeadCircumference?.headCircumferenceCm != null
+      ? latestHeadCircumference.headCircumferenceCm -
+        prevHeadCircumference.headCircumferenceCm
       : null;
 
   /* -------------------------------------------------------------- trends */
@@ -428,6 +478,7 @@ export default function InsightsScreen() {
     setShowForm(false);
     setWeight("");
     setHeight("");
+    setHeadCircumference("");
     setNotes("");
     setDateChoice("today");
     setCustomDate(new Date());
@@ -435,8 +486,8 @@ export default function InsightsScreen() {
   };
 
   const handleSave = async () => {
-    if (!weight && !height) {
-      toast.error("Enter a weight or a height.");
+    if (!weight && !height && !headCircumference) {
+      toast.error("Enter a weight, height, or head circumference.");
       return;
     }
     if (!activeBaby) return;
@@ -450,6 +501,9 @@ export default function InsightsScreen() {
         type: "growth",
         weightKg: weight ? units.parseWeight(weight) : null,
         heightCm: height ? units.parseHeight(height) : null,
+        headCircumferenceCm: headCircumference
+          ? units.parseHeight(headCircumference)
+          : null,
         startTime: at,
         endTime: at,
         comments: notes.trim() || null,
@@ -553,6 +607,26 @@ export default function InsightsScreen() {
                       : "No data yet"
                 }
                 name="Height"
+              />
+              <GrowthTile
+                emoji={MEASURE_EMOJI.headCircumference}
+                soft={growthTone.soft}
+                valueColor={growthTone.text}
+                value={
+                  latestHeadCircumference?.headCircumferenceCm != null
+                    ? units.formatHeight(latestHeadCircumference.headCircumferenceCm)
+                    : "—"
+                }
+                caption={
+                  headCircumferenceDelta != null && prevHeadCircumference
+                    ? `${headCircumferenceDelta >= 0 ? "+" : "−"}${units.formatHeight(
+                        Math.abs(headCircumferenceDelta)
+                      )} since ${formatDateLabel(prevHeadCircumference.startTime)}`
+                    : latestHeadCircumference
+                      ? `Last: ${formatDateLabel(latestHeadCircumference.startTime)}`
+                      : "No data yet"
+                }
+                name="Head circumference"
               />
             </View>
 
@@ -720,7 +794,7 @@ export default function InsightsScreen() {
               label="Save"
               variant="primary"
               loading={saving}
-              disabled={!weight && !height}
+              disabled={!weight && !height && !headCircumference}
               onPress={handleSave}
               style={styles.flex}
             />
@@ -789,6 +863,15 @@ export default function InsightsScreen() {
           value={height}
           onChangeText={setHeight}
           placeholder={units.system === "metric" ? "52" : "20.5"}
+          keyboardType="decimal-pad"
+        />
+
+        <Input
+          label="Head circumference"
+          suffix={units.height}
+          value={headCircumference}
+          onChangeText={setHeadCircumference}
+          placeholder={units.system === "metric" ? "38" : "15"}
           keyboardType="decimal-pad"
         />
 
@@ -944,13 +1027,30 @@ const styles = StyleSheet.create({
     gap: space.md,
     paddingVertical: space.md,
   },
-  growthValues: { flexDirection: "row", gap: space.lg },
+  // Wraps now that a row can carry three values (weight, height, head
+  // circumference) rather than always fitting on one line beside the date
+  // and the edit button.
+  growthValues: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: space.md,
+    flexShrink: 1,
+  },
   growthValue: { alignItems: "flex-end" },
   cards: { gap: space.md },
   rowCenter: { flexDirection: "row", alignItems: "center", gap: space.sm },
   actions: { flexDirection: "row", gap: space.sm },
-  growthRow: { flexDirection: "row", gap: space.md },
-  growthTile: { flex: 1, alignItems: "center", gap: space.xs },
+  // Wraps rather than a flat 3-across row: squeezing weight, height and head
+  // circumference into equal thirds left each tile's value truncating on
+  // narrower phones. Two per row, same as Snapshot's cards above.
+  growthRow: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
+  growthTile: {
+    flexBasis: "47%",
+    flexGrow: 1,
+    alignItems: "center",
+    gap: space.xs,
+  },
   growthIcon: {
     width: 40,
     height: 40,

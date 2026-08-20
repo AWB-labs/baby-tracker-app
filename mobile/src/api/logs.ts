@@ -15,6 +15,7 @@ export interface LogEntry {
   sleepKind: string | null;
   weightKg: number | null;
   heightCm: number | null;
+  headCircumferenceCm: number | null;
   healthCondition: string | null;
   medication: string | null;
   dose: string | null;
@@ -64,6 +65,7 @@ export interface CreateLogInput {
   sleepKind?: "nap" | "night" | null;
   weightKg?: number | null;
   heightCm?: number | null;
+  headCircumferenceCm?: number | null;
   healthCondition?: string | null;
   medication?: string | null;
   dose?: string | null;
@@ -88,6 +90,7 @@ export interface UpdateLogInput {
   sleepKind?: "nap" | "night" | null;
   weightKg?: number | null;
   heightCm?: number | null;
+  headCircumferenceCm?: number | null;
   healthCondition?: string | null;
   medication?: string | null;
   dose?: string | null;

@@ -31,6 +31,15 @@ export interface SheetProps {
   children: React.ReactNode;
   /** Pinned to the bottom, outside the scroll area, so it's always reachable. */
   footer?: React.ReactNode;
+  /**
+   * Fires once the close animation actually finishes and the underlying
+   * Modal unmounts — not when `visible` merely flips to false. A caller that
+   * wants to present another Sheet right after this one closes needs this:
+   * iOS silently drops a second `<Modal>` presented while the first is still
+   * on screen (or still mid-dismissal), so stacking two visible Sheets reads
+   * as the second one's trigger doing nothing at all.
+   */
+  onClosed?: () => void;
 }
 
 /**
@@ -50,6 +59,7 @@ export function Sheet({
   subtitle,
   children,
   footer,
+  onClosed,
 }: SheetProps) {
   const { theme: t, isDark } = useThemeContext();
   const insets = useSafeAreaInsets();
@@ -57,6 +67,13 @@ export function Sheet({
 
   // Keep the Modal mounted through the closing animation, then unmount.
   const [mounted, setMounted] = useState(visible);
+  // Read via a ref rather than a dependency below, so a caller passing a new
+  // onClosed identity every render (an inline arrow function, say) doesn't
+  // restart the open/close effect — only `visible` itself should do that.
+  const onClosedRef = useRef(onClosed);
+  useEffect(() => {
+    onClosedRef.current = onClosed;
+  }, [onClosed]);
   // Measured so the panel slides exactly its own height — no off-screen guess.
   const [sheetH, setSheetH] = useState(0);
   const progress = useRef(new Animated.Value(0)).current;
@@ -137,6 +154,7 @@ export function Sheet({
       if (reduceMotion) {
         progress.setValue(0);
         setMounted(false);
+        onClosedRef.current?.();
         return;
       }
       const anim = Animated.timing(progress, {
@@ -146,7 +164,10 @@ export function Sheet({
         useNativeDriver: true,
       });
       anim.start(({ finished }) => {
-        if (finished) setMounted(false);
+        if (finished) {
+          setMounted(false);
+          onClosedRef.current?.();
+        }
       });
       return () => anim.stop();
     }

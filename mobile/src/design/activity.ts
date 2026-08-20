@@ -154,6 +154,7 @@ export const SLEEP_KIND_META: Record<"nap" | "night", { emoji: string; label: st
 export const MEASURE_EMOJI = {
   weight: "⚖️",
   height: "📏",
+  headCircumference: "📐",
   fever: "🌡️",
   volume: "🍼",
 } as const;
