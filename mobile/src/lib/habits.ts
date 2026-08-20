@@ -193,6 +193,19 @@ export interface HabitStats {
 const DAY_MS = 86_400_000;
 const MISSED_LOOKBACK_DAYS = 5;
 
+/**
+ * Habit types where "days in a row" doesn't measure anything real — a nail
+ * cut is due every week or two, not daily, so a broken chain of them isn't a
+ * habit slipping the way a skipped shower or vitamin is. Ticking one still
+ * logs and undoes exactly like any other habit; it just never earns a streak
+ * or gets flagged as missed.
+ */
+const NO_STREAK_TYPES: ReadonlySet<HabitType> = new Set(["nailcut"]);
+
+export function habitTracksStreak(habit: HabitDef): boolean {
+  return !NO_STREAK_TYPES.has(habit.type);
+}
+
 export function computeHabitStats(
   logs: LogEntry[],
   habit: HabitDef
@@ -215,6 +228,10 @@ export function computeHabitStats(
     new Date(today.getTime() - daysAgo * DAY_MS).toDateString();
 
   const doneToday = daysWith.has(keyFor(0));
+
+  if (!habitTracksStreak(habit)) {
+    return { doneToday, streak: 0, missed: false };
+  }
 
   let streak = 0;
   let cursor = doneToday ? 0 : 1;

@@ -25,6 +25,7 @@ import {
   loadHabits,
   saveHabits,
   computeHabitStats,
+  habitTracksStreak,
   makeCustomHabit,
   editHabit,
   HABIT_CATALOG,
@@ -315,7 +316,9 @@ export default function Habits({
                 : "pending";
 
             const a11y = stat.doneToday
-              ? `${habit.label}, done today, ${stat.streak}-day streak. Tap to undo`
+              ? stat.streak > 0
+                ? `${habit.label}, done today, ${stat.streak}-day streak. Tap to undo`
+                : `${habit.label}, done today. Tap to undo`
               : stat.missed
                 ? `${habit.label}, missed yesterday, streak reset. Log ${habit.label.toLowerCase()} for today`
                 : `${habit.label}${
@@ -390,7 +393,9 @@ export default function Habits({
                         {stat.streak}
                       </Text>
                     </View>
-                  ) : (
+                  ) : state === "done" ? null : ( // A no-streak habit (nailcut) that's
+                    // already done needs no chip at all — the tick above already
+                    // says so, and there's no streak to report under it.
                     <View
                       style={[styles.stateChip, { backgroundColor: t.accentSoft }]}
                     >
@@ -436,13 +441,17 @@ export default function Habits({
           ) : (
             habits.map((habit, index) => {
               const stat = stats.get(habit.key);
-              const caption = stat?.doneToday
-                ? `Done today · 🔥 ${stat.streak}-day streak`
-                : stat && stat.streak > 0
-                  ? `🔥 ${stat.streak}-day streak`
-                  : stat?.missed
-                    ? "Missed yesterday · streak reset"
-                    : "No streak yet";
+              const caption = !habitTracksStreak(habit)
+                ? stat?.doneToday
+                  ? "Done today"
+                  : "Not done today"
+                : stat?.doneToday
+                  ? `Done today · 🔥 ${stat.streak}-day streak`
+                  : stat && stat.streak > 0
+                    ? `🔥 ${stat.streak}-day streak`
+                    : stat?.missed
+                      ? "Missed yesterday · streak reset"
+                      : "No streak yet";
               const dividerStyle =
                 index > 0 && { borderTopColor: t.border, borderTopWidth: StyleSheet.hairlineWidth };
 
