@@ -267,8 +267,16 @@ export default function HomeScreen() {
               onLogSaved={refreshAndBump}
               timer={timers[type]}
               lastLog={lastByType.get(type) ?? null}
+              // Only someone else's lock is worth showing as "currently
+              // running — by X": on your own second device it's just your
+              // own session, already visible (with real controls) wherever
+              // you actually started it, so this card stays a normal idle
+              // row instead of an uninformative "by yourself".
               remoteActive={
-                type === "diaper" ? null : activeByType[type] ?? null
+                type === "diaper" ||
+                activeByType[type]?.accountId === account?.id
+                  ? null
+                  : activeByType[type] ?? null
               }
               onActiveTimersChanged={refreshActiveTimers}
             />
