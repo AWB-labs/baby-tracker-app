@@ -81,9 +81,11 @@ export default function HomeScreen() {
   // Who — if anyone — has a feed, pump or sleep already running for this baby
   // from another caregiver's device, so a second person can't start the same
   // one on top of it.
-  const { activeByType, refresh: refreshActiveTimers } = useActiveTimers(
-    activeBaby?.id
-  );
+  const {
+    activeByType,
+    syncedAt: activeTimersSyncedAt,
+    refresh: refreshActiveTimers,
+  } = useActiveTimers(activeBaby?.id);
 
   /**
    * Bumped alongside every `refresh()` — poll, pull-to-refresh, or a save
@@ -274,6 +276,7 @@ export default function HomeScreen() {
               // read-only) apart from "I have this running, just not on
               // this device" (taken over locally instead — see TrackRow).
               viewerAccountId={account?.id}
+              activeTimersSyncedAt={activeTimersSyncedAt}
               onActiveTimersChanged={refreshActiveTimers}
             />
           ))}

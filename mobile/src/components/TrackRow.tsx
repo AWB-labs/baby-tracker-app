@@ -100,10 +100,25 @@ interface Props {
   /** The signed-in account viewing this row, to tell "someone else has this
    *  running" apart from "I do, just not from this device". */
   viewerAccountId?: number;
+  /**
+   * When the server view behind `remoteActive` was requested (ms epoch),
+   * null before the first fetch. Lets the row trust "the lock is gone" only
+   * from a response newer than its own session — see the reconcile effect.
+   */
+  activeTimersSyncedAt?: number | null;
   /** Ask the screen to refetch active timers right away, instead of waiting
    *  for the next poll — used after a claim, a release, or a lost race. */
   onActiveTimersChanged?: () => void;
 }
+
+/**
+ * How much newer than the local session's start a server view must be before
+ * "no lock there" is believed. A poll that left before the lock was even
+ * created genuinely never saw it — its emptiness says nothing. In practice
+ * any fetch initiated before the start POST resolved carries an older
+ * timestamp than the session, so a small buffer is enough.
+ */
+const SYNC_TRUST_BUFFER_MS = 3_000;
 
 /**
  * One activity as one compact row.
@@ -123,6 +138,7 @@ export default function TrackRow({
   lastLog,
   remoteActive,
   viewerAccountId,
+  activeTimersSyncedAt,
   onActiveTimersChanged,
 }: Props) {
   const t = useTheme();
@@ -318,6 +334,51 @@ export default function TrackRow({
     // here would re-adopt (and reset any local pause/adjust) every time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownUnadoptedSession, remoteActive?.id]);
+
+  /**
+   * The mirror of adopt: this device holds a live local session whose lock
+   * has vanished from the server — it was finished or discarded from another
+   * device — so the local clock is orphaned and would otherwise keep
+   * counting here forever, ready to save a duplicate entry on top of the
+   * one already written.
+   *
+   * Two things keep this from misfiring:
+   * - Only a server view *requested after* this session began is believed.
+   *   A poll that left the phone before the lock was even created genuinely
+   *   never saw it, and its emptiness must not kill the session it missed.
+   * - Nothing is touched mid-finish (the note/amount sheet open, or the
+   *   save in flight) — the entry is about to be written and yanking the
+   *   session would throw it away.
+   */
+  useEffect(() => {
+    if (!GERUND[type] || !hasLocalTimer) return;
+    if (timer.showComment || timer.showDiaperStatus || saving) return;
+    // Can't judge ownership before the account has loaded.
+    if (viewerAccountId == null) return;
+    // Our own lock still standing is the normal running case. A different
+    // caregiver's lock while we hold a local clock means ours was already
+    // released out from under us (theirs couldn't exist otherwise), so that
+    // falls through to the cancel below just like an absent lock does.
+    if (remoteActive && remoteActive.accountId === viewerAccountId) return;
+    if (activeTimersSyncedAt == null) return;
+    const started = timer.getOriginalStartTime() ?? timer.startTime;
+    if (!started) return;
+    if (activeTimersSyncedAt <= started.getTime() + SYNC_TRUST_BUFFER_MS) return;
+    timer.handleCancel();
+    toast.info(`${label} was finished from another device.`);
+    // getOriginalStartTime is a stable accessor; toast/label/timer identities
+    // churn per render and would only add noise here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    type,
+    hasLocalTimer,
+    remoteActive,
+    viewerAccountId,
+    activeTimersSyncedAt,
+    saving,
+    timer.showComment,
+    timer.showDiaperStatus,
+  ]);
 
   // Someone else's lock — read-only, informational.
   const lockedByOther =
