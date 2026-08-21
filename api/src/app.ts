@@ -42,13 +42,27 @@ app.use(express.json());
  * probing for a route that only exists in the new code — which conflates a
  * missing deploy with a genuine 404. Vercel injects the SHA at build time; it
  * reads "local" anywhere else.
+ *
+ * Answered `no-store` rather than Express's default (`public, max-age=0,
+ * must-revalidate` plus an ETag). That default does force revalidation, so it
+ * isn't currently serving anything stale — but `public` still invites any
+ * shared cache between here and the caller to keep a copy, and a version
+ * stamp that something is allowed to hold is a version stamp that can lie.
+ * The one thing this endpoint exists to do is be believed.
+ *
+ * Worth knowing when this reads older than you expect: the far likelier cause
+ * is a deploy still in flight, not a cache. The SHA only changes once the new
+ * deployment actually starts serving, so the reliable check is to poll this
+ * until it matches `git rev-parse --short HEAD` rather than to read it once
+ * and conclude the push failed.
  */
-app.get("/health", (_req, res) =>
+app.get("/health", (_req, res) => {
+  res.set("Cache-Control", "no-store, max-age=0");
   res.json({
     ok: true,
     commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
-  })
-);
+  });
+});
 
 // Routes
 app.use("/auth", authRouter);
