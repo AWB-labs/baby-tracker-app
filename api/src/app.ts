@@ -3,6 +3,7 @@ import "dotenv/config";
 // error middleware. Without it such a request hangs until the client times out
 // instead of returning anything at all. Must be imported before the routers.
 import "express-async-errors";
+import path from "path";
 import express from "express";
 import cors from "cors";
 import compression from "compression";
@@ -21,6 +22,7 @@ import settingsRouter from "./routes/settings";
 import remindersRouter from "./routes/reminders";
 import bagRouter from "./routes/bag";
 import internalRouter from "./routes/internal";
+import adminRouter from "./routes/admin";
 import { AppError, friendlyPrismaMessage } from "./lib/httpError";
 
 const app = express();
@@ -63,6 +65,27 @@ app.use("/settings", settingsRouter);
 app.use("/reminders", remindersRouter);
 app.use("/bag-items", bagRouter);
 app.use("/internal", internalRouter);
+
+/**
+ * The admin dashboard: its JSON under /admin/api, its pages under /admin.
+ *
+ * The API is mounted first so the static handler below can never shadow it,
+ * and the dashboard is served from this same app rather than deployed
+ * separately so it needs no CORS grant, no second set of environment
+ * variables, and no way to drift from the API it reads.
+ *
+ * `__dirname` is src/ when running from ts-node and dist/ once built — both a
+ * single level under the package root, so one relative path finds public/
+ * either way.
+ */
+const ADMIN_DIR = path.resolve(__dirname, "..", "public", "admin");
+app.use("/admin/api", adminRouter);
+app.use("/admin", express.static(ADMIN_DIR));
+// The dashboard routes on the hash, so this only catches a hard refresh of a
+// path that isn't a real file — hand back the shell rather than the JSON 404.
+app.get("/admin/*", (_req, res) => {
+  res.sendFile(path.join(ADMIN_DIR, "index.html"));
+});
 
 // Unknown route — still a readable message rather than Express's HTML page.
 app.use((_req, res) => {

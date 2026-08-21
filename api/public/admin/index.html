@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Baby Tracker — Admin</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%BC%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/admin/styles.css" />
+  </head>
+  <body>
+    <!-- Both shells live here and are swapped by app.js: the dashboard never
+         navigates, so there is no flash of the wrong one on a slow token check. -->
+    <div id="boot" class="boot"><span class="spinner"></span></div>
+
+    <main id="login" class="login" hidden>
+      <form class="login-card" id="login-form" autocomplete="on">
+        <div class="login-mark" aria-hidden="true">🍼</div>
+        <h1>Baby Tracker</h1>
+        <p class="login-sub">Admin dashboard</p>
+
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required />
+
+        <label for="password">Password</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          required
+        />
+
+        <p class="login-error" id="login-error" role="alert" hidden></p>
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit">
+          Sign in
+        </button>
+      </form>
+    </main>
+
+    <div id="shell" class="shell" hidden>
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">🍼</span>
+          <span class="brand-text">
+            <strong>Baby Tracker</strong>
+            <small>Admin</small>
+          </span>
+        </div>
+
+        <nav class="nav" id="nav" aria-label="Sections"></nav>
+
+        <div class="sidebar-foot">
+          <div class="who">
+            <span class="who-avatar" id="who-avatar" aria-hidden="true"></span>
+            <span class="who-text">
+              <strong id="who-name">—</strong>
+              <small id="who-email">—</small>
+            </span>
+          </div>
+          <button class="btn btn-ghost btn-block" id="signout">Sign out</button>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-title">
+            <h1 id="page-title">Overview</h1>
+            <p id="page-sub"></p>
+          </div>
+          <div class="topbar-actions" id="page-actions"></div>
+        </header>
+        <div class="content" id="content"></div>
+      </div>
+    </div>
+
+    <div class="drawer-scrim" id="drawer-scrim" hidden></div>
+    <aside class="drawer" id="drawer" hidden aria-label="Details"></aside>
+
+    <script type="module" src="/admin/js/app.js"></script>
+  </body>
+</html>

@@ -10,7 +10,8 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:backfill": "ts-node src/scripts/backfillMemberships.ts"
+    "db:backfill": "ts-node src/scripts/backfillMemberships.ts",
+    "db:seed-admin": "ts-node src/scripts/seedAdmin.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

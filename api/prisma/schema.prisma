@@ -3,9 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Pooled connection, used by the running server.
-  url      = env("DATABASE_URL")
+  url       = env("DATABASE_URL")
   // Direct (unpooled) connection. Migrations and introspection need a real
   // session, which a transaction-mode pooler like Supabase's PgBouncer can't
   // give them. Set it to the same value as DATABASE_URL if you aren't pooling.
@@ -13,19 +13,28 @@ datasource db {
 }
 
 model Account {
-  id        Int           @id @default(autoincrement())
-  email     String        @unique
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
   password  String
   name      String
-  createdAt DateTime      @default(now())
+  createdAt DateTime @default(now())
+
+  /// Last time this account made any authenticated request — opening the app
+  /// counts, not just writing a log. Stamped by the auth middleware, throttled
+  /// so a busy session is one write every few minutes rather than one per
+  /// request. Null on every account that hasn't been seen since this column
+  /// existed, which is why the admin dashboard treats it as one candidate for
+  /// "last active" rather than the answer: the newest of it, the account's
+  /// newest log, its newest timer and its newest push-token refresh is.
+  lastSeenAt DateTime?
 
   /// This caregiver's own relationship to the babies they look after — asked
   /// once during onboarding, before any baby exists, and copied onto the owner
   /// membership of every baby they create. Null on accounts made before it was
   /// asked, which is what stops them being sent back through onboarding.
-  relation             String?
+  relation     String?
   /// Free text for relation = "other". Ignored otherwise.
-  relationNote         String?
+  relationNote String?
 
   // --- Settings ---
   unitSystem           String  @default("metric") // metric | imperial
@@ -43,6 +52,8 @@ model Account {
   reminders      Reminder[]
   pushTokens     PushToken[]
   passwordResets PasswordReset[]
+
+  @@index([lastSeenAt])
 }
 
 /// A single-use code emailed to reclaim a forgotten password. Same shape as a
@@ -62,28 +73,28 @@ model PasswordReset {
 }
 
 model Baby {
-  id Int @id @default(autoincrement())
+  id                      Int       @id @default(autoincrement())
   // The account that created the baby. Kept on the original `accountId` column
   // so adding sharing needed no destructive rename. It confers no read access
   // on its own — every caregiver, owner included, has a BabyMember row.
-  ownerAccountId Int       @map("accountId")
-  name           String
-  dob            DateTime?
-  gender         String // "girl" | "boy"
-  avatarEmoji    String?
-  avatarColor    String?
-  createdAt      DateTime  @default(now())
+  ownerAccountId          Int       @map("accountId")
+  name                    String
+  dob                     DateTime?
+  gender                  String // "girl" | "boy"
+  avatarEmoji             String?
+  avatarColor             String?
+  createdAt               DateTime  @default(now())
   /// The milk balance (pumped minus bottled) is otherwise entirely computed
   /// from ActivityLog — this is a hand correction added on top, in ml. Stored
   /// as an offset rather than an absolute value so pump/bottle logs keep
   /// adjusting the total from wherever a caregiver last corrected it to,
   /// instead of a manual edit being silently overwritten by the next log.
-  milkBalanceAdjustmentMl Float @default(0)
+  milkBalanceAdjustmentMl Float     @default(0)
   /// How many nappies are on hand, unlike the milk balance above not derived
   /// from anything — there's no log type a "diaper bought" event belongs to,
   /// so this is the number itself, moved directly by a restock or a use
   /// rather than computed from history each time it's read.
-  diaperStockCount        Int   @default(0)
+  diaperStockCount        Int       @default(0)
 
   owner        Account       @relation("BabyOwner", fields: [ownerAccountId], references: [id], onDelete: Cascade)
   members      BabyMember[]
@@ -98,17 +109,17 @@ model Baby {
 /// Who may read and write a baby's logs. This is the only source of truth for
 /// access; every query about a baby goes through it.
 model BabyMember {
-  id        Int      @id @default(autoincrement())
-  babyId    Int
-  accountId Int
-  role      String   @default("member") // owner | member
+  id           Int      @id @default(autoincrement())
+  babyId       Int
+  accountId    Int
+  role         String   @default("member") // owner | member
   /// How this person is related to the baby — mother, father, sister… Purely
   /// descriptive: it never affects access, which `role` alone decides. Null on
   /// everyone who joined before it was asked for.
   relation     String?
   /// Free text for relation = "other", e.g. "Nanny". Ignored otherwise.
   relationNote String?
-  createdAt DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   baby    Baby    @relation(fields: [babyId], references: [id], onDelete: Cascade)
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -126,19 +137,19 @@ model BabyMember {
 ///     link while signed in, whatever address they used. This is why `email` is
 ///     nullable: a link has no addressee until someone accepts it.
 model BabyInvite {
-  id                 Int      @id @default(autoincrement())
+  id                 Int       @id @default(autoincrement())
   babyId             Int
   email              String?
   /// Unguessable claim code for a link invite. Null on email invites.
-  token              String?  @unique
-  role               String   @default("member")
+  token              String?   @unique
+  role               String    @default("member")
   relation           String?
   relationNote       String?
   /// Link invites expire so a forwarded message can't grant access forever.
   /// Null on email invites, which are addressed and so can wait indefinitely.
   expiresAt          DateTime?
   invitedByAccountId Int
-  createdAt          DateTime @default(now())
+  createdAt          DateTime  @default(now())
 
   baby      Baby    @relation(fields: [babyId], references: [id], onDelete: Cascade)
   invitedBy Account @relation("InviteSender", fields: [invitedByAccountId], references: [id], onDelete: Cascade)
@@ -156,14 +167,14 @@ model BabyInvite {
 /// is `givenAt != null` rather than a separate flag, because a dose that was
 /// given always has a date and one that wasn't never does.
 model Vaccine {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   babyId      Int
   /// Age in months, 1–12. Odd months are mandatory, even months optional.
   monthNumber Int
   givenAt     DateTime?
   notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   baby Baby @relation(fields: [babyId], references: [id], onDelete: Cascade)
 
@@ -257,41 +268,41 @@ model Profile {
 }
 
 model ActivityLog {
-  id Int @id @default(autoincrement())
+  id                  Int       @id @default(autoincrement())
   // The account that wrote this entry. Authorship only — access is decided by
   // BabyMember, so any caregiver of the baby can edit or delete it. Nullable
   // because a caregiver who deletes their account leaves the baby's history
   // behind: SetNull orphans the entry instead of taking it with them, unlike
   // Baby's own cascade, which does delete every log when an owner's account
   // goes.
-  accountId       Int?
-  babyId          Int
-  profileId       Int?
-  type            String // feed|pump|sleep|diaper|shower|vitamin|nailcut|growth|health
-  side            String? // left|right
-  amountMl        Float? // bottle feed / pump volume
-  diaperStatus    String? // empty|wet|dirty|wet_and_dirty
-  weightKg        Float?
-  heightCm        Float?
+  accountId           Int?
+  babyId              Int
+  profileId           Int?
+  type                String // feed|pump|sleep|diaper|shower|vitamin|nailcut|growth|health
+  side                String? // left|right
+  amountMl            Float? // bottle feed / pump volume
+  diaperStatus        String? // empty|wet|dirty|wet_and_dirty
+  weightKg            Float?
+  heightCm            Float?
   headCircumferenceCm Float?
   /// "nap" | "night", on a sleep entry. Null on everything else, and on sleeps
   /// recorded before the distinction existed — which is why nothing derives it
   /// from the clock as a fallback: a 7pm start is a nap in one household and
   /// bedtime in the next, and guessing would put invented data in the averages.
-  sleepKind       String?
-  healthCondition String? // fever|cold|stomach|other
-  medication      String?
-  dose            String?
-  feverCelsius    Float?
-  startTime       DateTime
-  endTime         DateTime?
-  durationMinutes Float?
-  comments        String?
-  enteredByName   String
+  sleepKind           String?
+  healthCondition     String? // fever|cold|stomach|other
+  medication          String?
+  dose                String?
+  feverCelsius        Float?
+  startTime           DateTime
+  endTime             DateTime?
+  durationMinutes     Float?
+  comments            String?
+  enteredByName       String
   // JSON array of { event: started|paused|resumed|stopped, at: ISO } for timed
   // activities that were paused at least once.
-  pauseTimelineJson String?  @db.Text
-  createdAt         DateTime @default(now())
+  pauseTimelineJson   String?   @db.Text
+  createdAt           DateTime  @default(now())
 
   account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
   baby    Baby     @relation(fields: [babyId], references: [id], onDelete: Cascade)
@@ -328,4 +339,21 @@ model ActiveTimer {
   // One running timer per activity per baby — a second caregiver's attempt to
   // start the same type collides with this instead of creating a duplicate.
   @@unique([babyId, type])
+}
+
+/// Whoever runs the admin dashboard.
+///
+/// Deliberately not a flag on Account. An admin is not a caregiver: they have
+/// no baby, and if they shared the caregiver table they would quietly show up
+/// in every number the dashboard exists to report — one more "user", one more
+/// dormant account. Keeping them apart also means an admin credential is
+/// useless in the mobile app, and a caregiver session is useless here, without
+/// either side having to remember to check a role.
+model AdminUser {
+  id          Int       @id @default(autoincrement())
+  email       String    @unique
+  password    String
+  name        String
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
 }
