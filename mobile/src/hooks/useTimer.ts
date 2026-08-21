@@ -11,6 +11,14 @@ export type ActivityType =
   | "vitamin"
   | "nailcut";
 
+/** Seconds spent on each breast, for a feed or pump that switched sides. */
+export interface SideSeconds {
+  left: number;
+  right: number;
+}
+
+const NO_SIDE_SECONDS: SideSeconds = { left: 0, right: 0 };
+
 export interface TimerState {
   /** True start of the activity, unaffected by pauses. Saved as startTime. */
   originalStartTimeISO: string;
@@ -20,8 +28,47 @@ export interface TimerState {
   paused: boolean;
   pausedAtISO: string | null;
   activeSide: "left" | "right" | null;
+  /**
+   * Seconds banked on each side by the switches already made — the side
+   * currently active is NOT included here, since its segment is still
+   * running. Absent on a state saved before per-side timing existed.
+   */
+  sideSeconds?: SideSeconds;
   timeline: TimelineEvent[];
   babyId: number;
+}
+
+/**
+ * Split the total elapsed time across the two sides.
+ *
+ * The banked seconds only cover switches already made; whatever the total
+ * hasn't accounted for belongs to the side running now. Deriving the active
+ * side's share rather than ticking it separately is what makes pause, resume
+ * and the ±1 minute adjustments need no per-side handling of their own — they
+ * move `elapsed`, and this follows.
+ *
+ * The parts are made to sum to the whole even after a backwards adjustment
+ * has pushed the total below what was already banked: a breakdown that
+ * disagrees with the duration beside it is worse than one scaled to fit.
+ */
+export function resolveSideSeconds(
+  banked: SideSeconds,
+  activeSide: "left" | "right" | null,
+  totalElapsed: number
+): SideSeconds | null {
+  if (!activeSide) return null;
+  const bankedTotal = banked.left + banked.right;
+  const current = Math.max(0, totalElapsed - bankedTotal);
+  const resolved: SideSeconds = {
+    ...banked,
+    [activeSide]: banked[activeSide] + current,
+  };
+  const sum = resolved.left + resolved.right;
+  if (sum > totalElapsed && sum > 0) {
+    const scale = totalElapsed / sum;
+    return { left: resolved.left * scale, right: resolved.right * scale };
+  }
+  return resolved;
 }
 
 function storageKey(type: ActivityType, babyId: number): string {
@@ -81,6 +128,16 @@ export interface UseTimerResult {
   handleCancel: () => void;
   /** Move a running session to the other breast without restarting it. */
   switchSide: (side: "left" | "right") => void;
+  /**
+   * Live split of `elapsed` across the two breasts, or null when this
+   * session has no side at all (a bottle). Only interesting once a switch
+   * has happened — before that it's simply all on the starting side.
+   */
+  sideSeconds: SideSeconds | null;
+  /** Whether this session has actually been fed on both sides. */
+  usedBothSides: boolean;
+  /** The final per-side split, for the saved log. */
+  getSideSeconds: () => SideSeconds | null;
   /** Nudge the start earlier (positive) or later (negative), in seconds. */
   adjustStart: (deltaSeconds: number) => void;
   showComment: boolean;
@@ -112,6 +169,13 @@ export function useTimer(
   const originalStartTimeRef = useRef<Date | null>(null);
   const timelineRef = useRef<TimelineEvent[]>([]);
   const restoredRef = useRef(false);
+  /**
+   * Seconds banked on each side by switches already made. A ref, like
+   * pausedElapsedRef: it's only ever *read* through resolveSideSeconds
+   * during render, and every write to it is paired with a state change
+   * (setActiveSide) that re-renders anyway.
+   */
+  const bankedSideRef = useRef<SideSeconds>(NO_SIDE_SECONDS);
 
   // Restore persisted state on mount / babyId change
   useEffect(() => {
@@ -127,6 +191,7 @@ export function useTimer(
     endTimeRef.current = null;
     originalStartTimeRef.current = null;
     timelineRef.current = [];
+    bankedSideRef.current = NO_SIDE_SECONDS;
 
     loadTimerState(type, babyId).then((saved) => {
       if (!saved || restoredRef.current) return;
@@ -142,6 +207,9 @@ export function useTimer(
       setStartTime(restored);
       originalStartTimeRef.current = originalStart;
       timelineRef.current = Array.isArray(saved.timeline) ? saved.timeline : [];
+      // Absent on a session started before per-side timing shipped; zero is
+      // right for it either way, since nothing was ever banked.
+      bankedSideRef.current = saved.sideSeconds ?? NO_SIDE_SECONDS;
       if (saved.paused) {
         setElapsed(saved.pausedElapsed);
         if (saved.pausedAtISO) endTimeRef.current = new Date(saved.pausedAtISO);
@@ -173,10 +241,19 @@ export function useTimer(
     };
   }, [startTime, showComment, paused]);
 
+  /**
+   * `sideSeconds` is filled in here rather than by each caller: every one of
+   * them would pass the same ref, and a switch that forgot to would silently
+   * roll the banked time back to whatever was last written.
+   */
   const persist = useCallback(
-    (state: Omit<TimerState, "babyId">) => {
+    (state: Omit<TimerState, "babyId" | "sideSeconds">) => {
       if (!babyId) return;
-      saveTimerState(type, babyId, { ...state, babyId });
+      saveTimerState(type, babyId, {
+        ...state,
+        sideSeconds: bankedSideRef.current,
+        babyId,
+      });
     },
     [type, babyId]
   );
@@ -193,6 +270,7 @@ export function useTimer(
       endTimeRef.current = null;
       originalStartTimeRef.current = now;
       timelineRef.current = [{ event: "started", at: now.toISOString() }];
+      bankedSideRef.current = NO_SIDE_SECONDS;
       persist({
         originalStartTimeISO: now.toISOString(),
         startTimeISO: now.toISOString(),
@@ -227,6 +305,10 @@ export function useTimer(
       endTimeRef.current = null;
       originalStartTimeRef.current = original;
       timelineRef.current = [{ event: "started", at: original.toISOString() }];
+      // The server lock records only which side is current, not the switches
+      // behind it, so an adopted session's split starts from what this device
+      // can actually know: all of it on the side it's running now.
+      bankedSideRef.current = NO_SIDE_SECONDS;
       persist({
         originalStartTimeISO: original.toISOString(),
         startTimeISO: original.toISOString(),
@@ -296,9 +378,10 @@ export function useTimer(
    *
    * Babies routinely switch breast partway through, and the alternative —
    * finishing and starting again — splits one feed into two entries and loses
-   * the real total. The elapsed time and the original start are untouched; only
-   * the side recorded on the saved log changes, with a marker in the timeline so
-   * the side recorded on the saved log changes.
+   * the real total. The elapsed time and the original start are untouched; the
+   * time spent on the side being left is banked, so the saved log can say
+   * "18m · 7m left, 11m right" rather than naming only whichever side it
+   * happened to end on.
    *
    * No timeline event is written: the timeline is the pause/resume record the
    * history view draws, and inventing an entry for it would show a break in a
@@ -307,6 +390,16 @@ export function useTimer(
   const switchSide = useCallback(
     (side: "left" | "right") => {
       if (!startTime || !babyId || side === activeSide) return;
+      // Close out the running side's segment before the switch takes effect:
+      // resolveSideSeconds credits unaccounted time to whichever side is
+      // active, so this has to be banked while that's still the old one.
+      if (activeSide) {
+        bankedSideRef.current = resolveSideSeconds(
+          bankedSideRef.current,
+          activeSide,
+          elapsed
+        ) ?? bankedSideRef.current;
+      }
       setActiveSide(side);
       persist({
         originalStartTimeISO: (
@@ -322,7 +415,7 @@ export function useTimer(
         timeline: timelineRef.current,
       });
     },
-    [startTime, activeSide, paused, babyId, persist]
+    [startTime, activeSide, paused, elapsed, babyId, persist]
   );
 
   // Nudge the running/paused timer's start by deltaSeconds (positive = earlier,
@@ -423,6 +516,7 @@ export function useTimer(
     endTimeRef.current = null;
     originalStartTimeRef.current = null;
     timelineRef.current = [];
+    bankedSideRef.current = NO_SIDE_SECONDS;
   }, [type, babyId]);
 
   const getOriginalStartTime = useCallback(
@@ -431,6 +525,22 @@ export function useTimer(
   );
   const getEndTime = useCallback(() => endTimeRef.current, []);
   const getTimeline = useCallback(() => timelineRef.current, []);
+
+  // Derived rather than stored, so it stays correct through every tick,
+  // pause and adjustment without any of them having to maintain it.
+  const sideSeconds = resolveSideSeconds(
+    bankedSideRef.current,
+    activeSide,
+    elapsed
+  );
+  const getSideSeconds = useCallback(
+    () => resolveSideSeconds(bankedSideRef.current, activeSide, elapsed),
+    [activeSide, elapsed]
+  );
+  // A single-sided feed needs no breakdown — "12m, all on the left" is just
+  // the side the row already shows.
+  const usedBothSides =
+    !!sideSeconds && sideSeconds.left > 0 && sideSeconds.right > 0;
 
   const isActive = !!startTime && !showComment && !showDiaperStatus;
   const isRunning = isActive && !paused;
@@ -449,6 +559,9 @@ export function useTimer(
     handleStop,
     handleCancel,
     switchSide,
+    sideSeconds,
+    usedBothSides,
+    getSideSeconds,
     adjustStart,
     showComment,
     showDiaperStatus,

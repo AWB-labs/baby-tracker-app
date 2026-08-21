@@ -10,7 +10,11 @@ import {
 } from "react-native";
 import type { LogEntry } from "../api/logs";
 import { formatTime, formatDateLabel } from "../utils/formatTime";
-import { formatDuration, formatGapLabel } from "../utils/formatDuration";
+import {
+  formatDuration,
+  formatGapLabel,
+  formatSideSplit,
+} from "../utils/formatDuration";
 import { dayOffset, shortDate } from "../lib/dayMath";
 import { isInstantLog } from "../lib/activities";
 import { useTheme } from "../design/ThemeProvider";
@@ -186,6 +190,17 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
   const healthEmphasis = !!emphasizeHealth && log.type === "health";
   const title = healthEmphasis ? conditionLabel ?? label : label;
 
+  const sideSplit = formatSideSplit(log.leftMinutes, log.rightMinutes);
+  /*
+   * "L", "R", or "L+R" for a feed that used both.
+   *
+   * `side` alone records where a two-sided session *ended*, so leading with
+   * it would quietly misreport a feed that spent most of itself on the other
+   * breast. Deliberately not "L→R": only the two totals are stored, never
+   * their order, so any arrow would be inventing a sequence.
+   */
+  const sideLabel = !log.side ? null : sideSplit ? "L+R" : log.side === "left" ? "L" : "R";
+
   return (
     <View style={[styles.row, { backgroundColor: t.surface }]}>
       {/* The website's round emoji chip, tinted per activity. */}
@@ -203,9 +218,9 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
         <View style={styles.titleRow}>
           <Text variant="bodyStrong" numberOfLines={1} style={styles.title}>
             {title}
-            {log.side ? (
+            {sideLabel ? (
               <Text variant="subhead" style={{ color: tone.text }}>
-                {"  "}({log.side === "left" ? "L" : "R"})
+                {"  "}({sideLabel})
               </Text>
             ) : log.sleepKind === "nap" || log.sleepKind === "night" ? (
               <Text variant="subhead" style={{ color: tone.text }}>
@@ -240,6 +255,14 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
             {log.durationMinutes != null && log.durationMinutes > 0 && (
               <Pill bg={tone.soft} fg={tone.text}>
                 {formatDuration(log.durationMinutes)}
+              </Pill>
+            )}
+            {/* Immediately after the duration it breaks down, in a quieter
+                fill so it reads as detail on that number rather than a
+                second, competing one. */}
+            {sideSplit && (
+              <Pill bg={t.surfaceAlt} fg={t.textMuted}>
+                {sideSplit}
               </Pill>
             )}
           </View>

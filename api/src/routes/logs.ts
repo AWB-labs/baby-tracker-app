@@ -16,6 +16,8 @@ const LOG_SELECT = {
   id: true,
   type: true,
   side: true,
+  leftMinutes: true,
+  rightMinutes: true,
   amountMl: true,
   diaperStatus: true,
   sleepKind: true,
@@ -67,6 +69,8 @@ const createLogSchema = z
       "medicine",
     ]),
     side: z.enum(["left", "right"]).nullable().optional(),
+    leftMinutes: z.number().nonnegative().nullable().optional(),
+    rightMinutes: z.number().nonnegative().nullable().optional(),
     amountMl: z.number().positive().nullable().optional(),
     diaperStatus: z
       .enum(["empty", "wet", "dirty", "wet_and_dirty"])
@@ -267,6 +271,8 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
     babyId,
     type,
     side,
+    leftMinutes,
+    rightMinutes,
     amountMl,
     diaperStatus,
     sleepKind,
@@ -326,6 +332,11 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
       babyId,
       type,
       side: side ?? null,
+      // Only a two-sided feed or pump has a split to record. Kept null
+      // rather than zeroed elsewhere, so "no split" stays distinguishable
+      // from "no time on that side".
+      leftMinutes: isFeedOrPump ? leftMinutes ?? null : null,
+      rightMinutes: isFeedOrPump ? rightMinutes ?? null : null,
       amountMl: isFeedOrPump ? amountMl ?? null : null,
       diaperStatus: type === "diaper" ? diaperStatus ?? null : null,
       // Only a sleep has one; storing it on anything else would put a field in
@@ -543,6 +554,24 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
         }
         data.durationMinutes = (finalEnd.getTime() - finalStart.getTime()) / 60000;
       }
+    }
+
+    /*
+     * Keep a per-side split summing to the duration it belongs to.
+     *
+     * Correcting the times of a feed that switched sides would otherwise
+     * leave "7m left, 11m right" sitting under a total that is no longer
+     * 18m. The split is rescaled rather than reassigned because the stored
+     * data is two totals, not an ordered list of segments — nothing here
+     * knows which side the corrected minutes were actually spent on, so
+     * holding the ratio is the most it can honestly claim.
+     */
+    const nextDuration = data.durationMinutes as number | undefined;
+    const splitTotal = (existing.leftMinutes ?? 0) + (existing.rightMinutes ?? 0);
+    if (nextDuration !== undefined && splitTotal > 0) {
+      const scale = nextDuration / splitTotal;
+      data.leftMinutes = (existing.leftMinutes ?? 0) * scale;
+      data.rightMinutes = (existing.rightMinutes ?? 0) * scale;
     }
   }
 

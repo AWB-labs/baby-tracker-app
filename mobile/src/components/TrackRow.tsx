@@ -37,7 +37,7 @@ import {
   type TimerType,
 } from "../api/activeTimers";
 import { formatTimer, formatRelativeTime, formatTime } from "../utils/formatTime";
-import { formatDuration } from "../utils/formatDuration";
+import { formatDuration, formatSideSplit } from "../utils/formatDuration";
 
 const DIAPER_OPTIONS = Object.entries(DIAPER_META).map(([value, meta]) => ({
   value,
@@ -170,6 +170,16 @@ export default function TrackRow({
   // once the finish sheet is open.
   const isBottleFeed = type === "feed" && timer.activeSide == null;
 
+  // "6m L · 4m R" once both breasts have had time on them, for the finish
+  // sheet to confirm before saving. Null the rest of the time — see
+  // formatSideSplit for why a one-sided session shows nothing here.
+  const sideSplitLabel = timer.usedBothSides
+    ? formatSideSplit(
+        (timer.sideSeconds?.left ?? 0) / 60,
+        (timer.sideSeconds?.right ?? 0) / 60
+      )
+    : null;
+
   const reset = useCallback(() => {
     setNote("");
     setDiaperStatus(null);
@@ -254,10 +264,17 @@ export default function TrackRow({
 
     setSaving(true);
     try {
+      // Only when both breasts were actually used: a single-sided session's
+      // `side` already says all there is to say, and sending "12m and 0m"
+      // would turn that into a split it never had.
+      const split = timer.usedBothSides ? timer.getSideSeconds() : null;
+
       await createLog({
         babyId,
         type,
         side: timer.activeSide,
+        leftMinutes: split ? split.left / 60 : null,
+        rightMinutes: split ? split.right / 60 : null,
         diaperStatus: type === "diaper" ? diaperStatus : null,
         sleepKind: type === "sleep" ? sleepKind : null,
         // A finished pump — or a bottle feed, timed the same way — is
@@ -427,8 +444,15 @@ export default function TrackRow({
     }
     const rel = formatRelativeTime(lastLog.startTime);
     if (type === "feed" || type === "pump") {
+      // "L+R" when it switched — see the same reasoning in LogsList.
       const side =
-        lastLog.side === "left" ? "L" : lastLog.side === "right" ? "R" : null;
+        lastLog.leftMinutes != null && lastLog.rightMinutes != null
+          ? "L+R"
+          : lastLog.side === "left"
+            ? "L"
+            : lastLog.side === "right"
+              ? "R"
+              : null;
       const amt =
         lastLog.amountMl != null ? units.formatVolume(lastLog.amountMl) : null;
       return [rel, side ?? amt].filter(Boolean).join(" · ");
@@ -485,11 +509,17 @@ export default function TrackRow({
           )}
 
           {/* Babies swap breast mid-feed constantly; the running session just
-              moves across rather than splitting into two entries. */}
+              moves across rather than splitting into two entries. Each button
+              carries its own running total, so the split being recorded is
+              visible while it's still being decided — and "which side is
+              owed more" is answerable at a glance, mid-feed, which is when
+              it's actually asked. */}
           {config.hasSides && timer.activeSide && (
             <View style={styles.switchRow}>
               {(["left", "right"] as const).map((side) => {
                 const current = timer.activeSide === side;
+                const sideSeconds = timer.sideSeconds?.[side] ?? 0;
+                const sideLabel = side === "left" ? "Left" : "Right";
                 return (
                   <Pressable
                     key={side}
@@ -499,8 +529,12 @@ export default function TrackRow({
                     accessibilityState={{ selected: current }}
                     accessibilityLabel={
                       current
-                        ? `Currently on the ${side}`
-                        : `Switch to the ${side}`
+                        ? `Currently on the ${side}, ${formatTimer(sideSeconds)} so far`
+                        : `Switch to the ${side}${
+                            sideSeconds > 0
+                              ? `, ${formatTimer(sideSeconds)} so far`
+                              : ""
+                          }`
                     }
                     style={({ pressed }) => [
                       styles.switchBtn,
@@ -515,8 +549,20 @@ export default function TrackRow({
                       variant="subheadStrong"
                       style={{ color: current ? tone.text : t.textSubtle }}
                     >
-                      {side === "left" ? "Left" : "Right"}
+                      {sideLabel}
                     </Text>
+                    {/* Hidden until this side has actually had time on it, so
+                        a feed that never switches looks exactly as it did
+                        before rather than growing a permanent "00:00". */}
+                    {sideSeconds > 0 && (
+                      <Text
+                        variant="caption"
+                        tabular
+                        style={{ color: current ? tone.text : t.textSubtle }}
+                      >
+                        {formatTimer(sideSeconds)}
+                      </Text>
+                    )}
                   </Pressable>
                 );
               })}
@@ -608,6 +654,7 @@ export default function TrackRow({
           diaperStatus={diaperStatus}
           isBottleFeed={isBottleFeed}
           elapsed={timer.elapsed}
+          sideSplitLabel={sideSplitLabel}
           amount={amount}
           amountValid={amountValid}
           note={note}
@@ -747,6 +794,7 @@ export default function TrackRow({
         diaperStatus={diaperStatus}
         isBottleFeed={isBottleFeed}
         elapsed={timer.elapsed}
+        sideSplitLabel={sideSplitLabel}
         amount={amount}
         amountValid={amountValid}
         note={note}
@@ -835,6 +883,7 @@ function TrackSheet({
   diaperStatus,
   isBottleFeed,
   elapsed,
+  sideSplitLabel,
   amount,
   amountValid,
   note,
@@ -858,6 +907,8 @@ function TrackSheet({
    *  as breastfeeding — so finishing asks for the amount, not a note. */
   isBottleFeed: boolean;
   elapsed: number;
+  /** "6m L · 4m R" when both breasts were used, else null. */
+  sideSplitLabel: string | null;
   amount: string;
   amountValid: boolean;
   note: string;
@@ -883,7 +934,9 @@ function TrackSheet({
           ? "Tap one to continue"
           : type === "diaper"
             ? DIAPER_META[diaperStatus ?? ""]?.label
-            : `${formatTimer(elapsed)} elapsed`
+            : sideSplitLabel
+              ? `${formatTimer(elapsed)} elapsed · ${sideSplitLabel}`
+              : `${formatTimer(elapsed)} elapsed`
       }
       footer={
         shown === "status" ? undefined : (
@@ -1078,11 +1131,16 @@ const styles = StyleSheet.create({
     gap: space.sm,
     marginBottom: space.md,
   },
+  // A fixed height, not one that grows with the per-side total underneath:
+  // the active side starts accruing immediately while the other stays blank
+  // until it's switched to, so sizing to content would leave the two buttons
+  // mismatched and pop the row taller a second into every feed.
   switchBtn: {
     alignItems: "center",
     justifyContent: "center",
+    gap: 1,
     minWidth: 104,
-    height: 40,
+    height: 52,
     borderRadius: radius.pill,
     borderWidth: 2,
   },

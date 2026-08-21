@@ -9,6 +9,13 @@ export interface LogEntry {
   id: number;
   type: string;
   side: string | null;
+  /**
+   * Minutes on each breast, when a feed or pump switched sides mid session.
+   * Both null when it stayed on one side, and on entries predating per-side
+   * timing — "no split" means unknown, never zero.
+   */
+  leftMinutes: number | null;
+  rightMinutes: number | null;
   amountMl: number | null;
   diaperStatus: string | null;
   /** "nap" | "night" on a sleep. Null elsewhere, and on sleeps predating it. */
@@ -60,6 +67,8 @@ export interface CreateLogInput {
   babyId: number;
   type: string;
   side?: string | null;
+  leftMinutes?: number | null;
+  rightMinutes?: number | null;
   amountMl?: number | null;
   diaperStatus?: string | null;
   sleepKind?: "nap" | "night" | null;

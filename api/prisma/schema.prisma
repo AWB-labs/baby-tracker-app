@@ -280,6 +280,12 @@ model ActivityLog {
   profileId           Int?
   type                String // feed|pump|sleep|diaper|shower|vitamin|nailcut|growth|health
   side                String? // left|right
+  /// Minutes spent on each breast, when a feed or pump switched sides mid
+  /// session. Both null on one that stayed on a single side (`side` alone
+  /// says everything there) and on every entry predating per-side timing —
+  /// so a reader must treat "no split" as unknown, never as zero.
+  leftMinutes         Float?
+  rightMinutes        Float?
   amountMl            Float? // bottle feed / pump volume
   diaperStatus        String? // empty|wet|dirty|wet_and_dirty
   weightKg            Float?

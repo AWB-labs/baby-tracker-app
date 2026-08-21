@@ -15,6 +15,7 @@ import { updateLog, deleteLog, type LogEntry, type UpdateLogInput } from "../api
 import { isInstantLog } from "../lib/activities";
 import { HEALTH_CONDITIONS, type HealthCondition } from "../lib/health";
 import { getErrorMessage } from "../lib/errors";
+import { formatSideSplit } from "../utils/formatDuration";
 import { Text, Emoji, Button, IconButton, Input, Field, Sheet, ConfirmDialog } from "./ui";
 import TimeField from "./TimeField";
 import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
@@ -368,7 +369,22 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
       )}
 
       {editsSide && (
-        <Field label="Side">
+        <Field
+          label="Side"
+          // Surfaced read-only: this picker sets which breast the entry is
+          // filed under, and without the recorded split shown next to it,
+          // a feed listed as "L+R" would look like it disagreed with the
+          // single side selected here. The split itself is only ever
+          // measured by a running timer, so there's nothing to hand-edit.
+          helper={
+            formatSideSplit(log.leftMinutes, log.rightMinutes)
+              ? `Timed across both: ${formatSideSplit(
+                  log.leftMinutes,
+                  log.rightMinutes
+                )}`
+              : undefined
+          }
+        >
           <View style={styles.tileGrid}>
             {(["left", "right"] as const).map((value) => {
               const selected = side === value;

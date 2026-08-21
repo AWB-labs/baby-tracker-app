@@ -17,6 +17,28 @@ export function formatMinutes(mins: number): string {
   return `${m}m`;
 }
 
+/**
+ * "6m L · 4m R" for a feed or pump that switched breasts, or null when there
+ * is no split worth showing.
+ *
+ * Null covers three different cases on purpose — no per-side timing recorded
+ * (every entry predating the feature), and a session that only ever ran on
+ * one side. In all of them the entry's own `side` already says everything a
+ * breakdown would, and printing "12m L · 0m R" beside it would read as a
+ * measurement rather than the absence of one.
+ *
+ * Always left-then-right rather than in the order they happened: only the two
+ * totals are stored, so any claim about which came first would be invented.
+ */
+export function formatSideSplit(
+  leftMinutes: number | null | undefined,
+  rightMinutes: number | null | undefined
+): string | null {
+  if (leftMinutes == null || rightMinutes == null) return null;
+  if (leftMinutes <= 0 || rightMinutes <= 0) return null;
+  return `${formatDuration(leftMinutes)} L · ${formatDuration(rightMinutes)} R`;
+}
+
 export function formatGapLabel(minutes: number): string {
   if (minutes < 60) return `${Math.round(minutes)}m`;
   const h = Math.floor(minutes / 60);

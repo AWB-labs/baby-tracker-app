@@ -93,8 +93,16 @@ export default function Snapshot({
   const lastDiaper = useMemo(() => latestOfType(logs, "diaper"), [logs]);
   const today = useMemo(() => summarise(logs), [logs]);
 
+  // "Both" when the feed switched breasts — `side` alone records only where
+  // it ended, so it would under-report a feed mostly spent on the other one.
   const lastFeedSide =
-    lastFeed?.side === "left" ? "Left" : lastFeed?.side === "right" ? "Right" : null;
+    lastFeed?.leftMinutes != null && lastFeed?.rightMinutes != null
+      ? "Both"
+      : lastFeed?.side === "left"
+        ? "Left"
+        : lastFeed?.side === "right"
+          ? "Right"
+          : null;
   const diaperMeta = lastDiaper?.diaperStatus
     ? DIAPER_META[lastDiaper.diaperStatus]
     : null;
