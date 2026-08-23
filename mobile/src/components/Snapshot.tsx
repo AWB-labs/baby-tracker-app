@@ -47,6 +47,23 @@ interface Props {
  */
 const LOW_STOCK_AT = 6;
 
+/**
+ * Diaper status, shortened for the snapshot card only.
+ *
+ * "Wet & Dirty" alongside a timestamp and two emoji overruns a card that is
+ * half the screen wide, and the ellipsis lands mid-phrase — "Wet &…" reads as
+ * though the app doesn't know the rest. "Both" is what the feed card above
+ * already says when a feed used both sides, so the word is established on
+ * this exact grid, and the two emoji beside it spell out which both.
+ *
+ * Deliberately local rather than a change to DIAPER_META: the pickers and the
+ * activity list have the room, and "Both" on its own in a list of options
+ * would be a worse label than the full phrase.
+ */
+const SNAPSHOT_DIAPER_LABEL: Record<string, string> = {
+  wet_and_dirty: "Both",
+};
+
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
   let latest: LogEntry | null = null;
   for (const log of logs) {
@@ -220,7 +237,12 @@ export default function Snapshot({
           lastDiaper
             ? [
                 formatTime(lastDiaper.startTime),
-                diaperMeta ? `${diaperMeta.emoji} ${diaperMeta.label}` : null,
+                diaperMeta
+                  ? `${diaperMeta.emoji} ${
+                      SNAPSHOT_DIAPER_LABEL[lastDiaper.diaperStatus ?? ""] ??
+                      diaperMeta.label
+                    }`
+                  : null,
               ]
                 .filter(Boolean)
                 .join(" · ")
