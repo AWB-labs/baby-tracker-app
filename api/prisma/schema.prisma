@@ -126,6 +126,11 @@ model Baby {
   /// so this is the number itself, moved directly by a restock or a use
   /// rather than computed from history each time it's read.
   diaperStockCount        Int       @default(0)
+  /// Which nappy size this baby is in — "Newborn", "1" … "7", or null before
+  /// anyone has said. Free text rather than an enum so a brand that numbers
+  /// its packs differently doesn't need a migration; the app offers a fixed
+  /// list, and this column simply stores whatever was chosen.
+  diaperSize              String?
 
   owner        Account       @relation("BabyOwner", fields: [ownerAccountId], references: [id], onDelete: Cascade)
   members      BabyMember[]

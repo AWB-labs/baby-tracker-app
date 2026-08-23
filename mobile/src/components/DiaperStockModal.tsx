@@ -9,7 +9,7 @@ import {
   Input,
   Button,
   Chip,
-  ChipRow,
+  ChipWrap,
   Skeleton,
 } from "./ui";
 import { fetchLogs } from "../api/logs";
@@ -25,8 +25,18 @@ const RATE_WINDOW_DAYS = 7;
 const RATE_FETCH_LIMIT = 200;
 const DAY_MS = 86_400_000;
 
-/** The sizes packs actually come in, so restocking is one tap rather than typing. */
-const QUICK_ADDS = [10, 24, 50] as const;
+/** The pack counts on the shelf, so restocking is one tap rather than typing. */
+const QUICK_ADDS = [36, 62, 90] as const;
+
+/**
+ * The sizes offered. Stored as free text (see the column comment in
+ * schema.prisma), so a baby already on a size that isn't listed keeps it —
+ * the chips just won't show one as selected.
+ */
+const SIZES = ["Newborn", "1", "2", "3", "4", "5", "6", "7"] as const;
+
+/** Which panel the sheet is showing: the totals, or a field to type into. */
+type Mode = "view" | "add" | "set";
 
 interface Props {
   visible: boolean;
@@ -35,14 +45,18 @@ interface Props {
   babyName: string;
   /** Current count — see useDiaperStock. */
   count: number | null;
+  /** The size this baby is in, or null before anyone has said. */
+  size: string | null;
   /** Move the count relatively, for "used one" and "bought a pack". */
-  onAdjust: (delta: number) => Promise<number>;
+  onAdjust: (delta: number, size?: string) => Promise<number>;
   /** Set it outright, for a hand recount. */
   onCorrect: (count: number) => Promise<number>;
+  /** Change the size without touching the count. */
+  onChangeSize: (size: string | null) => Promise<void>;
 }
 
 /**
- * What's on hand, and every way of changing it.
+ * What's on hand, which size, and every way of changing it.
  *
  * There is no stock ledger to list — `diaperStockCount` is a single number on
  * the baby, moved by a change logged with "use one from stock" ticked and by
@@ -57,8 +71,10 @@ export default function DiaperStockModal({
   babyId,
   babyName,
   count,
+  size,
   onAdjust,
   onCorrect,
+  onChangeSize,
 }: Props) {
   const t = useTheme();
   const toast = useToast();
@@ -66,10 +82,10 @@ export default function DiaperStockModal({
   const [perDay, setPerDay] = useState<number | null>(null);
   const [loadingRate, setLoadingRate] = useState(false);
 
-  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState<Mode>("view");
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
-  /** Guards the ± buttons so a fast double-tap can't queue two writes. */
+  /** Guards every write so a fast double-tap can't queue two of them. */
   const [busy, setBusy] = useState(false);
 
   const loadRate = useCallback(async () => {
@@ -97,7 +113,8 @@ export default function DiaperStockModal({
   useEffect(() => {
     if (visible) {
       loadRate();
-      setEditing(false);
+      setMode("view");
+      setDraft("");
     }
   }, [visible, loadRate]);
 
@@ -131,21 +148,40 @@ export default function DiaperStockModal({
     }
   };
 
-  const openEdit = () => {
-    setDraft(String(current));
-    setEditing(true);
+  const pickSize = async (next: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      // Tapping the size already on is how you clear it, so a size chosen by
+      // mistake doesn't have to stay for want of an "unset" control.
+      await onChangeSize(next === size ? null : next);
+    } catch (err) {
+      toast.showError(err);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleSave = async () => {
-    const next = parseInt(draft.trim(), 10);
-    if (isNaN(next) || next < 0) {
-      toast.error("Enter a whole number, zero or more.");
+    const value = parseInt(draft.trim(), 10);
+    if (isNaN(value) || value < (mode === "add" ? 1 : 0)) {
+      toast.error(
+        mode === "add"
+          ? "Enter how many you're adding — one or more."
+          : "Enter a whole number, zero or more."
+      );
       return;
     }
     setSaving(true);
     try {
-      await onCorrect(next);
-      setEditing(false);
+      if (mode === "add") {
+        await onAdjust(value);
+        toast.success(`Added ${value} to the pile.`);
+      } else {
+        await onCorrect(value);
+      }
+      setMode("view");
+      setDraft("");
     } catch (err) {
       toast.showError(err);
     } finally {
@@ -154,6 +190,7 @@ export default function DiaperStockModal({
   };
 
   const daysLeft = perDay && perDay > 0 ? current / perDay : null;
+  const editing = mode !== "view";
 
   return (
     <Sheet
@@ -161,9 +198,11 @@ export default function DiaperStockModal({
       onClose={onClose}
       title="Diaper stock"
       subtitle={
-        editing
-          ? "Sets the count outright — use this after a recount, not for a single change."
-          : `What's left in ${babyName}'s pile.`
+        mode === "add"
+          ? "Adds to what's already there."
+          : mode === "set"
+            ? "Sets the count outright — use this after a recount, not for a single change."
+            : `What's left in ${babyName}'s pile.`
       }
       footer={
         editing ? (
@@ -171,11 +210,14 @@ export default function DiaperStockModal({
             <Button
               label="Cancel"
               variant="ghost"
-              onPress={() => setEditing(false)}
+              onPress={() => {
+                setMode("view");
+                setDraft("");
+              }}
               style={styles.flex}
             />
             <Button
-              label="Save"
+              label={mode === "add" ? "Add" : "Save"}
               variant="primary"
               loading={saving}
               onPress={handleSave}
@@ -197,7 +239,7 @@ export default function DiaperStockModal({
         {editing ? (
           <View style={styles.flex}>
             <Input
-              label="On hand"
+              label={mode === "add" ? "How many to add" : "On hand"}
               value={draft}
               onChangeText={setDraft}
               keyboardType="number-pad"
@@ -224,8 +266,9 @@ export default function DiaperStockModal({
               >
                 {count == null ? "—" : current}
               </Text>
-              <Text variant="caption" tone="muted" center>
+              <Text variant="caption" tone="muted" center numberOfLines={1}>
                 {current === 1 ? "diaper left" : "diapers left"}
+                {size ? ` · size ${size}` : ""}
               </Text>
             </View>
             <IconButton
@@ -243,7 +286,7 @@ export default function DiaperStockModal({
         <>
           <View style={styles.section}>
             <Text variant="subheadStrong">Bought a pack?</Text>
-            <ChipRow>
+            <ChipWrap>
               {QUICK_ADDS.map((n) => (
                 <Chip
                   key={n}
@@ -252,8 +295,44 @@ export default function DiaperStockModal({
                   onPress={() => quickAdd(n)}
                 />
               ))}
-              <Chip label="Set exactly…" icon="edit" onPress={openEdit} />
-            </ChipRow>
+              <Chip
+                label="Other…"
+                disabled={busy}
+                onPress={() => {
+                  setDraft("");
+                  setMode("add");
+                }}
+              />
+              <Chip
+                label="Set exactly…"
+                icon="edit"
+                disabled={busy}
+                onPress={() => {
+                  setDraft(String(current));
+                  setMode("set");
+                }}
+              />
+            </ChipWrap>
+          </View>
+
+          <View style={styles.section}>
+            <Text variant="subheadStrong">Size</Text>
+            <ChipWrap>
+              {SIZES.map((s) => (
+                <Chip
+                  key={s}
+                  label={s}
+                  selected={size === s}
+                  disabled={busy}
+                  onPress={() => pickSize(s)}
+                />
+              ))}
+            </ChipWrap>
+            <Text variant="footnote" tone="subtle">
+              {size
+                ? `Everyone caring for ${babyName} sees this. Tap ${size} again to clear it.`
+                : "Set it once and every caregiver knows what to buy."}
+            </Text>
           </View>
 
           <View style={styles.section}>

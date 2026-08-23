@@ -114,9 +114,11 @@ export default function HomeScreen() {
 
   const {
     count: diaperStock,
+    size: diaperSize,
     refresh: refreshDiaperStock,
     correct: correctDiaperStock,
     adjust: adjustDiaperStockBy,
+    changeSize: changeDiaperSize,
   } = useDiaperStock(activeBaby?.id, dataVersion);
   const [showDiaperStock, setShowDiaperStock] = useState(false);
 
@@ -332,8 +334,10 @@ export default function HomeScreen() {
         babyId={activeBaby.id}
         babyName={activeBaby.name}
         count={diaperStock}
+        size={diaperSize}
         onAdjust={adjustDiaperStockBy}
         onCorrect={correctDiaperStock}
+        onChangeSize={changeDiaperSize}
       />
 
       <RatePromptSheet
