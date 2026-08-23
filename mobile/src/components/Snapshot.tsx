@@ -163,7 +163,7 @@ export default function Snapshot({
     !!onOpenDiaperStock;
 
   /*
-   * Diapers earn a line on the Supplies card only while there is a pile to
+   * Diapers earn a line on the Stock card only while there is a pile to
    * report and the low-stock card isn't already shouting the same number a
    * few inches below. A family that has never restocked sits at zero, and a
    * permanent "0" would cost them the day-so-far card for nothing.
@@ -175,7 +175,7 @@ export default function Snapshot({
     !showLowStock;
 
   // With neither to show, the fourth slot goes back to the day summary.
-  const showSupplies = hasMilk || showStockRow;
+  const showStock = hasMilk || showStockRow;
 
   return (
     <View style={styles.grid}>
@@ -271,9 +271,9 @@ export default function Snapshot({
         onPress={() => onOpenLog("diaper")}
       />
 
-      {/* ------------------------------------------------ today / supplies */}
-      {showSupplies ? (
-        <SuppliesCard
+      {/* --------------------------------------------------- today / stock */}
+      {showStock ? (
+        <StockCard
           pending={pending}
           milk={
             hasMilk
@@ -311,7 +311,7 @@ export default function Snapshot({
           noticed, which is how it ended up as a caption in the first place. */}
       {showLowStock ? (
         <SnapshotCard
-          emoji={diaperStock === 0 ? "🚨" : "🧷"}
+          emoji={diaperStock === 0 ? "🚨" : diaperTone.emoji}
           label="Diaper stock"
           value={
             diaperStock === 0
@@ -340,14 +340,20 @@ export default function Snapshot({
  * Two running totals in the fourth slot: pumped milk, and nappies on hand.
  *
  * Not a `SnapshotCard`, because those are doors — one card, one destination,
- * one chevron. This holds two independent controls, so each row owns its own
+ * one chevron. This holds two independent controls, so each half owns its own
  * tap and the card itself is inert. A single chevron here would promise a
  * place the card doesn't go.
  *
- * Either row can be absent (no pump history, or an empty pile), in which case
- * the other simply has the card to itself.
+ * Side by side rather than stacked, and that is the whole reason for the
+ * shape: two full-height columns split the card down the middle, so each
+ * target is about as tall as the card and impossible to confuse for the
+ * other. Stacked rows put two ~20pt strips a few points apart, which is
+ * exactly the arrangement a thumb gets wrong.
+ *
+ * Either half can be absent (no pump history, or an empty pile), in which
+ * case the other takes the full width and the divider goes with it.
  */
-function SuppliesCard({
+function StockCard({
   milk,
   stock,
   pending = false,
@@ -357,41 +363,52 @@ function SuppliesCard({
   pending?: boolean;
 }) {
   const t = useTheme();
+  // The same glyph the diaper card and Track row use, from one definition.
+  const diaperEmoji = useActivityTone("diaper").emoji;
 
   return (
     <Card style={styles.card}>
       <View style={styles.labelRow}>
         <Emoji size={14}>🧺</Emoji>
-        <Text variant="caption" tone="muted" numberOfLines={1}>
-          Supplies
+        <Text variant="caption" tone="muted" numberOfLines={1} style={styles.flex}>
+          Stock
         </Text>
+        {/* The affordance for both halves at once — a pencil in each column
+            would cost the width the numbers need. */}
+        <Icon name="edit" size="xs" color={t.textSubtle} />
       </View>
 
-      {milk ? (
-        <SupplyRow
-          emoji="🍼"
-          value={pending ? "—" : milk.value}
-          color={t.accentText}
-          accessibilityLabel={`${milk.value} of pumped milk available. Opens the milk supply sheet to correct it.`}
-          onPress={milk.onPress}
-        />
-      ) : null}
+      <View style={styles.stockRow}>
+        {milk ? (
+          <StockStat
+            emoji="🍼"
+            value={pending ? "—" : milk.value}
+            color={t.accentText}
+            accessibilityLabel={`${milk.value} of pumped milk available. Opens the milk supply sheet to correct it.`}
+            onPress={milk.onPress}
+          />
+        ) : null}
 
-      {stock ? (
-        <SupplyRow
-          emoji="🧷"
-          value={pending ? "—" : String(stock.count)}
-          color={t.text}
-          accessibilityLabel={`${stock.count} diapers in stock. Opens the diaper stock sheet.`}
-          onPress={stock.onPress}
-        />
-      ) : null}
+        {milk && stock ? (
+          <View style={[styles.stockDivider, { backgroundColor: t.border }]} />
+        ) : null}
+
+        {stock ? (
+          <StockStat
+            emoji={diaperEmoji}
+            value={pending ? "—" : String(stock.count)}
+            color={t.text}
+            accessibilityLabel={`${stock.count} diapers in stock. Opens the diaper stock sheet.`}
+            onPress={stock.onPress}
+          />
+        ) : null}
+      </View>
     </Card>
   );
 }
 
-/** One tappable total. The pencil is the whole affordance — see SuppliesCard. */
-function SupplyRow({
+/** One tappable total, filling its half of the card top to bottom. */
+function StockStat({
   emoji,
   value,
   color,
@@ -404,25 +421,27 @@ function SupplyRow({
   accessibilityLabel: string;
   onPress: () => void;
 }) {
-  const t = useTheme();
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={4}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [styles.supplyRow, { opacity: pressed ? 0.6 : 1 }]}
+      style={({ pressed }) => [
+        styles.stockStat,
+        { opacity: pressed ? 0.5 : 1 },
+      ]}
     >
-      <Emoji size={14}>{emoji}</Emoji>
+      <Emoji size={15}>{emoji}</Emoji>
       <Text
         variant="subheadStrong"
         tabular
         numberOfLines={1}
-        style={[styles.supplyValue, { color }]}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+        style={{ color }}
       >
         {value}
       </Text>
-      <Icon name="edit" size="xs" color={t.textSubtle} />
     </Pressable>
   );
 }
@@ -499,10 +518,20 @@ function SnapshotCard({
 
 
 const styles = StyleSheet.create({
-  // Each total is its own control: emoji, the number taking the slack, and
-  // the pencil pinned to the right so both rows' pencils line up.
-  supplyRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
-  supplyValue: { flex: 1 },
+  flex: { flex: 1 },
+  // The two halves, and the hairline that makes the split visible rather
+  // than merely implied by where the taps happen to land.
+  stockRow: { flexDirection: "row", alignItems: "stretch", flex: 1 },
+  stockStat: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.xxs,
+    // Vertical padding, not height: the row stretches to whatever the card
+    // gives it, and the taller the target the harder it is to mis-hit.
+    paddingVertical: space.xs,
+  },
+  stockDivider: { width: StyleSheet.hairlineWidth, marginVertical: space.xxs },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",

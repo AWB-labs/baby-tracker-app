@@ -33,10 +33,10 @@ const QUICK_ADDS = [36, 62, 90] as const;
  * schema.prisma), so a baby already on a size that isn't listed keeps it —
  * the chips just won't show one as selected.
  */
-const SIZES = ["Newborn", "1", "2", "3", "4", "5", "6", "7"] as const;
+const SIZES = ["0", "1", "2", "3", "4", "5", "6", "7"] as const;
 
 /** Which panel the sheet is showing: the totals, or a field to type into. */
-type Mode = "view" | "add" | "set";
+type Mode = "view" | "set";
 
 interface Props {
   visible: boolean;
@@ -164,22 +164,13 @@ export default function DiaperStockModal({
 
   const handleSave = async () => {
     const value = parseInt(draft.trim(), 10);
-    if (isNaN(value) || value < (mode === "add" ? 1 : 0)) {
-      toast.error(
-        mode === "add"
-          ? "Enter how many you're adding — one or more."
-          : "Enter a whole number, zero or more."
-      );
+    if (isNaN(value) || value < 0) {
+      toast.error("Enter a whole number, zero or more.");
       return;
     }
     setSaving(true);
     try {
-      if (mode === "add") {
-        await onAdjust(value);
-        toast.success(`Added ${value} to the pile.`);
-      } else {
-        await onCorrect(value);
-      }
+      await onCorrect(value);
       setMode("view");
       setDraft("");
     } catch (err) {
@@ -198,11 +189,9 @@ export default function DiaperStockModal({
       onClose={onClose}
       title="Diaper stock"
       subtitle={
-        mode === "add"
-          ? "Adds to what's already there."
-          : mode === "set"
-            ? "Sets the count outright — use this after a recount, not for a single change."
-            : `What's left in ${babyName}'s pile.`
+        editing
+          ? "Sets the count outright — what's in the cupboard now, not what you just added."
+          : `What's left in ${babyName}'s pile.`
       }
       footer={
         editing ? (
@@ -217,7 +206,7 @@ export default function DiaperStockModal({
               style={styles.flex}
             />
             <Button
-              label={mode === "add" ? "Add" : "Save"}
+              label="Save"
               variant="primary"
               loading={saving}
               onPress={handleSave}
@@ -239,7 +228,7 @@ export default function DiaperStockModal({
         {editing ? (
           <View style={styles.flex}>
             <Input
-              label={mode === "add" ? "How many to add" : "On hand"}
+              label="How many are there?"
               value={draft}
               onChangeText={setDraft}
               keyboardType="number-pad"
@@ -295,16 +284,11 @@ export default function DiaperStockModal({
                   onPress={() => quickAdd(n)}
                 />
               ))}
+              {/* The one numeric entry on this sheet. It sets the total
+                  rather than adding to it, which is also what makes it the
+                  way to fix a miscount — the +/- above only moves by one. */}
               <Chip
                 label="Other…"
-                disabled={busy}
-                onPress={() => {
-                  setDraft("");
-                  setMode("add");
-                }}
-              />
-              <Chip
-                label="Set exactly…"
                 icon="edit"
                 disabled={busy}
                 onPress={() => {
