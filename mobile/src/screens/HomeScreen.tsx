@@ -34,6 +34,7 @@ import Habits from "../components/Habits";
 import BabySwitcher from "../components/BabySwitcher";
 import ManualEntryModal from "../components/ManualEntryModal";
 import MilkSupplyModal from "../components/MilkSupplyModal";
+import DiaperStockModal from "../components/DiaperStockModal";
 import RatePromptSheet from "../components/RatePromptSheet";
 import { greetingFor, formatBabyAge } from "../lib/greeting";
 import type { LogEntry } from "../api/logs";
@@ -111,10 +112,13 @@ export default function HomeScreen() {
   );
   const [showMilkSupply, setShowMilkSupply] = useState(false);
 
-  const { count: diaperStock, refresh: refreshDiaperStock } = useDiaperStock(
-    activeBaby?.id,
-    dataVersion
-  );
+  const {
+    count: diaperStock,
+    refresh: refreshDiaperStock,
+    correct: correctDiaperStock,
+    adjust: adjustDiaperStockBy,
+  } = useDiaperStock(activeBaby?.id, dataVersion);
+  const [showDiaperStock, setShowDiaperStock] = useState(false);
 
   /**
    * Asked from Home rather than mid-task: this screen is where someone lands
@@ -230,6 +234,7 @@ export default function HomeScreen() {
             milkBalance={milkBalance}
             onOpenMilkBalance={() => setShowMilkSupply(true)}
             diaperStock={diaperStock}
+            onOpenDiaperStock={() => setShowDiaperStock(true)}
           />
         </View>
       </LinearGradient>
@@ -319,6 +324,16 @@ export default function HomeScreen() {
         babyId={activeBaby.id}
         milkBalance={milkBalance}
         onCorrect={correctMilkBalance}
+      />
+
+      <DiaperStockModal
+        visible={showDiaperStock}
+        onClose={() => setShowDiaperStock(false)}
+        babyId={activeBaby.id}
+        babyName={activeBaby.name}
+        count={diaperStock}
+        onAdjust={adjustDiaperStockBy}
+        onCorrect={correctDiaperStock}
       />
 
       <RatePromptSheet

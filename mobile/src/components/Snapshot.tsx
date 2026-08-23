@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useTheme } from "../design/ThemeProvider";
 import { useActivityTone, DIAPER_META } from "../design/activity";
 import { space } from "../design/tokens";
@@ -33,7 +33,19 @@ interface Props {
   /** Nappies on hand — see useDiaperStock. Null while loading or unknown,
    *  in which case the diaper card simply shows no stock line. */
   diaperStock?: number | null;
+  /** Open the stock sheet. Without it the stock line stays a plain caption. */
+  onOpenDiaperStock?: () => void;
 }
+
+/**
+ * At or below this, the count stops being a footnote on the diaper card and
+ * takes a card of its own.
+ *
+ * Six is about a day for a newborn and rather more for an older baby, which
+ * is the right side to err on: the cost of promoting it early is one card,
+ * and the cost of promoting it late is a 3am trip to the shop.
+ */
+const LOW_STOCK_AT = 6;
 
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
   let latest: LogEntry | null = null;
@@ -67,6 +79,7 @@ export default function Snapshot({
   milkBalance,
   onOpenMilkBalance,
   diaperStock,
+  onOpenDiaperStock,
 }: Props) {
   const t = useTheme();
   const units = useUnits();
@@ -125,6 +138,14 @@ export default function Snapshot({
   const availableMl = showMilkBalance
     ? Math.max(0, milkBalance!.balanceMl)
     : 0;
+
+  // Not while the count is still unknown: "0 left" during the first fetch
+  // would be a false alarm, and a loud one.
+  const showLowStock =
+    !pending &&
+    diaperStock != null &&
+    diaperStock <= LOW_STOCK_AT &&
+    !!onOpenDiaperStock;
 
   return (
     <View style={styles.grid}>
@@ -206,18 +227,46 @@ export default function Snapshot({
             : "Tap to see changes"
         }
         // Stock isn't part of "last diaper" so much as it's the only other
-        // fact about diapers worth a glance here — set from the manual-entry
-        // sheet, not this card, so there's nothing to tap in this line alone.
+        // fact about diapers worth a glance here. It is its own target: the
+        // card behind it opens the diaper log, and a number you can read but
+        // not correct was the whole problem with this line before.
+        //
+        // Dropped entirely once the low-stock card is up, which says the same
+        // number louder a few inches below — printing it twice would make
+        // neither of them the thing you look at.
         footer={
-          !pending && diaperStock != null ? (
-            <Text
-              variant="caption"
-              tabular
-              numberOfLines={1}
-              style={{ color: diaperStock > 0 ? t.textSubtle : t.warning }}
+          !pending && diaperStock != null && !showLowStock ? (
+            <Pressable
+              onPress={onOpenDiaperStock}
+              disabled={!onOpenDiaperStock}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={
+                diaperStock > 0
+                  ? `${diaperStock} diapers in stock. Opens the stock sheet.`
+                  : "Out of diapers. Opens the stock sheet."
+              }
+              style={({ pressed }) => [
+                styles.stockLine,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
             >
-              {diaperStock > 0 ? `${diaperStock} in stock` : "Out of stock"}
-            </Text>
+              <Text
+                variant="caption"
+                tabular
+                numberOfLines={1}
+                style={{ color: diaperStock > 0 ? t.textSubtle : t.warning }}
+              >
+                {diaperStock > 0 ? `${diaperStock} in stock` : "Out of stock"}
+              </Text>
+              {onOpenDiaperStock ? (
+                <Icon
+                  name="edit"
+                  size="xs"
+                  color={diaperStock > 0 ? t.textSubtle : t.warning}
+                />
+              ) : null}
+            </Pressable>
           ) : null
         }
         accessibilityLabel={
@@ -261,6 +310,36 @@ export default function Snapshot({
           onPress={onOpenInsights}
         />
       )}
+
+      {/* ------------------------------------------------- running low
+          A fifth card breaks the 2×2 grid, and that is the point: `flexGrow`
+          stretches a lone card across the full width, so this reads as a
+          banner rather than an orphan. It earns that room only while the
+          number is low — a count that is always prominent stops being
+          noticed, which is how it ended up as a caption in the first place. */}
+      {showLowStock ? (
+        <SnapshotCard
+          emoji={diaperStock === 0 ? "🚨" : "🧷"}
+          label="Diaper stock"
+          value={
+            diaperStock === 0
+              ? "You're out"
+              : `${diaperStock} left`
+          }
+          valueColor={diaperStock === 0 ? t.danger : t.warning}
+          sub={
+            diaperStock === 0
+              ? "Tap to add a pack"
+              : "Running low — tap to restock"
+          }
+          accessibilityLabel={
+            diaperStock === 0
+              ? "Out of diapers. Opens the stock sheet to restock."
+              : `Only ${diaperStock} diapers left. Opens the stock sheet to restock.`
+          }
+          onPress={onOpenDiaperStock!}
+        />
+      ) : null}
     </View>
   );
 }
@@ -337,6 +416,9 @@ function SnapshotCard({
 
 
 const styles = StyleSheet.create({
+  // The stock caption is its own control, so it gets a row of its own with
+  // room for the pencil beside the number.
+  stockLine: { flexDirection: "row", alignItems: "center", gap: space.xxs },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",

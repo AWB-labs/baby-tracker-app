@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchDiaperStock, setDiaperStock } from "../api/diaperStock";
+import {
+  adjustDiaperStock,
+  fetchDiaperStock,
+  setDiaperStock,
+} from "../api/diaperStock";
 
 export interface UseDiaperStockResult {
   count: number | null;
@@ -7,6 +11,13 @@ export interface UseDiaperStockResult {
   refresh: () => Promise<void>;
   /** Hand-correct the count to an exact number; updates local state to match. */
   correct: (count: number) => Promise<number>;
+  /**
+   * Move the count relatively. Preferred over `correct` for "used one" and
+   * "bought a pack": the server applies the delta to whatever it holds, so
+   * two caregivers doing this at the same time both land, where two exact
+   * counts would have one silently overwrite the other.
+   */
+  adjust: (delta: number) => Promise<number>;
 }
 
 /**
@@ -48,5 +59,17 @@ export function useDiaperStock(
     [babyId]
   );
 
-  return { count, refresh: load, correct };
+  const adjust = useCallback(
+    async (delta: number) => {
+      if (babyId == null) {
+        throw new Error("No baby selected.");
+      }
+      const updated = await adjustDiaperStock(babyId, delta);
+      setCount(updated);
+      return updated;
+    },
+    [babyId]
+  );
+
+  return { count, refresh: load, correct, adjust };
 }
