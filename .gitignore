@@ -11,3 +11,5 @@ dist/
 # Expo-generated native projects (managed workflow — recreated by `expo prebuild`)
 ios/
 android/
+.vercel
+.env*

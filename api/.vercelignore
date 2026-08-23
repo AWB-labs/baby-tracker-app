@@ -1,0 +1,12 @@
+# Vercel falls back to .gitignore only when it can find one at the upload root.
+# Deploying this folder directly (`vercel` run from api/) puts the repo's
+# .gitignore one level above it, out of reach — without this file the local
+# .env, with the database password and the signing secrets in it, would be
+# uploaded into the deployment. Every value in it belongs in the project's
+# environment variables instead.
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
