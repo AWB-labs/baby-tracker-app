@@ -46,11 +46,14 @@ export interface VaccineMonth {
    */
   overdue: boolean;
   /**
-   * True while the baby hasn't reached this month of age yet — nothing to
-   * record, so the tile is dimmed and disabled rather than inviting a dose to
-   * be logged before it's due. Never true once something's actually recorded
-   * against it, and — like `overdue` — stays false without a known DOB rather
-   * than blocking a family who hasn't set one.
+   * True while this visit is still out of reach — nothing to record, so the
+   * tile is dimmed and disabled rather than inviting a dose to be logged
+   * before it's due. Never true once something's actually recorded against
+   * it, and — like `overdue` — stays false without a known DOB rather than
+   * blocking a family who hasn't set one.
+   *
+   * Required and optional visits open at different moments: see
+   * `unlocksAtMonth`.
    */
   locked: boolean;
 }
@@ -67,6 +70,27 @@ export function ageInMonths(dob: string | null | undefined): number | null {
   // Not a full month until the day-of-month comes round.
   if (now.getDate() < born.getDate()) months -= 1;
   return Math.max(0, months);
+}
+
+/**
+ * The age, in whole months, at which a visit stops being locked.
+ *
+ * A required visit opens when the baby reaches that month, as it always has:
+ * month 4 is for a four-month-old, and offering it earlier would invite a
+ * dose to be recorded against the wrong visit.
+ *
+ * An optional one opens a month sooner — the moment the baby enters that
+ * month of life rather than completes it. These are the catch-up visits, and
+ * clinics give them across the month rather than on its last day, so a family
+ * offered the three-month jab the week their baby turned two months had
+ * nowhere to put it until now. Being early is the normal case for these, so
+ * the tile shouldn't treat it as a mistake.
+ *
+ * `overdue` is deliberately not moved with it: opening a visit sooner says
+ * nothing about when it becomes late.
+ */
+function unlocksAtMonth(month: number): number {
+  return isMandatoryMonth(month) ? month : month - 1;
 }
 
 /**
@@ -90,7 +114,7 @@ export function buildSchedule(
       givenAt: record?.givenAt ?? null,
       notes: record?.notes ?? null,
       overdue: !given && age !== null && age > month,
-      locked: !given && age !== null && age < month,
+      locked: !given && age !== null && age < unlocksAtMonth(month),
     };
   });
 }
