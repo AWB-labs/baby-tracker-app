@@ -295,6 +295,10 @@ export default function HomeScreen() {
               viewerAccountId={account?.id}
               activeTimersSyncedAt={activeTimersSyncedAt}
               onActiveTimersChanged={refreshActiveTimers}
+              // Diaper only — the row ticks "use one from stock" by default
+              // and draws the pile down when the change is saved.
+              diaperStock={type === "diaper" ? diaperStock : null}
+              onDiaperStockChanged={refreshDiaperStock}
             />
           ))}
         </View>

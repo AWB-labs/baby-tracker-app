@@ -19,6 +19,7 @@ import {
   DIAPER_META,
   SLEEP_KIND_META,
 } from "../design/activity";
+import { Icon } from "../design/icons";
 import { Text, Badge, Emoji } from "./ui/primitives";
 import { Card } from "./ui/Card";
 import { Button, IconButton } from "./ui/Button";
@@ -29,6 +30,7 @@ import { useToast } from "./Toast";
 import { useUnits } from "../context/SettingsContext";
 import type { UseTimerResult } from "../hooks/useTimer";
 import { createLog, type LogEntry } from "../api/logs";
+import { adjustDiaperStock } from "../api/diaperStock";
 import {
   startActiveTimer,
   endActiveTimer,
@@ -109,6 +111,11 @@ interface Props {
   /** Ask the screen to refetch active timers right away, instead of waiting
    *  for the next poll — used after a claim, a release, or a lost race. */
   onActiveTimersChanged?: () => void;
+  /** Nappies on hand, shown beside the "use one from stock" tick. Diaper
+   *  rows only; null while unknown, in which case the count isn't stated. */
+  diaperStock?: number | null;
+  /** Tell the screen the count moved, so the cards above refetch it. */
+  onDiaperStockChanged?: () => void;
 }
 
 /**
@@ -140,6 +147,8 @@ export default function TrackRow({
   viewerAccountId,
   activeTimersSyncedAt,
   onActiveTimersChanged,
+  diaperStock,
+  onDiaperStockChanged,
 }: Props) {
   const t = useTheme();
   const tone = useActivityTone(type);
@@ -150,6 +159,14 @@ export default function TrackRow({
 
   const [note, setNote] = useState("");
   const [diaperStatus, setDiaperStatus] = useState<string | null>(null);
+  /*
+   * Whether this change draws one from the pile. On by default because a
+   * nappy that was logged is a nappy that was used — the count only stays
+   * true if the common case needs no thought. Unticked for the ones that
+   * didn't come from the cupboard: a change at the grandparents', a nursery
+   * bag, a sample.
+   */
+  const [useFromStock, setUseFromStock] = useState(true);
   const [amount, setAmount] = useState("");
   /**
    * Nap or night, asked when a sleep is finished.
@@ -185,6 +202,8 @@ export default function TrackRow({
     setDiaperStatus(null);
     setAmount("");
     setSleepKind("nap");
+    // Back on for the next change — the opt-out is per entry, not sticky.
+    setUseFromStock(true);
   }, []);
 
   /**
@@ -288,6 +307,17 @@ export default function TrackRow({
         enteredByName,
         pauseTimeline: timeline.length > 0 ? timeline : null,
       });
+      // Best-effort, and deliberately after the entry itself: the change is
+      // already recorded either way, so a failed stock update must not read
+      // as the entry having failed too. Same reasoning as the manual sheet.
+      if (type === "diaper" && useFromStock) {
+        try {
+          await adjustDiaperStock(babyId, -1);
+          onDiaperStockChanged?.();
+        } catch {
+          // The count just won't reflect this one until corrected by hand.
+        }
+      }
       onLogSaved();
       toast.success(`${label} saved.`);
       reset();
@@ -301,6 +331,7 @@ export default function TrackRow({
   }, [
     babyId, type, timer, diaperStatus, note, amountValid, amountValue, sleepKind,
     isBottleFeed, enteredByName, onLogSaved, toast, label, reset, releaseLock,
+    useFromStock, onDiaperStockChanged,
   ]);
 
   /*
@@ -665,6 +696,9 @@ export default function TrackRow({
             setDiaperStatus(value);
             timer.handleDiaperStatusSelect(value);
           }}
+          useFromStock={useFromStock}
+          onToggleUseFromStock={() => setUseFromStock((v) => !v)}
+          diaperStock={diaperStock}
           onChangeAmount={setAmount}
           onChangeNote={setNote}
           sleepKind={sleepKind}
@@ -805,6 +839,9 @@ export default function TrackRow({
           setDiaperStatus(value);
           timer.handleDiaperStatusSelect(value);
         }}
+        useFromStock={useFromStock}
+        onToggleUseFromStock={() => setUseFromStock((v) => !v)}
+        diaperStock={diaperStock}
         onChangeAmount={setAmount}
         onChangeNote={setNote}
         sleepKind={sleepKind}
@@ -892,6 +929,9 @@ function TrackSheet({
   sleepKind,
   onClose,
   onPickStatus,
+  useFromStock,
+  onToggleUseFromStock,
+  diaperStock,
   onChangeAmount,
   onChangeNote,
   onChangeSleepKind,
@@ -917,6 +957,9 @@ function TrackSheet({
   sleepKind: "nap" | "night";
   onClose: () => void;
   onPickStatus: (value: string) => void;
+  useFromStock: boolean;
+  onToggleUseFromStock: () => void;
+  diaperStock?: number | null;
   onChangeAmount: (value: string) => void;
   onChangeNote: (value: string) => void;
   onChangeSleepKind: (kind: "nap" | "night") => void;
@@ -1049,6 +1092,59 @@ function TrackSheet({
               : null
           }
         />
+      ) : type === "diaper" ? (
+        /* The tick has to live here rather than on the status tiles: those
+           are a one-tap choice that closes itself, with nowhere to put a
+           second decision, and this is the step that already has a Save. */
+        <>
+          <Pressable
+            onPress={onToggleUseFromStock}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: useFromStock }}
+            accessibilityLabel="Use this diaper from stock"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={({ pressed }) => [
+              styles.stockCheckRow,
+              { opacity: pressed ? PRESSED_OPACITY : 1 },
+            ]}
+          >
+            <View
+              style={[
+                styles.checkbox,
+                {
+                  backgroundColor: useFromStock ? t.success : "transparent",
+                  borderColor: useFromStock ? t.success : t.borderStrong,
+                },
+              ]}
+            >
+              {useFromStock && (
+                <Icon name="check" size="xs" color={t.textInverse} strokeWidth={3} />
+              )}
+            </View>
+            <View style={styles.flex}>
+              <Text variant="subhead">Use this diaper from stock</Text>
+              {diaperStock != null && (
+                <Text variant="caption" tone="subtle" tabular>
+                  {diaperStock > 0
+                    ? `${diaperStock} on hand — this leaves ${Math.max(
+                        0,
+                        diaperStock - (useFromStock ? 1 : 0)
+                      )}`
+                    : "None on hand"}
+                </Text>
+              )}
+            </View>
+          </Pressable>
+
+          <Input
+            label="Note"
+            helper="Optional — anything worth remembering about this one."
+            value={note}
+            onChangeText={onChangeNote}
+            placeholder="Leaked, a bit of a rash…"
+            returnKeyType="done"
+          />
+        </>
       ) : (
         <Input
           label="Note"
@@ -1064,6 +1160,17 @@ function TrackSheet({
 }
 
 const styles = StyleSheet.create({
+  // Mirrors the manual-entry sheet's tick, so the same decision looks the
+  // same wherever it is offered.
+  stockCheckRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   flex: { flex: 1 },
   rowCenter: { flexDirection: "row", alignItems: "center", gap: space.sm },
 
