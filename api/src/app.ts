@@ -21,6 +21,7 @@ import profilesRouter from "./routes/profiles";
 import settingsRouter from "./routes/settings";
 import remindersRouter from "./routes/reminders";
 import bagRouter from "./routes/bag";
+import feedbackRouter from "./routes/feedback";
 import internalRouter from "./routes/internal";
 import adminRouter from "./routes/admin";
 import { AppError, friendlyPrismaMessage } from "./lib/httpError";
@@ -78,6 +79,7 @@ app.use("/profiles", profilesRouter);
 app.use("/settings", settingsRouter);
 app.use("/reminders", remindersRouter);
 app.use("/bag-items", bagRouter);
+app.use("/feedback", feedbackRouter);
 app.use("/internal", internalRouter);
 
 /**

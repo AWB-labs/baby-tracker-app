@@ -874,6 +874,63 @@ export default function SettingsScreen() {
             </Card>
           </View>
 
+          {/* ---------- Legal ---------- */}
+          {/* Last section before the two destructive buttons: reference
+              material people look up rarely, and putting it below "Delete my
+              account" would end the screen on a row that isn't an action. */}
+          <View style={styles.section}>
+            <SectionHeader title="Legal" />
+            <Pressable
+              onPress={() => navigation.navigate("Legal", { doc: "privacy" })}
+              accessibilityRole="button"
+              accessibilityLabel="Privacy Policy. Opens the policy."
+              style={({ pressed }) => [
+                styles.navRow,
+                {
+                  backgroundColor: t.surface,
+                  borderColor: t.border,
+                  opacity: pressed ? PRESSED_OPACITY : 1,
+                },
+              ]}
+            >
+              <View style={[styles.avatar, { backgroundColor: t.accentSofter }]}>
+                <Emoji size={18}>🔒</Emoji>
+              </View>
+              <View style={styles.rowBody}>
+                <Text variant="subheadStrong">Privacy Policy</Text>
+                <Text variant="caption" tone="subtle">
+                  What we collect, and what we never do with it
+                </Text>
+              </View>
+              <Icon name="chevronRight" size="md" color={t.textSubtle} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => navigation.navigate("Legal", { doc: "terms" })}
+              accessibilityRole="button"
+              accessibilityLabel="Terms of Use. Opens the terms."
+              style={({ pressed }) => [
+                styles.navRow,
+                {
+                  backgroundColor: t.surface,
+                  borderColor: t.border,
+                  opacity: pressed ? PRESSED_OPACITY : 1,
+                },
+              ]}
+            >
+              <View style={[styles.avatar, { backgroundColor: t.accentSofter }]}>
+                <Emoji size={18}>📋</Emoji>
+              </View>
+              <View style={styles.rowBody}>
+                <Text variant="subheadStrong">Terms of Use</Text>
+                <Text variant="caption" tone="subtle">
+                  How the app may be used — and why it isn't medical advice
+                </Text>
+              </View>
+              <Icon name="chevronRight" size="md" color={t.textSubtle} />
+            </Pressable>
+          </View>
+
           <Button
             label="Sign out"
             icon="logout"

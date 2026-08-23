@@ -19,6 +19,7 @@ import { usePolling } from "../hooks/usePolling";
 import { useTimer } from "../hooks/useTimer";
 import { useMilkBalance } from "../hooks/useMilkBalance";
 import { useDiaperStock } from "../hooks/useDiaperStock";
+import { useRatePrompt } from "../hooks/useRatePrompt";
 import { useActiveTimers } from "../hooks/useActiveTimers";
 import {
   Screen,
@@ -33,6 +34,7 @@ import Habits from "../components/Habits";
 import BabySwitcher from "../components/BabySwitcher";
 import ManualEntryModal from "../components/ManualEntryModal";
 import MilkSupplyModal from "../components/MilkSupplyModal";
+import RatePromptSheet from "../components/RatePromptSheet";
 import { greetingFor, formatBabyAge } from "../lib/greeting";
 import type { LogEntry } from "../api/logs";
 import type { TabParamList } from "../navigation/AppTabs";
@@ -113,6 +115,14 @@ export default function HomeScreen() {
     activeBaby?.id,
     dataVersion
   );
+
+  /**
+   * Asked from Home rather than mid-task: this screen is where someone lands
+   * after logging something, which is the "they just got value out of it"
+   * moment the prompt is meant to follow. `logs.length` is Home's already
+   * fetched page — see the threshold note in useRatePrompt.
+   */
+  const ratePrompt = useRatePrompt(logs.length);
 
   // Another caregiver may be logging at the same time, so poll to stay in
   // sync — but only while this tab is on screen and the app is foregrounded.
@@ -309,6 +319,12 @@ export default function HomeScreen() {
         babyId={activeBaby.id}
         milkBalance={milkBalance}
         onCorrect={correctMilkBalance}
+      />
+
+      <RatePromptSheet
+        visible={ratePrompt.visible}
+        onDismiss={ratePrompt.dismiss}
+        onRated={ratePrompt.markRated}
       />
     </View>
   );

@@ -16,6 +16,7 @@ import HealthScreen from "../screens/HealthScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import RemindersScreen from "../screens/RemindersScreen";
 import BagScreen from "../screens/BagScreen";
+import LegalScreen from "../screens/LegalScreen";
 
 /**
  * Five destinations, the platform maximum for a bottom bar.
@@ -39,6 +40,8 @@ export type AccountStackParamList = {
   AccountHome: undefined;
   Reminders: undefined;
   Bag: undefined;
+  /** One screen, two documents — see screens/LegalScreen.tsx. */
+  Legal: { doc: "privacy" | "terms" };
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -55,6 +58,7 @@ function AccountNavigator() {
       <AccountStack.Screen name="AccountHome" component={SettingsScreen} />
       <AccountStack.Screen name="Reminders" component={RemindersScreen} />
       <AccountStack.Screen name="Bag" component={BagScreen} />
+      <AccountStack.Screen name="Legal" component={LegalScreen} />
     </AccountStack.Navigator>
   );
 }

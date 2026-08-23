@@ -100,4 +100,5 @@ export const api = {
   engagement: (params) => request(`/engagement${qs(params)}`),
   live: (params) => request(`/live${qs(params)}`),
   system: () => request("/system"),
+  feedback: (params) => request(`/feedback${qs(params)}`),
 };

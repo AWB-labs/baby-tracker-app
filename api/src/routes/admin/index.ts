@@ -7,6 +7,7 @@ import babiesRouter from "./babies";
 import engagementRouter from "./engagement";
 import liveRouter from "./live";
 import systemRouter from "./system";
+import feedbackRouter from "./feedback";
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use("/babies", babiesRouter);
 router.use("/engagement", engagementRouter);
 router.use("/live", liveRouter);
 router.use("/system", systemRouter);
+router.use("/feedback", feedbackRouter);
 
 export default router;

@@ -1307,3 +1307,46 @@ tbody tr.clickable:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------------------------------------------------------------- feedback */
+/* A reading list, not a table: the message is the content, and it needs the
+   full column width to stay legible. */
+.feedback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 18px 18px;
+}
+
+.feedback-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feedback-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Whatever someone typed, wrapped as written — a pasted newline is part of
+   what they said, and collapsing it loses the shape of a bug report. */
+.feedback-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.feedback-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 0.85em;
+}

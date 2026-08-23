@@ -52,6 +52,7 @@ model Account {
   reminders      Reminder[]
   pushTokens     PushToken[]
   passwordResets PasswordReset[]
+  feedback       Feedback[]
 
   @@index([lastSeenAt])
 }
@@ -70,6 +71,36 @@ model PasswordReset {
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId])
+}
+
+/// A rating and/or a note sent from the in-app prompt.
+///
+/// Both halves are optional and independent: someone can leave stars without
+/// writing anything, or write a request without touching the stars, so the
+/// route requires only that at least one of them is present. The stars are
+/// recorded for our own reading — nothing in the app branches on them, and
+/// the App Store link is offered at every rating, because filtering who gets
+/// asked to review by how happy they are is what gets a prompt rejected.
+model Feedback {
+  id      Int     @id @default(autoincrement())
+  /// Null once the author deletes their account: the note stays useful after
+  /// they've gone, and it is no longer about a person who exists.
+  accountId Int?
+  /// 1-5. Null when a note was sent without picking a star.
+  rating    Int?
+  /// Null when stars were sent on their own.
+  message   String?
+  /// Which build it came from, so a complaint can be tied to what shipped.
+  appVersion String?
+  platform   String?
+  /// Flipped from the admin dashboard once someone has actually read it.
+  handled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([handled])
 }
 
 model Baby {

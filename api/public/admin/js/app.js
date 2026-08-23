@@ -16,6 +16,7 @@ const VIEWS = [
   { id: "babies", icon: "☻", label: "Babies", title: "Babies" },
   { id: "engagement", icon: "◈", label: "Engagement", title: "Engagement" },
   { id: "live", icon: "◉", label: "Live", title: "Live activity" },
+  { id: "feedback", icon: "★", label: "Feedback", title: "Ratings & feedback" },
   { id: "system", icon: "⚙", label: "System", title: "System health" },
 ];
 

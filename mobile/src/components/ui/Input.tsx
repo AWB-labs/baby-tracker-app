@@ -99,6 +99,7 @@ export function Input({
 
   const borderColor = error ? t.danger : focused ? t.accent : t.border;
   const isPassword = !!secureTextEntry;
+  const isMultiline = !!rest.multiline;
 
   return (
     <Field
@@ -117,6 +118,12 @@ export function Input({
             // The focus ring must be clearly visible, not a 1px hint.
             borderWidth: focused || error ? 2 : StyleSheet.hairlineWidth,
           },
+          // A multi-line field is a box to write in, not a row: the caret
+          // belongs at the top from the first character, and it needs room to
+          // look like it expects more than a word. `numberOfLines` sizes the
+          // field on Android only, so the height has to come from here to be
+          // the same on both.
+          isMultiline && styles.inputWrapMultiline,
         ]}
       >
         <TextInput
@@ -132,7 +139,7 @@ export function Input({
             onBlur?.(e);
           }}
           secureTextEntry={isPassword && !revealed}
-          style={[styles.input, { color: t.text }]}
+          style={[styles.input, isMultiline && styles.inputMultiline, { color: t.text }]}
           {...rest}
         />
         {isPassword && (
@@ -172,6 +179,15 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
     ...typeTokens.body,
   },
+  inputWrapMultiline: {
+    alignItems: "flex-start",
+    // Roughly four lines of body text plus the vertical padding — enough that
+    // the field reads as "write a few sentences" rather than "type a word".
+    minHeight: 112,
+  },
+  // iOS centres multi-line text vertically and ignores the wrap's alignment
+  // unless the input itself fills the box, so it stretches rather than sits.
+  inputMultiline: { alignSelf: "stretch", textAlignVertical: "top" },
   suffix: { marginLeft: space.sm },
   eyeToggle: { marginLeft: space.sm },
 });
