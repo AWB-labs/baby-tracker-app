@@ -263,8 +263,6 @@ export default function HomeScreen() {
             loading={loading}
             onOpenLog={(filter) => navigation.navigate("Activity", { filter })}
             activeStarts={activeStarts}
-            diaperStock={diaperStock}
-            onOpenDiaperStock={() => setShowDiaperStock(true)}
           />
         </View>
       </LinearGradient>

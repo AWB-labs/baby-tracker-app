@@ -31,22 +31,7 @@ interface Props {
   onOpenLog: (filter?: string) => void;
   /** In-progress sessions, for freezing the relative labels — see above. */
   activeStarts?: ActiveStarts;
-  /** Nappies on hand — see useDiaperStock. Null while loading or unknown,
-   *  in which case the low-stock banner simply never shows. */
-  diaperStock?: number | null;
-  /** Open the stock sheet — the low-stock banner's destination. */
-  onOpenDiaperStock?: () => void;
 }
-
-/**
- * At or below this, the count stops being a footnote on the diaper card and
- * takes a card of its own.
- *
- * Six is about a day for a newborn and rather more for an older baby, which
- * is the right side to err on: the cost of promoting it early is one card,
- * and the cost of promoting it late is a 3am trip to the shop.
- */
-const LOW_STOCK_AT = 6;
 
 /**
  * Diaper status, shortened for the snapshot card only.
@@ -94,10 +79,7 @@ export default function Snapshot({
   loading = false,
   onOpenLog,
   activeStarts,
-  diaperStock,
-  onOpenDiaperStock,
 }: Props) {
-  const t = useTheme();
   const units = useUnits();
   /*
    * Only the very first load holds the cards back. A poll or a pull-to-refresh
@@ -156,14 +138,6 @@ export default function Snapshot({
             ? "R"
             : null
     : null;
-
-  // Not while the count is still unknown: "0 left" during the first fetch
-  // would be a false alarm, and a loud one.
-  const showLowStock =
-    !pending &&
-    diaperStock != null &&
-    diaperStock <= LOW_STOCK_AT &&
-    !!onOpenDiaperStock;
 
   return (
     <View style={styles.grid}>
@@ -287,36 +261,6 @@ export default function Snapshot({
         }
         onPress={() => onOpenLog("pump")}
       />
-
-      {/* ------------------------------------------------- running low
-          A fifth card breaks the 2×2 grid, and that is the point: `flexGrow`
-          stretches a lone card across the full width, so this reads as a
-          banner rather than an orphan. It earns that room only while the
-          number is low — a count that is always prominent stops being
-          noticed, which is how it ended up as a caption in the first place. */}
-      {showLowStock ? (
-        <SnapshotCard
-          emoji={diaperStock === 0 ? "🚨" : diaperTone.emoji}
-          label="Diaper stock"
-          value={
-            diaperStock === 0
-              ? "You're out"
-              : `${diaperStock} left`
-          }
-          valueColor={diaperStock === 0 ? t.danger : t.warning}
-          sub={
-            diaperStock === 0
-              ? "Tap to add a pack"
-              : "Running low — tap to restock"
-          }
-          accessibilityLabel={
-            diaperStock === 0
-              ? "Out of diapers. Opens the stock sheet to restock."
-              : `Only ${diaperStock} diapers left. Opens the stock sheet to restock.`
-          }
-          onPress={onOpenDiaperStock!}
-        />
-      ) : null}
     </View>
   );
 }
