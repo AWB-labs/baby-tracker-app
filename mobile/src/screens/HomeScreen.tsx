@@ -1,5 +1,6 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -29,6 +30,7 @@ import {
   EmptyState,
 } from "../components/ui";
 import Snapshot, { type ActiveStarts } from "../components/Snapshot";
+import SnapshotMiniBar from "../components/SnapshotMiniBar";
 import StockSection from "../components/StockSection";
 import TrackRow, { type TrackType } from "../components/TrackRow";
 import Habits from "../components/Habits";
@@ -55,6 +57,14 @@ const HOME_FETCH_LIMIT = 50;
 const POLL_INTERVAL_MS = 60_000;
 
 const TRACK_TYPES: TrackType[] = ["feed", "pump", "sleep", "diaper"];
+
+/** How many points of scroll the condensed bar takes to fade in, ending
+ *  exactly as the full snapshot's last row leaves the screen. */
+const MINI_BAR_FADE_PX = 56;
+
+/** The hero gradient, defined once for the hero and the condensed bar so
+ *  the bar can never drift off-brand from the header it stands in for. */
+const HERO_COLORS = ["#f3437e", "#993758"] as const;
 
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
   for (const log of logs) {
@@ -177,6 +187,61 @@ export default function HomeScreen() {
 
   const closeManual = useCallback(() => setShowManual(false), []);
 
+  /*
+   * The scroll offset, written natively — see the hero note in the JSX below.
+   * Everything visual that follows from it (the condensed bar's opacity and
+   * slide) is interpolation on this value, which the native driver runs
+   * entirely off the JS thread.
+   */
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<ScrollView>(null);
+  /** Measured, not assumed: the hero is sized by its content. */
+  const [heroH, setHeroH] = useState(0);
+  const [miniBarH, setMiniBarH] = useState(0);
+  // Where the condensed bar finishes fading in: the moment the hero's last
+  // pixel would disappear under it.
+  const collapseAt = Math.max(1, heroH - miniBarH);
+
+  /*
+   * Whether the scroll is past the hero — the ONLY thing on this screen that
+   * reads the offset from JS, and all it drives is the condensed bar's
+   * tappability (pointerEvents can't be interpolated). It sets state solely
+   * when the threshold is crossed, so per-frame it's a comparison and
+   * nothing more; a delayed frame here can delay a tap becoming live, but
+   * can never make anything visibly stutter.
+   */
+  const [pastHero, setPastHero] = useState(false);
+  useEffect(() => {
+    const id = scrollY.addListener(({ value }) => {
+      const next = value >= collapseAt - 1;
+      setPastHero((prev) => (prev === next ? prev : next));
+    });
+    return () => scrollY.removeListener(id);
+  }, [scrollY, collapseAt]);
+
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
+
+  // Memoized so the per-second re-renders a running timer causes don't
+  // rebuild the native animated-node graph every tick — the nodes only need
+  // recreating when the measured threshold actually moves.
+  const { miniBarOpacity, miniBarShift } = useMemo(
+    () => ({
+      miniBarOpacity: scrollY.interpolate({
+        inputRange: [collapseAt - MINI_BAR_FADE_PX, collapseAt],
+        outputRange: [0, 1],
+        extrapolate: "clamp",
+      }),
+      miniBarShift: scrollY.interpolate({
+        inputRange: [collapseAt - MINI_BAR_FADE_PX, collapseAt],
+        outputRange: [-12, 0],
+        extrapolate: "clamp",
+      }),
+    }),
+    [scrollY, collapseAt]
+  );
+
   const enteredByName = account?.name || "Unknown";
 
   if (!activeBaby) {
@@ -206,36 +271,56 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
       {/*
-       * The pink hero is pinned above the scroll. Its own height has no
-       * animation logic at all — it's sized by its content, and shrinks when
-       * that content does, which is what the LayoutAnimation call above
-       * arranges for.
+       * The pink hero scrolls away WITH the content, and a one-line condensed
+       * bar (emoji + "last one Xm ago" per activity) fades in pinned where it
+       * stood. Getting here matters, because three earlier attempts at
+       * "minimize on scroll" each animated the hero's LAYOUT — a height
+       * Animated.Value driven per-frame from JS (janked behind the native
+       * scroll: the "electrocuted" flicker; this screen's JS thread ticks
+       * timers every second and is never idle), a manually measured height
+       * (shipped with the summary silently unrendered), and a discrete
+       * LayoutAnimation fired mid-drag (a layout transition fighting a live
+       * scroll gesture — flicker again).
        *
-       * The version before this one drove a height Animated.Value continuously
-       * from the raw scroll offset. That forced the whole listener onto the
-       * JS thread — a thread that is not idle on this screen (timers ticking
-       * every second, polling, the snapshot's own memos) — and the animation
-       * fell behind the real, natively-driven scroll and caught up in visible
-       * jumps: the "electrocuted" flicker, two clocks running at different,
-       * drifting rates. The attempt after that tried to reclaim the space
-       * with a manually measured, manually driven height value, and shipped
-       * with the summary silently failing to render. A third attempt fired a
-       * discrete LayoutAnimation from that same per-frame listener instead of
-       * a continuous value, which was closer — but still ran a native layout
-       * transition while the ScrollView was actively being dragged, and a
-       * layout animation competing with a live scroll gesture produced the
-       * same flicker back a third time.
-       *
-       * Given three attempts at "shrink to match" each found a new way to
-       * regress into the exact bug this was meant to fix, the hero is fixed
-       * again — no scroll listener, no LayoutAnimation, nothing here reads
-       * scroll position at all. The full snapshot is simply always shown.
+       * This version animates no layout at all. The hero is ordinary scroll
+       * content, so "shrinking" it is just the native scroll moving it
+       * off-screen, pixel-locked to the finger by construction. The condensed
+       * bar overlays the top and animates only opacity and translateY,
+       * interpolated from a natively-driven scroll offset — the JS thread
+       * never touches a frame of it. The one JS scroll listener flips a
+       * boolean (bar tappability) at a threshold and drives nothing visual.
        */}
+      <Animated.ScrollView
+        ref={scrollRef}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            // White, because the spinner now draws over the pink hero rather
+            // than the blush content area.
+            tintColor="#ffffff"
+            colors={[t.accent]}
+            progressBackgroundColor={t.surface}
+          />
+        }
+      >
+      {/* iOS rubber-banding pulls the hero down with the finger; without this
+          bleed the root's blush shows in the gap above it mid-pull. */}
+      <View style={styles.overscrollBleed} />
       <LinearGradient
-        colors={["#f3437e", "#993758"]}
+        colors={[...HERO_COLORS]}
         start={{ x: 0.1, y: 0 }}
         end={{ x: 0.9, y: 1 }}
         style={[styles.hero, { paddingTop: insets.top + space.md }]}
+        onLayout={(e) => setHeroH(e.nativeEvent.layout.height)}
       >
         {/* The greeting stays the overline rather than being promoted into the
             title slot — title1 truncates a phrase this long to one line,
@@ -267,20 +352,7 @@ export default function HomeScreen() {
         </View>
       </LinearGradient>
 
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={t.accent}
-            colors={[t.accent]}
-            progressBackgroundColor={t.surface}
-          />
-        }
-      >
+      <View style={styles.body}>
       <View style={styles.section}>
         <SectionHeader
           title="Track"
@@ -346,8 +418,39 @@ export default function HomeScreen() {
         milkBalance={milkBalance}
         onOpenMilkBalance={() => setShowMilkSupply(true)}
       />
+      </View>
 
-      </ScrollView>
+      </Animated.ScrollView>
+
+      {/* The condensed snapshot, pinned over the top edge. Withheld until the
+          hero has reported its height — before that the fade thresholds are
+          nonsense and the bar could flash in on the first scroll pixel. */}
+      {heroH > 0 && (
+        <Animated.View
+          pointerEvents={pastHero ? "auto" : "none"}
+          onLayout={(e) => setMiniBarH(e.nativeEvent.layout.height)}
+          style={[
+            styles.miniBar,
+            { opacity: miniBarOpacity, transform: [{ translateY: miniBarShift }] },
+          ]}
+        >
+          <LinearGradient
+            colors={[...HERO_COLORS]}
+            start={{ x: 0.1, y: 0 }}
+            end={{ x: 0.9, y: 1 }}
+            style={[
+              styles.miniBarInner,
+              { paddingTop: insets.top + space.xs },
+            ]}
+          >
+            <SnapshotMiniBar
+              logs={logs}
+              activeStarts={activeStarts}
+              onPress={scrollToTop}
+            />
+          </LinearGradient>
+        </Animated.View>
+      )}
 
       <ManualEntryModal
         visible={showManual}
@@ -394,22 +497,48 @@ const styles = StyleSheet.create({
   section: { gap: space.sm },
   center: { alignItems: "center" },
   trackList: { gap: space.sm },
-  // Pinned full-width pink header; the bottom corners round into the blush
-  // content that scrolls beneath it.
+  // Full-width pink header at the top of the scroll; the bottom corners
+  // round into the blush content that follows it.
   hero: {
     paddingHorizontal: space.lg,
     paddingBottom: space.xl,
     borderBottomLeftRadius: radius.xxl,
     borderBottomRightRadius: radius.xxl,
-    zIndex: 1,
   },
   // The hero's old `gap` between the header and the snapshot, restored as an
   // ordinary margin now that nothing animates it away.
   snapshotResting: { marginTop: space.lg },
+  // The hero is edge-to-edge, so the horizontal padding lives on the body
+  // wrapper below it rather than on the scroll container.
   scrollContent: {
+    paddingBottom: tabBar.margin + tabBar.height + space.lg,
+  },
+  body: {
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
     gap: space.lg,
-    paddingBottom: tabBar.margin + tabBar.height + space.lg,
+  },
+  miniBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+  },
+  overscrollBleed: {
+    position: "absolute",
+    top: -600,
+    left: 0,
+    right: 0,
+    height: 600,
+    // The hero gradient's top color, so the stretch reads as the hero
+    // continuing rather than a seam.
+    backgroundColor: "#f3437e",
+  },
+  // Same corner treatment as the hero it stands in for.
+  miniBarInner: {
+    paddingHorizontal: space.lg,
+    paddingBottom: space.md,
+    borderBottomLeftRadius: radius.xxl,
+    borderBottomRightRadius: radius.xxl,
   },
 });
