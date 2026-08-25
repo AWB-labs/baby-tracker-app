@@ -43,9 +43,18 @@ export function formatDateLabelLong(iso: string): string {
   });
 }
 
-/** "just now" / "42m ago" / "3h ago" / "2d ago" — for snapshot and log rows. */
-export function formatRelativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
+/**
+ * "just now" / "42m ago" / "3h ago" / "2d ago" — for snapshot and log rows.
+ *
+ * `asOfMs` pins the reference point somewhere other than now — the snapshot
+ * cards pass a running session's start so "last feed 1h ago" holds still for
+ * the whole feed instead of counting through it.
+ */
+export function formatRelativeTime(
+  iso: string,
+  asOfMs: number = Date.now()
+): string {
+  const diffMs = asOfMs - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;

@@ -22,6 +22,14 @@ export function usePolling(
 ) {
   const isFocused = useIsFocused();
   const savedCallback = useRef(callback);
+  // Whether the gating effect below has run before. On the very first run the
+  // consumer's own mount fetch is already in flight, so firing again would
+  // just double it — but every later run means polling was suspended (tab
+  // blurred, hook disabled) and is resuming, and the data on screen is stale
+  // by however long that lasted. Without an immediate call there, coming back
+  // to the tab waits out a full interval before showing, say, the feed a
+  // partner started meanwhile.
+  const hasRunRef = useRef(false);
 
   // Keep the latest callback without restarting the timer on every render.
   useEffect(() => {
@@ -30,6 +38,8 @@ export function usePolling(
 
   useEffect(() => {
     if (!enabled || !isFocused) return;
+    const resuming = hasRunRef.current;
+    hasRunRef.current = true;
 
     let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -55,7 +65,10 @@ export function usePolling(
       }
     };
 
-    if (AppState.currentState === "active") start();
+    if (AppState.currentState === "active") {
+      if (resuming) savedCallback.current();
+      start();
+    }
     const sub = AppState.addEventListener("change", handleAppState);
 
     return () => {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme, useThemeContext } from "../design/ThemeProvider";
@@ -64,7 +64,7 @@ interface Props {
  * no side is a single measured moment, like a bottle. Every other type saves
  * with a single time.
  */
-export default function ManualEntryModal({
+function ManualEntryModal({
   visible,
   babyId,
   babyName,
@@ -103,6 +103,22 @@ export default function ManualEntryModal({
    * across three.
    */
   const [openPicker, setOpenPicker] = useState<"date" | null>(null);
+
+  /**
+   * Re-seed the date and times every time the sheet OPENS, not only when it
+   * closes. The initial values are captured when this component mounts —
+   * which for a night-owl household is routinely a 2 AM cold start — and the
+   * close-time reset never runs before the first open, so the first manual
+   * entry of the day used to greet people with the small hours of the last
+   * one: the widely-reported "time keeps reverting to 2 AM".
+   */
+  useEffect(() => {
+    if (!visible) return;
+    const now = new Date();
+    setDate(now);
+    setStartTime(now);
+    setEndTime(now);
+  }, [visible]);
 
   const takesMl = activityType === "feed" || activityType === "pump";
   const isDiaper = activityType === "diaper";
@@ -575,6 +591,16 @@ export default function ManualEntryModal({
     </Sheet>
   );
 }
+
+/**
+ * Memoized because Home re-renders every second while any timer runs, and
+ * each of those re-renders reached the native date/time pickers here — on a
+ * phone mid-interaction, a controlled picker being re-rendered under the
+ * user's finger is how a freshly spun time snaps back before their eyes.
+ * With stable props (Home's callbacks are useCallback'd), a ticking clock
+ * elsewhere on the screen no longer touches this sheet at all.
+ */
+export default React.memo(ManualEntryModal);
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },

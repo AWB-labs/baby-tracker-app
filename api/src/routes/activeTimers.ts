@@ -145,7 +145,16 @@ router.delete("/", authMiddleware, async (req, res: Response): Promise<void> => 
   }
   await requireBabyAccess(accountId, babyId);
 
-  await prisma.activeTimer.deleteMany({ where: { babyId, type } });
+  // Only this account's own lock. A release that arrives late — after this
+  // caregiver's stale lock expired and someone ELSE claimed the activity —
+  // must not delete the new holder's lock: that made the new session
+  // invisible to every other device, and got its owner "finished from
+  // another device" the moment their own poll agreed the lock was gone.
+  // (Rows from before accountId was recorded carry null; a caregiver's
+  // delete may still clear those, rather than leaving them stuck for 24h.)
+  await prisma.activeTimer.deleteMany({
+    where: { babyId, type, OR: [{ accountId }, { accountId: null }] },
+  });
   res.status(204).send();
 });
 

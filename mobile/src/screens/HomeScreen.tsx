@@ -28,7 +28,8 @@ import {
   Text,
   EmptyState,
 } from "../components/ui";
-import Snapshot from "../components/Snapshot";
+import Snapshot, { type ActiveStarts } from "../components/Snapshot";
+import StockSection from "../components/StockSection";
 import TrackRow, { type TrackType } from "../components/TrackRow";
 import Habits from "../components/Habits";
 import BabySwitcher from "../components/BabySwitcher";
@@ -147,6 +148,35 @@ export default function HomeScreen() {
     return map;
   }, [logs]);
 
+  /**
+   * When each timed activity currently in progress began — this device's
+   * timer first (it's the freshest view of its own session, and stays
+   * correct through the ±1 min adjustments), else another caregiver's
+   * server-side lock. The snapshot freezes its "last … ago" labels at these
+   * moments, so "last feed 1h ago" doesn't keep counting through the feed
+   * that's happening right now. Cheap enough to recompute per render, which
+   * the ticking timers cause anyway.
+   */
+  const activeStarts: ActiveStarts = {
+    feed: feedTimer.startTime
+      ? feedTimer.getOriginalStartTime() ?? feedTimer.startTime
+      : activeByType.feed
+        ? new Date(activeByType.feed.startTime)
+        : null,
+    sleep: sleepTimer.startTime
+      ? sleepTimer.getOriginalStartTime() ?? sleepTimer.startTime
+      : activeByType.sleep
+        ? new Date(activeByType.sleep.startTime)
+        : null,
+    pump: pumpTimer.startTime
+      ? pumpTimer.getOriginalStartTime() ?? pumpTimer.startTime
+      : activeByType.pump
+        ? new Date(activeByType.pump.startTime)
+        : null,
+  };
+
+  const closeManual = useCallback(() => setShowManual(false), []);
+
   const enteredByName = account?.name || "Unknown";
 
   if (!activeBaby) {
@@ -232,9 +262,7 @@ export default function HomeScreen() {
             logs={logs}
             loading={loading}
             onOpenLog={(filter) => navigation.navigate("Activity", { filter })}
-            onOpenInsights={() => navigation.navigate("Analytics")}
-            milkBalance={milkBalance}
-            onOpenMilkBalance={() => setShowMilkSupply(true)}
+            activeStarts={activeStarts}
             diaperStock={diaperStock}
             onOpenDiaperStock={() => setShowDiaperStock(true)}
           />
@@ -311,6 +339,16 @@ export default function HomeScreen() {
         refreshKey={habitsRefreshKey}
       />
 
+      {/* What's on hand — under the habits, now that the snapshot's fourth
+          card belongs to pumping. */}
+      <StockSection
+        diaperCount={diaperStock}
+        diaperSize={diaperSize}
+        onOpenDiaperStock={() => setShowDiaperStock(true)}
+        milkBalance={milkBalance}
+        onOpenMilkBalance={() => setShowMilkSupply(true)}
+      />
+
       </ScrollView>
 
       <ManualEntryModal
@@ -319,7 +357,7 @@ export default function HomeScreen() {
         babyName={activeBaby.name}
         enteredByName={enteredByName}
         onSaved={refreshAndBump}
-        onClose={() => setShowManual(false)}
+        onClose={closeManual}
         diaperStock={diaperStock}
         onDiaperStockChanged={refreshDiaperStock}
       />

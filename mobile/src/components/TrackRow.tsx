@@ -207,6 +207,35 @@ export default function TrackRow({
   }, []);
 
   /**
+   * Server-lock ids this device has already ended (finished or discarded),
+   * and when it last did. Both exist for the same reason: the row's view of
+   * the server (`remoteActive`) is a snapshot that can be seconds stale, and
+   * the instant the local timer is cleared, that stale snapshot still shows
+   * the just-ended lock — which the adopt effect below would read as "my
+   * session is running somewhere else, take it over", restarting the clock
+   * right after Finish and then killing it with "finished from another
+   * device" once a fresh poll lands. A lock id in this set is dead to this
+   * row whatever the server view says; the timestamp additionally distrusts
+   * any view requested before the ending, which covers a lock this device
+   * claimed but never saw come back in a poll.
+   */
+  const endedLockIdsRef = useRef<Set<number>>(new Set());
+  const sessionEndedAtRef = useRef<number | null>(null);
+  /** The lock id this device's running session holds, when known. */
+  const claimedLockIdRef = useRef<number | null>(null);
+
+  /** Record that this device is ending its session — call BEFORE clearing
+   *  the local timer, so no render can slip between the clear and the mark. */
+  const markSessionEnded = useCallback(() => {
+    sessionEndedAtRef.current = Date.now();
+    if (claimedLockIdRef.current != null) {
+      endedLockIdsRef.current.add(claimedLockIdRef.current);
+      claimedLockIdRef.current = null;
+    }
+    if (remoteActive) endedLockIdsRef.current.add(remoteActive.id);
+  }, [remoteActive]);
+
+  /**
    * Release this row's server-side lock, if it holds one.
    *
    * Awaited before refreshing, not fire-and-forget: refreshing first (or in
@@ -230,9 +259,14 @@ export default function TrackRow({
 
   const cancelAll = useCallback(async () => {
     reset();
+    markSessionEnded();
     timer.handleCancel();
     await releaseLock();
-  }, [reset, timer, releaseLock]);
+  }, [reset, markSessionEnded, timer, releaseLock]);
+
+  /** A claim already in flight — a second tap mustn't send a second POST,
+   *  which would 409 against our own first one and toast a false conflict. */
+  const claimingRef = useRef(false);
 
   /**
    * Claim the server-side lock before actually starting the local clock, so
@@ -247,31 +281,51 @@ export default function TrackRow({
         timer.handleStart(side);
         return;
       }
+      if (claimingRef.current) return;
+      claimingRef.current = true;
       try {
-        await startActiveTimer({
+        const created = await startActiveTimer({
           babyId,
           type: type as TimerType,
           side: side ?? null,
           startTime: new Date().toISOString(),
           enteredByName,
         });
+        // Remembered so ending the session can retire this exact lock even
+        // if no poll ever echoed it back — see endedLockIdsRef.
+        claimedLockIdRef.current = created.id;
         timer.handleStart(side);
       } catch (err) {
         if (err instanceof TimerConflictError) {
-          toast.error(
-            `${label} is already running${
-              err.timer ? ` — started by ${err.timer.enteredByName}` : ""
-            }.`
-          );
+          const ownLock =
+            !!err.timer &&
+            viewerAccountId != null &&
+            err.timer.accountId === viewerAccountId;
+          if (ownLock) {
+            // Our own session from another device (or one whose release never
+            // landed) — the refetch below hands it to the adopt effect, which
+            // takes it over rather than blocking us with "started by you".
+            toast.info(
+              `Picking up the ${label.toLowerCase()} you started on another device.`
+            );
+          } else {
+            toast.error(
+              `${label} is already running${
+                err.timer ? ` — started by ${err.timer.enteredByName}` : ""
+              }.`
+            );
+          }
           // Our view of who's running what was stale enough to miss this —
           // refetch now instead of waiting out the rest of the poll interval.
           onActiveTimersChanged?.();
         } else {
           toast.showError(err);
         }
+      } finally {
+        claimingRef.current = false;
       }
     },
-    [type, babyId, enteredByName, timer, label, toast, onActiveTimersChanged]
+    [type, babyId, enteredByName, timer, label, toast, onActiveTimersChanged, viewerAccountId]
   );
 
   /** Save the finished timed session (or the nappy change). */
@@ -321,6 +375,10 @@ export default function TrackRow({
       onLogSaved();
       toast.success(`${label} saved.`);
       reset();
+      // Marked BEFORE the local clear: the render that clear triggers is
+      // exactly the one where the adopt effect would otherwise re-adopt the
+      // stale lock and restart the clock that was just saved.
+      markSessionEnded();
       timer.handleCancel();
       await releaseLock();
     } catch (err) {
@@ -331,7 +389,7 @@ export default function TrackRow({
   }, [
     babyId, type, timer, diaperStatus, note, amountValid, amountValue, sleepKind,
     isBottleFeed, enteredByName, onLogSaved, toast, label, reset, releaseLock,
-    useFromStock, onDiaperStockChanged,
+    markSessionEnded, useFromStock, onDiaperStockChanged,
   ]);
 
   /*
@@ -361,6 +419,21 @@ export default function TrackRow({
   // or a Finish tap would look identical to needing a fresh adopt.
   const hasLocalTimer = timer.startTime !== null;
 
+  // The remote lock, minus any this device already ended — a snapshot that
+  // still shows a lock whose release is in flight must not be believed.
+  const trustedRemote =
+    remoteActive && !endedLockIdsRef.current.has(remoteActive.id)
+      ? remoteActive
+      : null;
+
+  // After this device ends a session, the server snapshot in hand predates
+  // that ending until a fresh fetch lands — nothing seen in it (like a lock
+  // whose id we never learned) is current enough to act on.
+  const serverViewCurrent =
+    sessionEndedAtRef.current == null ||
+    (activeTimersSyncedAt != null &&
+      activeTimersSyncedAt > sessionEndedAtRef.current);
+
   // This account's own lock, running somewhere, but not on this device (a
   // second phone, or one that lost its local state) — take local control of
   // it rather than leaving it stuck with no way to end it from here. A
@@ -368,20 +441,24 @@ export default function TrackRow({
   // and the idle row never has a chance to flash first.
   const ownUnadoptedSession =
     !hasLocalTimer &&
-    !!remoteActive &&
+    !!trustedRemote &&
+    serverViewCurrent &&
     viewerAccountId != null &&
-    remoteActive.accountId === viewerAccountId;
+    trustedRemote.accountId === viewerAccountId;
   useLayoutEffect(() => {
-    if (!ownUnadoptedSession || !remoteActive) return;
+    if (!ownUnadoptedSession || !trustedRemote) return;
+    // An adopted session ends through the same paths a started one does, so
+    // it needs the same "which lock is mine" bookkeeping.
+    claimedLockIdRef.current = trustedRemote.id;
     timer.adopt({
-      startTime: new Date(remoteActive.startTime),
-      side: remoteActive.side,
+      startTime: new Date(trustedRemote.startTime),
+      side: trustedRemote.side,
     });
     // Only re-run if the session identity actually changes — timer itself is
     // stable-ish but re-created per render in the parent, and including it
     // here would re-adopt (and reset any local pause/adjust) every time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownUnadoptedSession, remoteActive?.id]);
+  }, [ownUnadoptedSession, trustedRemote?.id]);
 
   /**
    * The mirror of adopt: this device holds a live local session whose lock
@@ -409,9 +486,15 @@ export default function TrackRow({
     // falls through to the cancel below just like an absent lock does.
     if (remoteActive && remoteActive.accountId === viewerAccountId) return;
     if (activeTimersSyncedAt == null) return;
-    const started = timer.getOriginalStartTime() ?? timer.startTime;
-    if (!started) return;
-    if (activeTimersSyncedAt <= started.getTime() + SYNC_TRUST_BUFFER_MS) return;
+    // Judged against when THIS DEVICE began the session, not the activity's
+    // start time: the ±1 minute buttons backdate the start, and a feed
+    // backdated ten minutes made a poll that left before the Start tap look
+    // "fresh" — its empty view then cancelled the session seconds into it.
+    const claimedAt =
+      timer.getClaimedAt() ?? timer.getOriginalStartTime() ?? timer.startTime;
+    if (!claimedAt) return;
+    if (activeTimersSyncedAt <= claimedAt.getTime() + SYNC_TRUST_BUFFER_MS) return;
+    markSessionEnded();
     timer.handleCancel();
     toast.info(`${label} was finished from another device.`);
     // getOriginalStartTime is a stable accessor; toast/label/timer identities
@@ -428,10 +511,14 @@ export default function TrackRow({
     timer.showDiaperStatus,
   ]);
 
-  // Someone else's lock — read-only, informational.
+  // Someone else's lock — read-only, informational. Filtered by account, not
+  // by "not adoptable": an own lock waiting out a stale server view must not
+  // fall through to here and read "currently feeding · by <yourself>".
   const lockedByOther =
-    !hasLocalTimer && !!remoteActive && !ownUnadoptedSession
-      ? remoteActive
+    !hasLocalTimer &&
+    !!trustedRemote &&
+    (viewerAccountId == null || trustedRemote.accountId !== viewerAccountId)
+      ? trustedRemote
       : null;
 
   /*

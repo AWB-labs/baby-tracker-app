@@ -34,6 +34,15 @@ export interface TimerState {
    * running. Absent on a state saved before per-side timing existed.
    */
   sideSeconds?: SideSeconds;
+  /**
+   * When THIS DEVICE took control of the session (started it, or adopted
+   * it from another device) — wall-clock, never moved by the ±1 minute
+   * adjustments the way the start times are. The reconcile logic in
+   * TrackRow needs exactly this: "was that server view requested after
+   * this device began its session", a question the backdatable start time
+   * answers wrongly. Absent on a state saved before it existed.
+   */
+  claimedAtISO?: string | null;
   timeline: TimelineEvent[];
   babyId: number;
 }
@@ -148,6 +157,11 @@ export interface UseTimerResult {
   markInstant: () => void;
   /** True start of the activity, for the saved log. */
   getOriginalStartTime: () => Date | null;
+  /**
+   * When this device took control of the session (start or adopt) —
+   * unaffected by backdating, unlike the start times. Null when idle.
+   */
+  getClaimedAt: () => Date | null;
   getEndTime: () => Date | null;
   getTimeline: () => TimelineEvent[];
 }
@@ -176,6 +190,8 @@ export function useTimer(
    * (setActiveSide) that re-renders anyway.
    */
   const bankedSideRef = useRef<SideSeconds>(NO_SIDE_SECONDS);
+  /** See TimerState.claimedAtISO — when this device took the session over. */
+  const claimedAtRef = useRef<Date | null>(null);
 
   // Restore persisted state on mount / babyId change
   useEffect(() => {
@@ -192,6 +208,7 @@ export function useTimer(
     originalStartTimeRef.current = null;
     timelineRef.current = [];
     bankedSideRef.current = NO_SIDE_SECONDS;
+    claimedAtRef.current = null;
 
     loadTimerState(type, babyId).then((saved) => {
       if (!saved || restoredRef.current) return;
@@ -210,6 +227,11 @@ export function useTimer(
       // Absent on a session started before per-side timing shipped; zero is
       // right for it either way, since nothing was ever banked.
       bankedSideRef.current = saved.sideSeconds ?? NO_SIDE_SECONDS;
+      // Absent on an older saved state; the running-segment start is the
+      // closest surviving stand-in for when this device took the session.
+      claimedAtRef.current = saved.claimedAtISO
+        ? new Date(saved.claimedAtISO)
+        : restored;
       if (saved.paused) {
         setElapsed(saved.pausedElapsed);
         if (saved.pausedAtISO) endTimeRef.current = new Date(saved.pausedAtISO);
@@ -247,11 +269,14 @@ export function useTimer(
    * roll the banked time back to whatever was last written.
    */
   const persist = useCallback(
-    (state: Omit<TimerState, "babyId" | "sideSeconds">) => {
+    (state: Omit<TimerState, "babyId" | "sideSeconds" | "claimedAtISO">) => {
       if (!babyId) return;
       saveTimerState(type, babyId, {
         ...state,
         sideSeconds: bankedSideRef.current,
+        claimedAtISO: claimedAtRef.current
+          ? claimedAtRef.current.toISOString()
+          : null,
         babyId,
       });
     },
@@ -271,6 +296,7 @@ export function useTimer(
       originalStartTimeRef.current = now;
       timelineRef.current = [{ event: "started", at: now.toISOString() }];
       bankedSideRef.current = NO_SIDE_SECONDS;
+      claimedAtRef.current = now;
       persist({
         originalStartTimeISO: now.toISOString(),
         startTimeISO: now.toISOString(),
@@ -309,6 +335,9 @@ export function useTimer(
       // behind it, so an adopted session's split starts from what this device
       // can actually know: all of it on the side it's running now.
       bankedSideRef.current = NO_SIDE_SECONDS;
+      // The adoption moment, not the session's start: server views requested
+      // from now on will include this lock, ones from before it may not.
+      claimedAtRef.current = new Date();
       persist({
         originalStartTimeISO: original.toISOString(),
         startTimeISO: original.toISOString(),
@@ -517,12 +546,14 @@ export function useTimer(
     originalStartTimeRef.current = null;
     timelineRef.current = [];
     bankedSideRef.current = NO_SIDE_SECONDS;
+    claimedAtRef.current = null;
   }, [type, babyId]);
 
   const getOriginalStartTime = useCallback(
     () => originalStartTimeRef.current,
     []
   );
+  const getClaimedAt = useCallback(() => claimedAtRef.current, []);
   const getEndTime = useCallback(() => endTimeRef.current, []);
   const getTimeline = useCallback(() => timelineRef.current, []);
 
@@ -569,6 +600,7 @@ export function useTimer(
     handleDiaperStatusSelect,
     markInstant,
     getOriginalStartTime,
+    getClaimedAt,
     getEndTime,
     getTimeline,
   };
