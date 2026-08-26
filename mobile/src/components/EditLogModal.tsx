@@ -15,7 +15,7 @@ import { updateLog, deleteLog, type LogEntry, type UpdateLogInput } from "../api
 import { isInstantLog } from "../lib/activities";
 import { HEALTH_CONDITIONS, type HealthCondition } from "../lib/health";
 import { getErrorMessage } from "../lib/errors";
-import { formatSideSplit } from "../utils/formatDuration";
+import { formatDuration, formatSideSplit } from "../utils/formatDuration";
 import { Text, Emoji, Button, IconButton, Input, Field, Sheet, ConfirmDialog } from "./ui";
 import TimeField from "./TimeField";
 import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
@@ -115,6 +115,47 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
   const [deleting, setDeleting] = useState(false);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Worked out here, not just inside handleSave, so the readout below the
+  // time fields can show the same span it's about to save — see the duration
+  // and "moved from the original" lines further down.
+  const spanStart = combine(date, startTime);
+  const spanEnd = usesSingleTime
+    ? spanStart
+    : (() => {
+        const end = combine(date, endTime);
+        // Only a time-of-day is captured for the end, on the start's date. If
+        // it lands before the start (an overnight sleep), it belongs to the
+        // next day — roll it forward, matching what handleSave will save.
+        if (end.getTime() < spanStart.getTime()) {
+          const rolled = new Date(end);
+          rolled.setDate(rolled.getDate() + 1);
+          return rolled;
+        }
+        return end;
+      })();
+  const crossesMidnight =
+    !usesSingleTime && spanEnd.getDate() !== spanStart.getDate();
+  const spanMinutes = (spanEnd.getTime() - spanStart.getTime()) / 60000;
+  /** Long enough to be a slip on the wheel rather than a real session —
+   *  matches ManualEntryModal's own threshold. */
+  const implausible = !usesSingleTime && spanMinutes > 16 * 60;
+
+  /**
+   * How far this edit is moving the entry from what's actually saved right
+   * now — the one thing a duration readout can't tell you, since a 17-minute
+   * feed reads the same whether it's exactly where it was logged or three
+   * hours off from it. Anchored on start (or the single time, which is the
+   * same field) rather than end: a caregiver nudging when something happened
+   * is moving *when it started*, and comparing the end instead would double
+   * -count any change also made to the duration itself.
+   */
+  const originalStart = new Date(log.startTime);
+  const shiftMinutes = (spanStart.getTime() - originalStart.getTime()) / 60000;
+  // Under 30 seconds reads as "didn't touch it" rather than a real move —
+  // without this, floating-point noise or a picker's own rounding could
+  // print "0m before the original" for an edit that changed nothing.
+  const hasShifted = Math.abs(shiftMinutes) >= 0.5;
 
   const handleSave = useCallback(async () => {
     if (saving) return;
@@ -331,6 +372,44 @@ export default function EditLogModal({ log, onClose, onSaved }: Props) {
             style={styles.flex}
           />
         </View>
+      )}
+
+      {/* The resulting length, stated plainly — same reasoning as the manual
+          entry sheet: picking 2:00 AM to 9:24 PM is easy to do by accident on
+          a wheel, and a nineteen-hour nap saved in silence is only discovered
+          later, in the averages. Absent for a single-time entry, which has no
+          span to state. */}
+      {!usesSingleTime && (
+        <View style={styles.durationRow}>
+          <Text variant="footnote" tone="subtle">
+            That's{" "}
+            <Text variant="footnote" style={{ color: t.accentText }}>
+              {formatDuration(spanMinutes)}
+            </Text>
+            {crossesMidnight ? " (ends next day)" : ""}
+          </Text>
+          {implausible && (
+            <Text variant="footnote" style={{ color: t.warning }}>
+              That's unusually long — check the start and end.
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* How far this save would move the entry from what's actually on
+          record — the thing the duration line above can't say, since a
+          17-minute feed reads the same whether it's exactly where it was
+          logged or three hours off from it. Silent once the picked time
+          matches the original again, so undoing a change reads as "nothing
+          to report" rather than "0m before the original". */}
+      {hasShifted && (
+        <Text variant="footnote" tone="subtle">
+          That's{" "}
+          <Text variant="footnote" style={{ color: t.accentText }}>
+            {formatDuration(Math.abs(shiftMinutes))}
+          </Text>{" "}
+          {shiftMinutes < 0 ? "before" : "after"} the current log.
+        </Text>
       )}
 
       {log.type === "sleep" && (
@@ -604,6 +683,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   actions: { flexDirection: "row", gap: space.sm },
   rowGap: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
+  durationRow: { gap: space.xxs },
   pickerWrap: { gap: space.sm },
   pickerBtn: {
     borderRadius: radius.md,
