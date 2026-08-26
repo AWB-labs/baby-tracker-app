@@ -1,15 +1,18 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius } from "../design/tokens";
 import { Screen, ScreenHeader, Text, IconButton, Card } from "../components/ui";
-import { LEGAL } from "../content/legal";
-import type { AccountStackParamList } from "../navigation/AppTabs";
+import { LEGAL, type LegalDoc } from "../content/legal";
 
-type Nav = NativeStackNavigationProp<AccountStackParamList, "Legal">;
-type Route = RouteProp<AccountStackParamList, "Legal">;
+/**
+ * Just the one param this screen reads, rather than either host stack's full
+ * list — it's registered in both AccountStackParamList (Account → Legal) and
+ * AuthStackParamList (Signup's agreement checkbox, pre-login), and tying its
+ * types to one would make it a type error to mount in the other.
+ */
+type LegalRoute = RouteProp<{ Legal: { doc: LegalDoc } }, "Legal">;
 
 /**
  * Privacy Policy and Terms of Use.
@@ -21,12 +24,13 @@ type Route = RouteProp<AccountStackParamList, "Legal">;
  *
  * Rendered natively rather than opened in a browser so it works with no
  * connection, keeps the app's own type and theme, and doesn't hand someone
- * off to Safari from the middle of Account.
+ * off to Safari from the middle of Account — or, now, from the middle of
+ * signing up, before there's even a session yet.
  */
 export default function LegalScreen() {
   const t = useTheme();
-  const navigation = useNavigation<Nav>();
-  const { doc } = useRoute<Route>().params;
+  const navigation = useNavigation();
+  const { doc } = useRoute<LegalRoute>().params;
   const document = LEGAL[doc];
 
   return (

@@ -62,14 +62,14 @@ export interface HabitDef {
  * The emoji offered when inventing — or renaming — a habit. Deliberately a
  * short list: a full picker is a lot of screen for a decision that barely
  * matters. 💊 covers the common case of a second, differently-named vitamin
- * or medicine habit alongside the catalogue's own "Vitamin"; 🩸 the same for
- * an iron or other blood-related supplement.
+ * or medicine habit alongside the catalogue's own "Vitamin"; 🏋️ the same for
+ * a workout or strength-training routine.
  *
  * Kept to a multiple of EMOJI_COLUMNS (Habits.tsx) — three full rows of 7,
  * here — so the grid ends on a clean edge instead of a short, ragged last row.
  */
 export const HABIT_EMOJI_CHOICES = [
-  "⭐", "💊", "🩸", "🍼", "🧸", "📚", "🎵",
+  "⭐", "💊", "🏋️", "🍼", "🧸", "📚", "🎵",
   "🧴", "🪥", "🚼", "💧", "🌙", "🧦", "🩹",
   "🏃", "🎨", "🫧", "🌿", "☀️", "🛁", "🦷",
 ];

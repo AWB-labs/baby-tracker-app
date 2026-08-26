@@ -1,12 +1,13 @@
 import React, { useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../../context/AuthContext";
 import { useBaby } from "../../context/BabyContext";
 import { AuthStackParamList } from "../../navigation/RootNavigator";
 import { useToast } from "../../components/Toast";
 import { useTheme } from "../../design/ThemeProvider";
-import { space, radius } from "../../design/tokens";
+import { space, radius, PRESSED_OPACITY } from "../../design/tokens";
+import { Icon } from "../../design/icons";
 import { useActivityTone } from "../../design/activity";
 import {
   Screen,
@@ -50,6 +51,7 @@ export default function SignupScreen({ navigation }: Props) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Step 2: first baby fields
   const [babyName, setBabyName] = useState("");
@@ -64,6 +66,10 @@ export default function SignupScreen({ navigation }: Props) {
     }
     if (password.length < 6) {
       toast.error("Choose a password of at least 6 characters.");
+      return;
+    }
+    if (!agreedToTerms) {
+      toast.error("Agree to the Terms of Use and Privacy Policy to continue.");
       return;
     }
     setLoading(true);
@@ -223,6 +229,53 @@ export default function SignupScreen({ navigation }: Props) {
             returnKeyType="done"
           />
 
+          {/* Not blocked on the button itself — every other field here fails
+              the same way, with a toast on Continue rather than a disabled
+              state nobody can read the reason for. */}
+          <Pressable
+            onPress={() => setAgreedToTerms((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreedToTerms }}
+            accessibilityLabel="I agree to the Terms of Use and Privacy Policy"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={({ pressed }) => [
+              styles.agreeRow,
+              { opacity: pressed ? PRESSED_OPACITY : 1 },
+            ]}
+          >
+            <View
+              style={[
+                styles.checkbox,
+                {
+                  backgroundColor: agreedToTerms ? t.success : "transparent",
+                  borderColor: agreedToTerms ? t.success : t.borderStrong,
+                },
+              ]}
+            >
+              {agreedToTerms && (
+                <Icon name="check" size="xs" color={t.textInverse} strokeWidth={3} />
+              )}
+            </View>
+            <Text variant="footnote" tone="muted" style={styles.agreeText}>
+              I agree to the{" "}
+              <Text
+                variant="footnote"
+                tone="accent"
+                onPress={() => navigation.navigate("Legal", { doc: "terms" })}
+              >
+                Terms of Use
+              </Text>{" "}
+              and{" "}
+              <Text
+                variant="footnote"
+                tone="accent"
+                onPress={() => navigation.navigate("Legal", { doc: "privacy" })}
+              >
+                Privacy Policy
+              </Text>
+            </Text>
+          </Pressable>
+
           <Button
             label="Continue"
             icon="chevronRight"
@@ -276,4 +329,25 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
   },
   form: { gap: space.lg },
+  // Negative margin claws back the gap `form` puts above every field, so the
+  // checkbox sits close under the password helper text rather than reading
+  // as its own separate block.
+  agreeRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: space.sm,
+    marginTop: -space.sm,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    // Nudged down to sit on the first line's optical centre rather than the
+    // top of the two-line label beside it.
+    marginTop: 2,
+  },
+  agreeText: { flex: 1 },
 });

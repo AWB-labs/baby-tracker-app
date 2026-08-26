@@ -14,6 +14,7 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
+  Copy,
   Droplet,
   Droplets,
   Eye,
@@ -37,6 +38,7 @@ import {
   Scale,
   Scissors,
   Settings2,
+  Share2,
   ShowerHead,
   Snowflake,
   Sparkles,
@@ -123,7 +125,9 @@ export type IconName =
   | "eye"
   | "eyeOff"
   | "sparkles"
-  | "timer";
+  | "timer"
+  | "copy"
+  | "share";
 
 const ICONS: Record<IconName, LucideIcon> = {
   // Activities
@@ -188,6 +192,8 @@ const ICONS: Record<IconName, LucideIcon> = {
   eyeOff: EyeOff,
   sparkles: Sparkles,
   timer: Activity,
+  copy: Copy,
+  share: Share2,
 };
 
 export interface IconProps {

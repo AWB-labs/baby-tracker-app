@@ -21,6 +21,8 @@ import ParentProfileScreen from "../screens/auth/ParentProfileScreen";
 import JoinOrCreateScreen from "../screens/auth/JoinOrCreateScreen";
 import SetupBabyScreen from "../screens/auth/SetupBabyScreen";
 import OnboardingCarouselScreen from "../screens/auth/OnboardingCarouselScreen";
+import LegalScreen from "../screens/LegalScreen";
+import type { LegalDoc } from "../content/legal";
 import AppTabs from "./AppTabs";
 
 export type AuthStackParamList = {
@@ -31,6 +33,10 @@ export type AuthStackParamList = {
   /** email/token are both optional — arriving fresh from Forgot Password
    *  prefills them, but the screen works from a bare code alone too. */
   ResetPassword: { email?: string; token?: string } | undefined;
+  /** Reachable pre-login too, since Signup links to both documents from its
+   *  new agreement checkbox — see LegalScreen for why it's one screen for
+   *  both stacks. */
+  Legal: { doc: LegalDoc };
 };
 
 export type AppStackParamList = {
@@ -70,6 +76,7 @@ function AuthNavigator() {
       <AuthStack.Screen name="Signup" component={SignupScreen} />
       <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       <AuthStack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+      <AuthStack.Screen name="Legal" component={LegalScreen} />
     </AuthStack.Navigator>
   );
 }

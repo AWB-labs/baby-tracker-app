@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { randomInt } from "crypto";
 import { Router, Response } from "express";
 import { z } from "zod";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
@@ -48,6 +48,31 @@ const INVITE_TTL_DAYS = 14;
 const createLinkSchema = z.object({
   ...relationFields,
 });
+
+/**
+ * Characters a caregiver can tell apart at a glance and read aloud without
+ * spelling it out: no 0/O, 1/I/L, or lowercase — the previous token was a
+ * 32-character mixed-case base64 string, unreadable over a phone call and
+ * error-prone to retype from a screenshot.
+ */
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+/** 32^8 ≈ 1.1 × 10¹² possibilities — plenty against guessing given the
+ *  claim endpoint requires a signed-in account and the code expires. */
+const CODE_LENGTH = 8;
+
+function generateInviteCode(): string {
+  let code = "";
+  for (let i = 0; i < CODE_LENGTH; i++) {
+    code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
+  }
+  return code;
+}
+
+/** Strip whatever formatting the display or a fumbled paste added — spaces,
+ *  dashes, stray case — back to the bare code a lookup can match. */
+function normaliseInviteCode(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[\s-]/g, "");
+}
 
 /**
  * GET /babies/:babyId/members
@@ -229,18 +254,32 @@ router.post(
     await requireBabyAccess(accountId, babyId);
 
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000);
-    const invite = await prisma.babyInvite.create({
-      data: {
-        babyId,
-        email: null,
-        token: randomBytes(24).toString("base64url"),
-        relation,
-        relationNote,
-        expiresAt,
-        invitedByAccountId: accountId,
-      },
-      select: { id: true, token: true, expiresAt: true, relation: true, relationNote: true },
-    });
+
+    // A collision is vanishingly unlikely at 32^8 possibilities, but the
+    // token is the table's unique key, so a retry costs nothing and a crash
+    // on the one-in-a-trillion case would be a silly way to fail.
+    let invite;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        invite = await prisma.babyInvite.create({
+          data: {
+            babyId,
+            email: null,
+            token: generateInviteCode(),
+            relation,
+            relationNote,
+            expiresAt,
+            invitedByAccountId: accountId,
+          },
+          select: { id: true, token: true, expiresAt: true, relation: true, relationNote: true },
+        });
+        break;
+      } catch (err) {
+        const isUniqueViolation =
+          typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002";
+        if (!isUniqueViolation || attempt >= 4) throw err;
+      }
+    }
 
     res.status(201).json({ ...invite, expiresInDays: INVITE_TTL_DAYS });
   }
@@ -258,10 +297,14 @@ router.post(
   authMiddleware,
   async (req, res: Response): Promise<void> => {
     const { accountId } = req as AuthRequest;
-    const { token } = parseOrThrow(
+    const { token: rawToken } = parseOrThrow(
       z.object({ token: z.string().min(1) }),
       req.body
     );
+    // A pasted code may carry the "XXXX-XXXX" grouping it's displayed with, a
+    // stray space, or different case from whoever retyped it — none of that
+    // is part of the actual key.
+    const token = normaliseInviteCode(rawToken);
 
     const invite = await prisma.babyInvite.findUnique({
       where: { token },

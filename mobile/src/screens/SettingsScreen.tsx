@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, Share, StyleSheet, useWindowDimensions, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useTheme, useThemeContext, type Appearance } from "../design/ThemeProvider";
@@ -43,9 +44,11 @@ import {
   setMemberRelation,
   formatRelation,
   relationEmoji,
+  formatInviteCode,
   RELATIONS,
   type BabyMember,
   type PendingInvite,
+  type InviteLink,
 } from "../api/members";
 import { getReminders, type Reminder } from "../api/reminders";
 import { getBagItems, type BagItem } from "../api/bag";
@@ -168,7 +171,12 @@ export default function SettingsScreen() {
   // Chosen once and applied to whichever way the invite goes out.
   const [inviteRelation, setInviteRelation] = useState<string | null>(null);
   const [inviteNote, setInviteNote] = useState("");
-  const [sharingLink, setSharingLink] = useState(false);
+  const [generatingLink, setGeneratingLink] = useState(false);
+  // The most recently minted link invite, shown as a readable code with its
+  // own Copy/Share actions rather than going straight to the OS share sheet —
+  // see handleGetCode.
+  const [inviteLink, setInviteLink] = useState<InviteLink | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [showAddCaregiver, setShowAddCaregiver] = useState(false);
   const [showMyRelation, setShowMyRelation] = useState(false);
   const [myRelationNote, setMyRelationNote] = useState("");
@@ -247,10 +255,7 @@ export default function SettingsScreen() {
         inviteRelation === "other" ? inviteNote.trim() : null
       );
       toast.success(result.message);
-      setInviteEmail("");
-      setInviteRelation(null);
-      setInviteNote("");
-      setShowAddCaregiver(false);
+      closeAddCaregiver();
       await load();
     } catch (err) {
       toast.showError(err);
@@ -259,40 +264,69 @@ export default function SettingsScreen() {
     }
   };
 
+  /** Reset everything scoped to the sheet, whether it closed after a
+   *  successful invite or the caregiver backed out. */
+  const closeAddCaregiver = () => {
+    setShowAddCaregiver(false);
+    setInviteEmail("");
+    setInviteRelation(null);
+    setInviteNote("");
+    setInviteLink(null);
+    setCodeCopied(false);
+  };
+
   /**
-   * Share a claim link instead of an address.
+   * Mint a claim code instead of addressing an email.
    *
    * An email invite only lands if that person signs up with the exact address
-   * typed, which is a poor bet when you're sending it over WhatsApp. The link
-   * works whatever address they use, so it goes out through the OS share sheet
-   * rather than being copied by hand.
+   * typed, which is a poor bet when you're sending it over WhatsApp. The code
+   * works whatever address they use — shown in the sheet with its own Copy and
+   * Share actions rather than jumping straight to the OS share sheet, so a
+   * caregiver who'd rather paste it into an existing chat than pick one from
+   * the share list can.
    */
-  const handleShareLink = async () => {
+  const handleGetCode = async () => {
     if (!activeBaby) return;
     if (inviteRelation === "other" && !inviteNote.trim()) {
       toast.error("Say how they're related.");
       return;
     }
-    setSharingLink(true);
+    setGeneratingLink(true);
     try {
       const link = await createInviteLink(
         activeBaby.id,
         inviteRelation,
         inviteRelation === "other" ? inviteNote.trim() : null
       );
-      await Share.share({
-        message:
-          `Join me on Baby Tracker to help look after ${activeBaby.name}.\n\n` +
-          `Sign up, then go to Account → Join a baby and paste this code:\n\n${link.token}\n\n` +
-          `It expires in ${link.expiresInDays} days.`,
-      });
-      setInviteRelation(null);
-      setInviteNote("");
-      setShowAddCaregiver(false);
+      setInviteLink(link);
+      setCodeCopied(false);
     } catch (err) {
       toast.showError(err);
     } finally {
-      setSharingLink(false);
+      setGeneratingLink(false);
+    }
+  };
+
+  const handleCopyCode = async () => {
+    if (!inviteLink) return;
+    await Clipboard.setStringAsync(formatInviteCode(inviteLink.token));
+    setCodeCopied(true);
+    toast.success("Invite code copied.");
+  };
+
+  const handleShareCode = async () => {
+    if (!activeBaby || !inviteLink) return;
+    try {
+      await Share.share({
+        message:
+          `Join me on Baby Tracker to help look after ${activeBaby.name}.\n\n` +
+          `Sign up, then go to Account → Join a baby and enter this code:\n\n${formatInviteCode(
+            inviteLink.token
+          )}\n\n` +
+          `It expires in ${inviteLink.expiresInDays} days.`,
+      });
+    } catch (err) {
+      toast.showError(err);
     }
   };
 
@@ -670,8 +704,11 @@ export default function SettingsScreen() {
                   label="Invite code"
                   value={joinToken}
                   onChangeText={setJoinToken}
-                  placeholder="Paste the code you were sent"
-                  autoCapitalize="none"
+                  placeholder="e.g. 7F3K-9P2Q"
+                  // The code is always uppercase letters and digits — typing
+                  // it that way makes it visibly match what was shown to
+                  // whoever sent it, even though the server accepts any case.
+                  autoCapitalize="characters"
                   autoCorrect={false}
                   returnKeyType="done"
                   onSubmitEditing={handleJoin}
@@ -1001,7 +1038,7 @@ export default function SettingsScreen() {
       {/* ---------- Add a caregiver ---------- */}
       <Sheet
         visible={showAddCaregiver}
-        onClose={() => setShowAddCaregiver(false)}
+        onClose={closeAddCaregiver}
         title="Add a caregiver"
         subtitle={`They'll be able to see and add entries for ${activeBaby.name}.`}
         footer={
@@ -1009,7 +1046,7 @@ export default function SettingsScreen() {
             <Button
               label="Cancel"
               variant="ghost"
-              onPress={() => setShowAddCaregiver(false)}
+              onPress={closeAddCaregiver}
               style={styles.flex}
             />
             <Button
@@ -1068,16 +1105,60 @@ export default function SettingsScreen() {
 
         <Divider style={styles.divider} />
 
-        <Button
-          label="Share an invite link instead"
-          icon="users"
-          variant="secondary"
-          fullWidth
-          loading={sharingLink}
-          onPress={handleShareLink}
-        />
+        {inviteLink ? (
+          <View
+            style={[
+              styles.codeBox,
+              { backgroundColor: t.accentSofter, borderColor: t.border },
+            ]}
+          >
+            <Text variant="caption" tone="muted">
+              Invite code
+            </Text>
+            <Text
+              variant="title2"
+              tabular
+              center
+              style={[styles.codeText, { color: t.accentText }]}
+              // So the code itself, not just the Copy button, can be selected
+              // and copied by hand — a fallback if the clipboard call above
+              // is ever unavailable.
+              selectable
+            >
+              {formatInviteCode(inviteLink.token)}
+            </Text>
+            <Text variant="footnote" tone="subtle" center>
+              Expires in {inviteLink.expiresInDays} days
+            </Text>
+            <View style={styles.codeActions}>
+              <Button
+                label={codeCopied ? "Copied" : "Copy"}
+                icon={codeCopied ? "check" : "copy"}
+                variant="secondary"
+                onPress={handleCopyCode}
+                style={styles.flex}
+              />
+              <Button
+                label="Share"
+                icon="share"
+                variant="secondary"
+                onPress={handleShareCode}
+                style={styles.flex}
+              />
+            </View>
+          </View>
+        ) : (
+          <Button
+            label="Get an invite code instead"
+            icon="users"
+            variant="secondary"
+            fullWidth
+            loading={generatingLink}
+            onPress={handleGetCode}
+          />
+        )}
         <Text variant="footnote" tone="subtle">
-          A link works whatever email they sign up with and expires after two
+          A code works whatever email they sign up with and expires after two
           weeks. An emailed invite only reaches them if they use that exact
           address.
         </Text>
@@ -1203,6 +1284,17 @@ const styles = StyleSheet.create({
   },
   divider: { marginVertical: space.lg },
   sheetActions: { flexDirection: "row", gap: space.sm },
+  codeBox: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: space.md,
+    gap: space.xs,
+  },
+  // Letter-spaced so the eight characters read as distinct glyphs rather
+  // than running together — the same reason a phone number is never set in
+  // ordinary tracking.
+  codeText: { letterSpacing: 3 },
+  codeActions: { flexDirection: "row", gap: space.sm, marginTop: space.xs },
   // A tappable summary row: states the current answer, hides the options.
   pickerRow: {
     flexDirection: "row",

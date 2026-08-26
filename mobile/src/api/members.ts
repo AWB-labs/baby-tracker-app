@@ -105,6 +105,8 @@ export async function setMemberRelation(
 
 export interface InviteLink {
   id: number;
+  /** An 8-character code from an unambiguous alphabet (no 0/O, 1/I/L, no
+   *  lowercase) — see formatInviteCode for how it's displayed. */
   token: string;
   expiresAt: string | null;
   expiresInDays: number;
@@ -132,6 +134,14 @@ export async function createInviteLink(
   return res.data;
 }
 
+/** "7F3K-9P2Q" — split into two groups of four so an 8-character code reads
+ *  as two short chunks instead of one long one. Purely cosmetic: the server
+ *  strips the dash back out on claim, so it's fine to copy or type either way. */
+export function formatInviteCode(token: string): string {
+  if (token.length !== 8) return token;
+  return `${token.slice(0, 4)}-${token.slice(4)}`;
+}
+
 export interface ClaimResult {
   status: "joined" | "already_member";
   babyId: number;
@@ -139,8 +149,13 @@ export interface ClaimResult {
 }
 
 export async function claimInvite(token: string): Promise<ClaimResult> {
+  // Whatever formatting the display or a fumbled paste added — the dash, a
+  // stray space, lowercase — none of it is part of the actual code. The
+  // server re-normalises too; doing it here as well means a bad code fails
+  // for the actual reason ("not valid") and not a formatting mismatch.
+  const cleaned = token.trim().toUpperCase().replace(/[\s-]/g, "");
   const res = await apiClient.post<ClaimResult>("/babies/invites/claim", {
-    token: token.trim(),
+    token: cleaned,
   });
   return res.data;
 }
