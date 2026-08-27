@@ -17,19 +17,35 @@
  * separate piece of work; this is the correctness fix underneath it.
  */
 
-/** The device's locale with its calendar forced to Gregorian. */
-export const DATE_LOCALE = ((): string => {
+/** The device locale, stripped of any Unicode extension it already carries —
+ *  shared by DATE_LOCALE and TIME_LOCALE below so both start from the same
+ *  base instead of each resolving it independently. */
+const LOCALE_BASE = ((): string => {
   try {
     const resolved = Intl.DateTimeFormat().resolvedOptions().locale;
-    // "ar-SA-u-ca-islamic-umalqura-nu-arab" → "ar-SA". The Unicode extension
-    // carries the calendar we're overriding, so it goes before ours is added.
-    const base = resolved.split("-u-")[0] || "en";
-    return `${base}-u-ca-gregory`;
+    // "ar-SA-u-ca-islamic-umalqura-nu-arab" → "ar-SA".
+    return resolved.split("-u-")[0] || "en";
   } catch {
     // Older JS engines without full Intl data. A plain tag still formats.
     return "en-GB";
   }
 })();
+
+/** The device's locale with its calendar forced to Gregorian. */
+export const DATE_LOCALE = `${LOCALE_BASE}-u-ca-gregory`;
+
+/**
+ * The device's locale with its hour cycle forced to 12-hour (AM/PM).
+ *
+ * Reported: opening the Time field showed "19:35" on a device whose region
+ * defaults to 24-hour clocks, even though the closed field's own label is
+ * always formatted with `hour12: true` (see formatTimeDisplay in TimeField).
+ * Only the label was pinned — the native picker itself was left to resolve
+ * its own hour cycle from the locale, same class of bug DATE_LOCALE already
+ * fixes for the calendar system, via the same trick: a `-u-hc-h12` Unicode
+ * extension leaves the picker nothing to resolve on its own.
+ */
+export const TIME_LOCALE = `${LOCALE_BASE}-u-hc-h12`;
 
 /**
  * Nothing this app records predates the twentieth century, and a picker that

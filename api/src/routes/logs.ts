@@ -20,6 +20,7 @@ const LOG_SELECT = {
   rightMinutes: true,
   amountMl: true,
   diaperStatus: true,
+  diaperStockUsed: true,
   sleepKind: true,
   weightKg: true,
   heightCm: true,
@@ -76,6 +77,9 @@ const createLogSchema = z
       .enum(["empty", "wet", "dirty", "wet_and_dirty"])
       .nullable()
       .optional(),
+    // Whether this change draws one from Baby.diaperStockCount — see
+    // diaperStockUsed on ActivityLog. Ignored on every other type.
+    diaperStockUsed: z.boolean().optional(),
     sleepKind: z.enum(["nap", "night"]).nullable().optional(),
     weightKg: z.number().nullable().optional(),
     heightCm: z.number().nullable().optional(),
@@ -275,6 +279,7 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
     rightMinutes,
     amountMl,
     diaperStatus,
+    diaperStockUsed,
     sleepKind,
     weightKg,
     heightCm,
@@ -339,6 +344,7 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
       rightMinutes: isFeedOrPump ? rightMinutes ?? null : null,
       amountMl: isFeedOrPump ? amountMl ?? null : null,
       diaperStatus: type === "diaper" ? diaperStatus ?? null : null,
+      diaperStockUsed: type === "diaper" ? !!diaperStockUsed : false,
       // Only a sleep has one; storing it on anything else would put a field in
       // the data that nothing reads and every future query has to wonder about.
       sleepKind: type === "sleep" ? sleepKind ?? null : null,
@@ -591,14 +597,28 @@ router.delete("/:id", authMiddleware, async (req, res: Response): Promise<void> 
 
   const log = await prisma.activityLog.findUnique({
     where: { id },
-    select: { id: true, babyId: true },
+    select: { id: true, babyId: true, type: true, diaperStockUsed: true },
   });
   if (!log) {
     throw notFound("That entry no longer exists — it may have been deleted.", "gone");
   }
   await requireBabyAccess(accountId, log.babyId);
 
-  await prisma.activityLog.delete({ where: { id } });
+  // A nappy that was drawn from stock when this entry was logged (see
+  // diaperStockUsed) goes back on delete — same increment the diaper-stock
+  // endpoint itself applies, just +1 instead of -1. No clamp needed: adding
+  // one can't push the count negative.
+  if (log.type === "diaper" && log.diaperStockUsed) {
+    await prisma.$transaction([
+      prisma.activityLog.delete({ where: { id } }),
+      prisma.baby.update({
+        where: { id: log.babyId },
+        data: { diaperStockCount: { increment: 1 } },
+      }),
+    ]);
+  } else {
+    await prisma.activityLog.delete({ where: { id } });
+  }
   res.status(204).send();
 });
 

@@ -4,7 +4,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme, useThemeContext } from "../design/ThemeProvider";
 import { space, radius, PRESSED_OPACITY } from "../design/tokens";
 import { Field, Text } from "./ui";
-import { DATE_LOCALE } from "../lib/calendar";
+import { TIME_LOCALE } from "../lib/calendar";
 
 function formatTimeDisplay(d: Date): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
@@ -58,7 +58,7 @@ export default function TimeField({ label, value, onChange, style }: Props) {
           value={value}
           mode="time"
           display="compact"
-          locale={DATE_LOCALE}
+          locale={TIME_LOCALE}
           accentColor={t.accent}
           themeVariant={isDark ? "dark" : "light"}
           onChange={(_, picked) => {
@@ -91,6 +91,10 @@ export default function TimeField({ label, value, onChange, style }: Props) {
           value={value}
           mode="time"
           display="default"
+          // Left unset, Android's TimePickerDialog falls back to the device's
+          // system 24-hour setting — forced off so it always shows AM/PM,
+          // matching the closed field's own label above.
+          is24Hour={false}
           onChange={(_, picked) => {
             setOpen(false);
             if (picked) onChange(picked);

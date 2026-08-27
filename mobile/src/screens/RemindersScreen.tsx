@@ -5,6 +5,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius, PRESSED_OPACITY } from "../design/tokens";
 import { REMINDER_EMOJI } from "../design/activity";
+import { TIME_LOCALE } from "../lib/calendar";
 import {
   Screen,
   ScreenHeader,
@@ -482,6 +483,11 @@ export default function RemindersScreen() {
                 value={timeOfDayToDate(draft.timeOfDay)}
                 mode="time"
                 display={Platform.OS === "ios" ? "spinner" : "default"}
+                locale={TIME_LOCALE}
+                // Left unset on Android, this falls back to the device's
+                // system 24-hour setting — forced off so it always shows
+                // AM/PM, matching the row's own "tap for exact time" label.
+                is24Hour={false}
                 onChange={(_e, date) => {
                   if (Platform.OS !== "ios") setShowWheel(false);
                   if (date)

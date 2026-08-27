@@ -206,6 +206,7 @@ function ManualEntryModal({
         side: takesMl ? side : null,
         amountMl: takesMl && amountValid ? amountValue : null,
         diaperStatus: isDiaper ? diaperStatus : null,
+        diaperStockUsed: isDiaper ? useFromStock : undefined,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
         comments: comments.trim() || null,

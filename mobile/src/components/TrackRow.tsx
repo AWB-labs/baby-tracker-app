@@ -349,6 +349,7 @@ export default function TrackRow({
         leftMinutes: split ? split.left / 60 : null,
         rightMinutes: split ? split.right / 60 : null,
         diaperStatus: type === "diaper" ? diaperStatus : null,
+        diaperStockUsed: type === "diaper" ? useFromStock : undefined,
         sleepKind: type === "sleep" ? sleepKind : null,
         // A finished pump — or a bottle feed, timed the same way — is
         // measured, not annotated: the useful thing to capture is how much

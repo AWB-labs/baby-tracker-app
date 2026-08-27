@@ -324,6 +324,13 @@ model ActivityLog {
   rightMinutes        Float?
   amountMl            Float? // bottle feed / pump volume
   diaperStatus        String? // empty|wet|dirty|wet_and_dirty
+  /// Whether this diaper entry drew one from Baby.diaperStockCount when it was
+  /// saved — set only on diaper rows, so deleting one knows whether to hand a
+  /// nappy back to the count. Always false on rows written before this column
+  /// existed: there's no way to tell after the fact whether the original save
+  /// happened to hit stock, and refunding those would risk crediting nappies
+  /// that were never actually taken from it.
+  diaperStockUsed     Boolean   @default(false)
   weightKg            Float?
   heightCm            Float?
   headCircumferenceCm Float?

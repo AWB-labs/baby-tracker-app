@@ -18,6 +18,9 @@ export interface LogEntry {
   rightMinutes: number | null;
   amountMl: number | null;
   diaperStatus: string | null;
+  /** Whether this change drew one from diaper stock when it was logged —
+   *  false on entries predating this flag, even if they actually did. */
+  diaperStockUsed: boolean;
   /** "nap" | "night" on a sleep. Null elsewhere, and on sleeps predating it. */
   sleepKind: string | null;
   weightKg: number | null;
@@ -71,6 +74,8 @@ export interface CreateLogInput {
   rightMinutes?: number | null;
   amountMl?: number | null;
   diaperStatus?: string | null;
+  /** Whether this change draws one from diaper stock — diaper logs only. */
+  diaperStockUsed?: boolean;
   sleepKind?: "nap" | "night" | null;
   weightKg?: number | null;
   heightCm?: number | null;
