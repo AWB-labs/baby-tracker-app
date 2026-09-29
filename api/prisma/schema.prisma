@@ -140,6 +140,59 @@ model Baby {
   activeTimers ActiveTimer[]
   vaccines     Vaccine[]
   bagItems     BagItem[]
+  foodItems    FoodItem[]
+  foodLogs     FoodLog[]
+}
+
+/// One food this baby has been offered — the family's own catalogue, built
+/// up as meals are logged rather than seeded, so it only ever holds what was
+/// actually tried. Shared by every caregiver of the baby.
+model FoodItem {
+  id        Int      @id @default(autoincrement())
+  babyId    Int
+  name      String
+  emoji     String?
+  /// veg | fruit | grain | protein | dairy | allergen | other — free text so a
+  /// new group needs no migration; the app offers a fixed list.
+  category  String?
+  /// Set when a meal records an allergy-type reaction (rash, hives, vomiting,
+  /// swelling…), or by hand. Once true it stays true until a caregiver clears
+  /// it: a food that reacted once is the food to warn about, whatever the
+  /// next serving did.
+  allergen  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  baby Baby      @relation(fields: [babyId], references: [id], onDelete: Cascade)
+  logs FoodLog[]
+
+  @@unique([babyId, name])
+  @@index([babyId])
+}
+
+/// One food, one serving. Foods eaten together share a `mealKey`, which is
+/// how "carrot + potato at 12:30" is reassembled from rows.
+model FoodLog {
+  id            Int      @id @default(autoincrement())
+  babyId        Int
+  foodItemId    Int
+  mealKey       String
+  eatenAt       DateTime
+  /// 1–5, how it went down. Null when nobody rated it.
+  rating        Int?
+  /// none | gas | rash | hives | vomiting | diarrhea | swelling | other.
+  /// Null and "none" mean the same thing; "none" is what the app writes so a
+  /// deliberate "she was fine" is distinguishable from a blank.
+  reaction      String?
+  reactionNote  String?
+  notes         String?
+  enteredByName String
+  createdAt     DateTime @default(now())
+
+  baby     Baby     @relation(fields: [babyId], references: [id], onDelete: Cascade)
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
+
+  @@index([babyId, eatenAt])
+  @@index([foodItemId])
 }
 
 /// Who may read and write a baby's logs. This is the only source of truth for

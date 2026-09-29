@@ -16,6 +16,7 @@ import HealthScreen from "../screens/HealthScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import RemindersScreen from "../screens/RemindersScreen";
 import BagScreen from "../screens/BagScreen";
+import FoodsScreen from "../screens/FoodsScreen";
 import LegalScreen from "../screens/LegalScreen";
 
 /**
@@ -36,6 +37,17 @@ export type TabParamList = {
   Account: undefined;
 };
 
+/**
+ * Today is a stack too: the foods catalogue is a full screen of its own
+ * (history per food, allergy flags, what's next) reached from the Food card,
+ * and it belongs to Today rather than Account because it's about the baby's
+ * day, not the family's settings.
+ */
+export type TodayStackParamList = {
+  TodayHome: undefined;
+  Foods: undefined;
+};
+
 export type AccountStackParamList = {
   AccountHome: undefined;
   Reminders: undefined;
@@ -45,7 +57,17 @@ export type AccountStackParamList = {
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
+const TodayStack = createNativeStackNavigator<TodayStackParamList>();
 const AccountStack = createNativeStackNavigator<AccountStackParamList>();
+
+function TodayNavigator() {
+  return (
+    <TodayStack.Navigator screenOptions={{ headerShown: false }}>
+      <TodayStack.Screen name="TodayHome" component={HomeScreen} />
+      <TodayStack.Screen name="Foods" component={FoodsScreen} />
+    </TodayStack.Navigator>
+  );
+}
 
 /**
  * Account is a stack: settings stays the hub, and flows that deserve room —
@@ -152,7 +174,7 @@ export default function AppTabs() {
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{ headerShown: false }}
     >
-      <Tab.Screen name="Today" component={HomeScreen} />
+      <Tab.Screen name="Today" component={TodayNavigator} />
       <Tab.Screen name="Activity" component={LogScreen} />
       <Tab.Screen name="Analytics" component={InsightsScreen} />
       <Tab.Screen name="Medical" component={HealthScreen} />

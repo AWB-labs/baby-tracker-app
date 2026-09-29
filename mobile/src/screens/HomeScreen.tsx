@@ -9,8 +9,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, type CompositeNavigationProp } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { space, radius, tabBar } from "../design/tokens";
 import { useTheme } from "../design/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
@@ -32,6 +33,7 @@ import {
 import Snapshot, { type ActiveStarts } from "../components/Snapshot";
 import SnapshotMiniBar from "../components/SnapshotMiniBar";
 import StockSection from "../components/StockSection";
+import FoodSection from "../components/FoodSection";
 import TrackRow, { type TrackType } from "../components/TrackRow";
 import Habits from "../components/Habits";
 import BabySwitcher from "../components/BabySwitcher";
@@ -41,7 +43,13 @@ import DiaperStockModal from "../components/DiaperStockModal";
 import RatePromptSheet from "../components/RatePromptSheet";
 import { greetingFor, formatBabyAge } from "../lib/greeting";
 import type { LogEntry } from "../api/logs";
-import type { TabParamList } from "../navigation/AppTabs";
+import type { TabParamList, TodayStackParamList } from "../navigation/AppTabs";
+
+/** Home sits in the Today stack (for Foods) inside the tab bar (for Activity). */
+type HomeNavigation = CompositeNavigationProp<
+  NativeStackNavigationProp<TodayStackParamList, "TodayHome">,
+  BottomTabNavigationProp<TabParamList>
+>;
 
 /**
  * Enough rows to know the latest of every activity and today's tallies.
@@ -80,7 +88,7 @@ export default function HomeScreen() {
   const [showManual, setShowManual] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [habitsRefreshKey, setHabitsRefreshKey] = useState(0);
-  const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
+  const navigation = useNavigation<HomeNavigation>();
   const insets = useSafeAreaInsets();
   const t = useTheme();
 
@@ -438,6 +446,14 @@ export default function HomeScreen() {
         refreshKey={habitsRefreshKey}
       />
 
+      {/* What she's eaten today, and the door to the foods catalogue. */}
+      <FoodSection
+        babyId={activeBaby.id}
+        enteredByName={enteredByName}
+        refreshKey={habitsRefreshKey}
+        onOpenFoods={() => navigation.navigate("Foods")}
+      />
+
       {/* What's on hand — under the habits, now that the snapshot's fourth
           card belongs to pumping. */}
       <StockSection
@@ -472,6 +488,17 @@ export default function HomeScreen() {
               { paddingTop: insets.top + space.xs },
             ]}
           >
+            {/* The header the hero collapses *to*: who this is about stays
+                on screen above the one-line snapshot, so the pinned strip
+                reads as the same pink header shrunk, not a new bar. */}
+            <Text
+              variant="subheadStrong"
+              numberOfLines={1}
+              style={styles.miniBarTitle}
+            >
+              {activeBaby.name}
+              {activeBaby.avatarEmoji ? ` ${activeBaby.avatarEmoji}` : ""}
+            </Text>
             <SnapshotMiniBar
               logs={logs}
               activeStarts={activeStarts}
@@ -581,7 +608,9 @@ const styles = StyleSheet.create({
   miniBarInner: {
     paddingHorizontal: space.lg,
     paddingBottom: space.md,
+    gap: space.xs,
     borderBottomLeftRadius: radius.xxl,
     borderBottomRightRadius: radius.xxl,
   },
+  miniBarTitle: { color: "#ffffff", textAlign: "center" },
 });
