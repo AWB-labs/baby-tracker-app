@@ -5,6 +5,7 @@ import {
   type BottomTabBarProps,
 } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { BlurView } from "expo-blur";
 import { useThemeContext } from "../design/ThemeProvider";
 import { TAB_EMOJI } from "../design/activity";
 import { space, radius, tabBar, elevation } from "../design/tokens";
@@ -102,15 +103,33 @@ function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
       <View
         style={[
           styles.pill,
-          {
-            backgroundColor: t.surface,
-            borderColor: t.border,
-            height: tabBar.height,
-          },
+          { borderColor: t.border, height: tabBar.height },
           elevation(3, isDark),
         ]}
         accessibilityRole="tablist"
       >
+        {/* Glass: the content scrolling underneath shows through, blurred.
+            Clipped in its own layer so the pill's shadow (drawn outside its
+            bounds) isn't cut off with it. A translucent wash on top keeps the
+            emoji and labels legible over a busy page. */}
+        <View pointerEvents="none" style={styles.glass}>
+          <BlurView
+            intensity={isDark ? 50 : 60}
+            tint={isDark ? "dark" : "light"}
+            style={StyleSheet.absoluteFill}
+            experimentalBlurMethod="dimezisBlurView"
+          />
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: isDark
+                  ? "rgba(20,14,18,0.55)"
+                  : "rgba(255,255,255,0.6)",
+              },
+            ]}
+          />
+        </View>
         {state.routes.map((route, index) => {
           const focused = state.index === index;
           const label =
@@ -199,6 +218,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: space.xs,
+  },
+  glass: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: radius.pill,
+    overflow: "hidden",
   },
   item: {
     flex: 1,
