@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -116,16 +117,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  const value: ToastContextValue = {
-    show,
-    success: useCallback((m: string) => show(m, "success"), [show]),
-    error: useCallback((m: string) => show(m, "error"), [show]),
-    info: useCallback((m: string) => show(m, "info"), [show]),
-    showError: useCallback(
-      (err: unknown) => show(getErrorMessage(err), "error"),
-      [show]
-    ),
-  };
+  // One stable object per `show`: screens put `toast` in hook dependency
+  // lists, and a value rebuilt on every provider render re-ran their fetch
+  // effects each time a toast appeared or the tree re-rendered.
+  const value: ToastContextValue = useMemo(
+    () => ({
+      show,
+      success: (m: string) => show(m, "success"),
+      error: (m: string) => show(m, "error"),
+      info: (m: string) => show(m, "info"),
+      showError: (err: unknown) => show(getErrorMessage(err), "error"),
+    }),
+    [show]
+  );
 
   const tone = toast
     ? {

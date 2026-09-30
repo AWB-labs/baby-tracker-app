@@ -869,12 +869,16 @@ export default function TrackRow({
           </View>
         </View>
 
-        <View style={styles.actions}>
+        {/* The actions are a segmented block flush to the card's right edge,
+            stretched to its full height: every target is the whole 76pt of
+            the card tall rather than a 48pt pill floating in the padding, and
+            equal-width segments line up across rows. Same card height. */}
+        <View style={[styles.actions, { backgroundColor: t.accentSofter, borderColor: t.borderStrong }]}>
           {type === "diaper" ? (
             <MiniButton
               label="Log"
               icon="plus"
-              fixed
+              width={SEGMENT_SINGLE}
               a11y="Log a diaper change"
               onPress={timer.openDiaperStatus}
             />
@@ -882,19 +886,22 @@ export default function TrackRow({
             <>
               <MiniButton
                 label="L"
-                wide
+                width={config.hasAmount ? SEGMENT_TRIPLE : SEGMENT_DOUBLE}
                 a11y={`Start ${label.toLowerCase()} on the left`}
                 onPress={() => claimAndStart("left")}
               />
               <MiniButton
                 label="R"
-                wide
+                width={config.hasAmount ? SEGMENT_TRIPLE : SEGMENT_DOUBLE}
+                divided
                 a11y={`Start ${label.toLowerCase()} on the right`}
                 onPress={() => claimAndStart("right")}
               />
               {config.hasAmount && (
                 <MiniButton
                   emoji="🍼"
+                  width={SEGMENT_TRIPLE}
+                  divided
                   a11y={`Start a bottle ${label.toLowerCase()}`}
                   onPress={() => claimAndStart()}
                 />
@@ -904,7 +911,7 @@ export default function TrackRow({
             <MiniButton
               label="Start"
               icon="play"
-              fixed
+              width={SEGMENT_SINGLE}
               a11y={`Start ${label.toLowerCase()}`}
               onPress={() => claimAndStart()}
             />
@@ -945,44 +952,47 @@ export default function TrackRow({
   );
 }
 
-/** Compact start action — a letter, a word, or an emoji. `wide` gives the
- *  single-letter L/R taps a more comfortable, tappable footprint. `fixed`
- *  gives a standalone action (Start, Log) a shared width, so a row's button
- *  doesn't run wider or narrower than another row's just because its label
- *  is a different length. */
+/**
+ * Segment widths. A lone action (Start, Log) gets one wide segment; L/R
+ * split a double; L/R/bottle split a triple. Chosen so the block's total
+ * width stays within ~40% of the card and the left column keeps room for
+ * "2h 58m ago · Wet" without truncating.
+ */
+const SEGMENT_SINGLE = 104;
+const SEGMENT_DOUBLE = 66;
+const SEGMENT_TRIPLE = 56;
+
+/** One segment of the row's action block — a letter, a word, or an emoji.
+ *  It fills the card's height, so the touch target is the whole segment. */
 function MiniButton({
   label,
   emoji,
   icon,
   a11y,
-  wide,
-  fixed,
+  width,
+  divided,
   onPress,
 }: {
   label?: string;
   emoji?: string;
   icon?: "plus" | "play";
   a11y: string;
-  wide?: boolean;
-  fixed?: boolean;
+  width: number;
+  /** Draw a hairline on the left, separating it from the segment before. */
+  divided?: boolean;
   onPress: () => void;
 }) {
   const t = useTheme();
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
       accessibilityRole="button"
       accessibilityLabel={a11y}
       style={({ pressed }) => [
         styles.mini,
-        wide && styles.miniWide,
-        fixed && styles.miniFixed,
-        {
-          backgroundColor: t.accentSofter,
-          borderColor: t.borderStrong,
-          opacity: pressed ? PRESSED_OPACITY : 1,
-        },
+        { width },
+        divided && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.borderStrong },
+        { backgroundColor: pressed ? t.accentSoft : "transparent" },
       ]}
     >
       {emoji ? <Emoji size={20}>{emoji}</Emoji> : null}
@@ -1268,13 +1278,13 @@ const styles = StyleSheet.create({
   rowCenter: { flexDirection: "row", alignItems: "center", gap: space.sm },
 
   /* idle row */
+  // No padding on the card itself: the left column carries it, so the action
+  // block on the right can run the card's full height and bleed to its edge.
   row: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
+    alignItems: "stretch",
     minHeight: 76,
+    overflow: "hidden",
   },
   left: {
     flexDirection: "row",
@@ -1282,6 +1292,9 @@ const styles = StyleSheet.create({
     gap: space.md,
     flex: 1,
     minWidth: 0,
+    paddingLeft: space.lg,
+    paddingRight: space.md,
+    paddingVertical: space.lg,
   },
   iconChip: {
     width: 44,
@@ -1291,23 +1304,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   nameCol: { flex: 1, minWidth: 0, gap: 2 },
-  actions: { flexDirection: "row", gap: space.sm, flexShrink: 0 },
+  actions: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    flexShrink: 0,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+  },
   mini: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: space.xs,
-    minWidth: 52,
-    height: 48,
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
+    alignSelf: "stretch",
   },
-  // Single-letter L/R get a touch more width so they don't read as cramped.
-  miniWide: { minWidth: 60 },
-  // A fixed rather than minimum width — otherwise "Start" and "Log" render at
-  // two different sizes purely because the words are different lengths.
-  miniFixed: { width: 96, minWidth: 0 },
 
   /* running */
   // No outer margin: this used to sit inset within one shared unpadded Card;

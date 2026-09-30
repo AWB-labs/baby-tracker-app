@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Switch, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../design/ThemeProvider";
@@ -80,25 +80,37 @@ export default function FoodsScreen() {
   const [showLog, setShowLog] = useState(false);
   const [preselect, setPreselect] = useState<SelectedFood[] | undefined>(undefined);
 
+  /*
+   * Keyed on the baby's id, not the baby object or the toast handle: both of
+   * those can change identity on unrelated re-renders, and a `load` that
+   * changes identity re-runs the effect below — which flips the screen back
+   * to its skeleton, fetches, and flips again. That was a visible flicker
+   * between "empty" and "loaded" every time something upstream re-rendered.
+   */
+  const babyId = activeBaby?.id ?? null;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+
   const load = useCallback(async () => {
-    if (!activeBaby) {
+    if (babyId == null) {
       setLoading(false);
       return;
     }
     try {
       const [foods, history] = await Promise.all([
-        getFoods(activeBaby.id),
-        getFoodLogs(activeBaby.id),
+        getFoods(babyId),
+        getFoodLogs(babyId),
       ]);
       setItems(foods);
       setLogs(history);
     } catch (err) {
-      toast.showError(err);
+      toastRef.current.showError(err);
     } finally {
       setLoading(false);
     }
-  }, [activeBaby, toast]);
+  }, [babyId]);
 
+  // Skeleton only on first load for a baby; refreshes keep the list on screen.
   useEffect(() => {
     setLoading(true);
     load();

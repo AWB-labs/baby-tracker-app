@@ -25,7 +25,6 @@ import { useRatePrompt } from "../hooks/useRatePrompt";
 import { useActiveTimers } from "../hooks/useActiveTimers";
 import {
   Screen,
-  ScreenHeader,
   SectionHeader,
   Text,
   EmptyState,
@@ -73,6 +72,9 @@ const MINI_BAR_FADE_PX = 56;
 /** The hero gradient, defined once for the hero and the condensed bar so
  *  the bar can never drift off-brand from the header it stands in for. */
 const HERO_COLORS = ["#f3437e", "#993758"] as const;
+
+/** title1 (28pt) shrinks to roughly title3 (18pt) in the strip. */
+const TITLE_COMPACT_SCALE = 0.64;
 
 function latestOfType(logs: LogEntry[], type: string): LogEntry | null {
   for (const log of logs) {
@@ -207,6 +209,10 @@ export default function HomeScreen() {
   /** Measured, not assumed: the hero is sized by its content. */
   const [heroH, setHeroH] = useState(0);
   const [miniBarH, setMiniBarH] = useState(0);
+  /** Where the (invisible) title placeholder sits inside the hero header, and
+   *  how wide the real title measures — the pinned title morphs from there. */
+  const [nameY, setNameY] = useState(0);
+  const [nameH, setNameH] = useState(0);
   // Where the condensed bar finishes fading in: the moment the hero's last
   // pixel would disappear under it.
   const collapseAt = Math.max(1, heroH - miniBarH);
@@ -235,7 +241,33 @@ export default function HomeScreen() {
   // Memoized so the per-second re-renders a running timer causes don't
   // rebuild the native animated-node graph every tick — the nodes only need
   // recreating when the measured threshold actually moves.
-  const { miniBarOpacity, miniBarShift } = useMemo(
+  /*
+   * The title is one element, pinned from the first frame: at scroll 0 it is
+   * translated down into the hero (over an invisible placeholder that keeps
+   * the hero's layout), and as the hero scrolls away it rides up with the
+   * content 1:1 and shrinks into the compact strip, where it docks — the
+   * same large-title behaviour as iOS navigation bars. Same text, same node,
+   * so the collapse is one continuous motion rather than a fade into a
+   * different component. Once docked, the strip's pink sits behind it (a
+   * band only as tall as the title) and the snapshot cards slide underneath;
+   * the band stretches to full height as the mini strip fades in at the end.
+   * All of it is transform/opacity on the native driver; nothing lays out.
+   */
+  const compactTitleY = insets.top + space.xs;
+  const heroTitleY = insets.top + space.md + nameY;
+  const titleTravel = Math.max(1, heroTitleY - compactTitleY);
+  // The band behind the docked title: safe area, the shrunken title, a beat.
+  const bandH = compactTitleY + nameH * TITLE_COMPACT_SCALE + space.xs;
+  const bandScale = miniBarH > 0 ? Math.min(1, bandH / miniBarH) : 1;
+  const {
+    miniBarOpacity,
+    miniBarShift,
+    bandOpacity,
+    bandScaleY,
+    heroTextFade,
+    titleTranslateY,
+    titleScale,
+  } = useMemo(
     () => ({
       miniBarOpacity: scrollY.interpolate({
         inputRange: [collapseAt - MINI_BAR_FADE_PX, collapseAt],
@@ -247,8 +279,45 @@ export default function HomeScreen() {
         outputRange: [-12, 0],
         extrapolate: "clamp",
       }),
+      // The band arrives as the title docks — invisible until then, since
+      // it would only be pink over pink.
+      bandOpacity: scrollY.interpolate({
+        inputRange: [titleTravel * 0.5, titleTravel],
+        outputRange: [0, 1],
+        extrapolate: "clamp",
+      }),
+      // ...and grows from the title band to the full strip as the hero's
+      // last row leaves and the mini snapshot fades in beneath the title.
+      bandScaleY: scrollY.interpolate({
+        inputRange: [collapseAt - MINI_BAR_FADE_PX, collapseAt],
+        outputRange: [bandScale, 1],
+        extrapolate: "clamp",
+      }),
+      // Greeting and age line are gone by the time the title docks.
+      heroTextFade: scrollY.interpolate({
+        inputRange: [0, titleTravel * 0.8],
+        outputRange: [1, 0],
+        extrapolate: "clamp",
+      }),
+      // Slope 1 for the first `titleTravel` points: the title stays glued to
+      // its hero spot while the hero scrolls, then holds at the strip. The
+      // slope continues below zero so it rides the pull-to-refresh bounce
+      // with the hero instead of staying behind.
+      titleTranslateY: scrollY.interpolate({
+        inputRange: [0, titleTravel],
+        outputRange: [titleTravel, 0],
+        extrapolateLeft: "extend",
+        extrapolateRight: "clamp",
+      }),
+      // Scales about its top-left corner (transformOrigin below), so the
+      // left edge and the top stay put while it shrinks.
+      titleScale: scrollY.interpolate({
+        inputRange: [0, titleTravel],
+        outputRange: [1, TITLE_COMPACT_SCALE],
+        extrapolate: "clamp",
+      }),
     }),
-    [scrollY, collapseAt]
+    [scrollY, collapseAt, titleTravel, bandScale]
   );
 
   const enteredByName = account?.name || "Unknown";
@@ -276,6 +345,9 @@ export default function HomeScreen() {
     [activeBaby.gender === "girl" ? "Girl" : "Boy", age]
       .filter(Boolean)
       .join(" · ") || "Here's today";
+  const titleText = `${activeBaby.name}${
+    activeBaby.avatarEmoji ? ` ${activeBaby.avatarEmoji}` : ""
+  }`;
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
@@ -339,13 +411,31 @@ export default function HomeScreen() {
             never hit that truncation) plus their emoji is the actual title,
             with age/gender underneath in the subtitle. The switcher itself
             moved to Account, so there's nothing trailing to compete with it. */}
-        <ScreenHeader
-          light
-          overline={`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
-          overlineVariant="title3"
-          title={`${activeBaby.name}${activeBaby.avatarEmoji ? ` ${activeBaby.avatarEmoji}` : ""}`}
-          subtitle={babyLine}
-        />
+        <View style={styles.heroHeader}>
+          <Animated.View style={{ opacity: heroTextFade }}>
+            <Text variant="title3" style={styles.heroText} numberOfLines={1}>
+              {`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
+            </Text>
+          </Animated.View>
+          {/* Invisible twin of the pinned title: it reserves the title's
+              space and reports where it sits, so the real one can start
+              exactly here. */}
+          <Text
+            variant="title1"
+            numberOfLines={1}
+            style={styles.heroTitleGhost}
+            onLayout={(e) => setNameY(e.nativeEvent.layout.y)}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            {titleText}
+          </Text>
+          <Animated.View style={{ opacity: heroTextFade }}>
+            <Text variant="subhead" style={styles.heroText} numberOfLines={2}>
+              {babyLine}
+            </Text>
+          </Animated.View>
+        </View>
 
         <View style={styles.snapshotResting}>
           {/* What's happening right now — four doors, not banners. Rendered
@@ -474,37 +564,54 @@ export default function HomeScreen() {
         <Animated.View
           pointerEvents={pastHero ? "auto" : "none"}
           onLayout={(e) => setMiniBarH(e.nativeEvent.layout.height)}
-          style={[
-            styles.miniBar,
-            { opacity: miniBarOpacity, transform: [{ translateY: miniBarShift }] },
-          ]}
+          style={styles.miniBar}
         >
-          <LinearGradient
-            colors={[...HERO_COLORS]}
-            start={{ x: 0.1, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
+          {/* The strip's pink fades in underneath as the hero's last pixel
+              leaves; until then the layer is transparent and only carries
+              the travelling title. */}
+          <Animated.View
             style={[
-              styles.miniBarInner,
-              { paddingTop: insets.top + space.xs },
+              StyleSheet.absoluteFill,
+              styles.miniBarBand,
+              { opacity: bandOpacity, transform: [{ scaleY: bandScaleY }] },
             ]}
           >
-            {/* The header the hero collapses *to*: who this is about stays
-                on screen above the one-line snapshot, so the pinned strip
-                reads as the same pink header shrunk, not a new bar. */}
-            <Text
-              variant="subheadStrong"
-              numberOfLines={1}
-              style={styles.miniBarTitle}
-            >
-              {activeBaby.name}
-              {activeBaby.avatarEmoji ? ` ${activeBaby.avatarEmoji}` : ""}
-            </Text>
-            <SnapshotMiniBar
-              logs={logs}
-              activeStarts={activeStarts}
-              onPress={scrollToTop}
+            <LinearGradient
+              colors={[...HERO_COLORS]}
+              start={{ x: 0.1, y: 0 }}
+              end={{ x: 0.9, y: 1 }}
+              style={styles.miniBarBg}
             />
-          </LinearGradient>
+          </Animated.View>
+
+          <View style={[styles.miniBarInner, { paddingTop: insets.top + space.xs }]}>
+            {/* The one and only title — see the note above the interpolations.
+                Hidden until the hero has reported where it should start, so
+                the first frame can't show it in the wrong place. */}
+            <Animated.Text
+              numberOfLines={1}
+              onLayout={(e) => setNameH(e.nativeEvent.layout.height)}
+              accessibilityRole="header"
+              style={[
+                styles.miniBarTitle,
+                {
+                  opacity: nameY > 0 ? 1 : 0,
+                  transform: [{ translateY: titleTranslateY }, { scale: titleScale }],
+                },
+              ]}
+            >
+              {titleText}
+            </Animated.Text>
+            <Animated.View
+              style={{ opacity: miniBarOpacity, transform: [{ translateY: miniBarShift }] }}
+            >
+              <SnapshotMiniBar
+                logs={logs}
+                activeStarts={activeStarts}
+                onPress={scrollToTop}
+              />
+            </Animated.View>
+          </View>
         </Animated.View>
       )}
 
@@ -593,7 +700,22 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
+    // The title starts well below the strip's own bounds at scroll 0.
+    overflow: "visible",
   },
+  // Scales from its top edge, so the band grows downward from the title.
+  miniBarBand: { transformOrigin: "top" },
+  miniBarBg: {
+    flex: 1,
+    borderBottomLeftRadius: radius.xxl,
+    borderBottomRightRadius: radius.xxl,
+  },
+  heroHeader: { gap: space.xxs },
+  // Opaque white rather than 85% — the pink is mid-tone, and translucent
+  // white on it fell below the AA contrast floor for 14pt text.
+  heroText: { color: "#ffffff" },
+  // Reserves the title's line; the pinned title is drawn over it.
+  heroTitleGhost: { color: "#ffffff", opacity: 0 },
   overscrollBleed: {
     position: "absolute",
     top: -600,
@@ -609,8 +731,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingBottom: space.md,
     gap: space.xs,
-    borderBottomLeftRadius: radius.xxl,
-    borderBottomRightRadius: radius.xxl,
   },
-  miniBarTitle: { color: "#ffffff", textAlign: "center" },
+  // title1 metrics, matching the hero ghost exactly so the morph is only
+  // ever a transform of the same glyphs.
+  miniBarTitle: {
+    color: "#ffffff",
+    alignSelf: "flex-start",
+    transformOrigin: "left top",
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "800",
+  },
 });
