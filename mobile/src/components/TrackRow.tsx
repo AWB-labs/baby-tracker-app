@@ -812,7 +812,7 @@ export default function TrackRow({
     return (
       <Card
         padded={false}
-        style={styles.row}
+        style={styles.lockedRow}
         accessible
         accessibilityLabel={`${label}: currently ${GERUND[type]}, started by ${
           lockedByOther.enteredByName
@@ -869,30 +869,28 @@ export default function TrackRow({
           </View>
         </View>
 
-        {/* The actions are a segmented block flush to the card's right edge,
-            stretched to its full height: every target is the whole 76pt of
-            the card tall rather than a 48pt pill floating in the padding, and
-            equal-width segments line up across rows. Same card height. */}
-        <View style={[styles.actions, { backgroundColor: t.accentSofter, borderColor: t.borderStrong }]}>
+        {/* The actions are a segmented bar across the card's full width,
+            under the name: equal-width segments that split the whole row,
+            so each target is the card's width divided by two or three and
+            44pt tall — nothing is squeezed against the right edge, and the
+            labels have room to be words rather than letters. */}
+        <View style={[styles.actions, { backgroundColor: t.accentSoft, borderColor: t.borderStrong }]}>
           {type === "diaper" ? (
             <MiniButton
               label="Log"
               icon="plus"
-              width={SEGMENT_SINGLE}
               a11y="Log a diaper change"
               onPress={timer.openDiaperStatus}
             />
           ) : config.hasSides ? (
             <>
               <MiniButton
-                label="L"
-                width={config.hasAmount ? SEGMENT_TRIPLE : SEGMENT_DOUBLE}
+                label="Left"
                 a11y={`Start ${label.toLowerCase()} on the left`}
                 onPress={() => claimAndStart("left")}
               />
               <MiniButton
-                label="R"
-                width={config.hasAmount ? SEGMENT_TRIPLE : SEGMENT_DOUBLE}
+                label="Right"
                 divided
                 a11y={`Start ${label.toLowerCase()} on the right`}
                 onPress={() => claimAndStart("right")}
@@ -900,7 +898,7 @@ export default function TrackRow({
               {config.hasAmount && (
                 <MiniButton
                   emoji="🍼"
-                  width={SEGMENT_TRIPLE}
+                  label="Bottle"
                   divided
                   a11y={`Start a bottle ${label.toLowerCase()}`}
                   onPress={() => claimAndStart()}
@@ -911,7 +909,6 @@ export default function TrackRow({
             <MiniButton
               label="Start"
               icon="play"
-              width={SEGMENT_SINGLE}
               a11y={`Start ${label.toLowerCase()}`}
               onPress={() => claimAndStart()}
             />
@@ -952,24 +949,14 @@ export default function TrackRow({
   );
 }
 
-/**
- * Segment widths. A lone action (Start, Log) gets one wide segment; L/R
- * split a double; L/R/bottle split a triple. Chosen so the block's total
- * width stays within ~40% of the card and the left column keeps room for
- * "2h 58m ago · Wet" without truncating.
- */
-const SEGMENT_SINGLE = 104;
-const SEGMENT_DOUBLE = 66;
-const SEGMENT_TRIPLE = 56;
-
-/** One segment of the row's action block — a letter, a word, or an emoji.
- *  It fills the card's height, so the touch target is the whole segment. */
+/** One segment of the row's action bar — a word, with an emoji or glyph
+ *  before it. Segments share the bar's width equally, so the touch target
+ *  is the whole segment. */
 function MiniButton({
   label,
   emoji,
   icon,
   a11y,
-  width,
   divided,
   onPress,
 }: {
@@ -977,7 +964,6 @@ function MiniButton({
   emoji?: string;
   icon?: "plus" | "play";
   a11y: string;
-  width: number;
   /** Draw a hairline on the left, separating it from the segment before. */
   divided?: boolean;
   onPress: () => void;
@@ -990,19 +976,18 @@ function MiniButton({
       accessibilityLabel={a11y}
       style={({ pressed }) => [
         styles.mini,
-        { width },
         divided && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.borderStrong },
-        { backgroundColor: pressed ? t.accentSoft : "transparent" },
+        { opacity: pressed ? PRESSED_OPACITY : 1 },
       ]}
     >
-      {emoji ? <Emoji size={20}>{emoji}</Emoji> : null}
+      {emoji ? <Emoji size={18}>{emoji}</Emoji> : null}
       {icon === "plus" ? (
-        <Text variant="title3" style={{ color: t.accentText }}>＋</Text>
+        <Text variant="subheadStrong" style={{ color: t.accentText }}>＋</Text>
       ) : icon === "play" ? (
-        <Text variant="title3" style={{ color: t.accentText }}>▶</Text>
+        <Text variant="caption" style={{ color: t.accentText }}>▶</Text>
       ) : null}
       {label ? (
-        <Text variant="bodyStrong" style={{ color: t.accentText }}>
+        <Text variant="subheadStrong" style={{ color: t.accentText }}>
           {label}
         </Text>
       ) : null}
@@ -1278,12 +1263,18 @@ const styles = StyleSheet.create({
   rowCenter: { flexDirection: "row", alignItems: "center", gap: space.sm },
 
   /* idle row */
-  // No padding on the card itself: the left column carries it, so the action
-  // block on the right can run the card's full height and bleed to its edge.
+  // No padding on the card itself: the top half carries it, so the action
+  // bar underneath can run edge to edge and sit flush with the bottom.
   row: {
-    flexDirection: "row",
     alignItems: "stretch",
+    overflow: "hidden",
+  },
+  // Someone else's session: no bar, just the line and a badge beside it.
+  lockedRow: {
+    flexDirection: "row",
+    alignItems: "center",
     minHeight: 76,
+    paddingRight: space.lg,
     overflow: "hidden",
   },
   left: {
@@ -1292,9 +1283,8 @@ const styles = StyleSheet.create({
     gap: space.md,
     flex: 1,
     minWidth: 0,
-    paddingLeft: space.lg,
-    paddingRight: space.md,
-    paddingVertical: space.lg,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
   },
   iconChip: {
     width: 44,
@@ -1307,15 +1297,15 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     alignItems: "stretch",
-    flexShrink: 0,
-    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   mini: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: space.xs,
-    alignSelf: "stretch",
+    height: 44,
   },
 
   /* running */
