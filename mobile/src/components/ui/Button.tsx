@@ -157,6 +157,10 @@ export interface IconButtonProps {
   size?: "sm" | "md";
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** For a button that repeats while held — see TrackRow's adjust buttons. */
+  onLongPress?: () => void;
+  delayLongPress?: number;
+  onPressOut?: () => void;
 }
 
 export function IconButton({
@@ -167,6 +171,9 @@ export function IconButton({
   size = "md",
   disabled,
   style,
+  onLongPress,
+  delayLongPress,
+  onPressOut,
 }: IconButtonProps) {
   const t = useTheme();
   const box = size === "sm" ? 36 : HIT_SLOP_MIN;
@@ -181,6 +188,9 @@ export function IconButton({
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={delayLongPress}
+      onPressOut={onPressOut}
       disabled={disabled}
       // A 36pt box still gets a 44pt effective target through hitSlop.
       hitSlop={size === "sm" ? { top: 6, bottom: 6, left: 6, right: 6 } : hitSlop}

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "./DateTimePicker";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius, PRESSED_OPACITY, DISABLED_OPACITY } from "../design/tokens";
 import {

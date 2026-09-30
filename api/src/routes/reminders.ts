@@ -7,10 +7,15 @@ import {
   isReminderType,
   serialiseDays,
   parseDays,
+  serialiseTimes,
+  parseTimes,
   MIN_TIME_OF_DAY,
   MAX_TIME_OF_DAY,
+  MAX_TIMES_PER_DAY,
   MIN_EVERY_DAYS,
   MAX_EVERY_DAYS,
+  MIN_EVERY_MINUTES,
+  MAX_EVERY_MINUTES,
 } from "../lib/reminders";
 import { badRequest, conflict, notFound } from "../lib/httpError";
 import { parseOrThrow, parseId } from "../lib/validate";
@@ -23,8 +28,10 @@ const REMINDER_SELECT = {
   type: true,
   label: true,
   timeOfDay: true,
+  timesOfDay: true,
   daysOfWeek: true,
   everyDays: true,
+  everyMinutes: true,
   tzOffsetMinutes: true,
   enabled: true,
   lastNotifiedAt: true,
@@ -33,18 +40,35 @@ const REMINDER_SELECT = {
 
 type StoredReminder = {
   daysOfWeek: string | null;
+  timeOfDay: number;
+  timesOfDay: string | null;
   [key: string]: unknown;
 };
 
-/** Days are stored as a string but travel as an array the client can render. */
+/** Days and times are stored as strings but travel as arrays the client can
+ *  render. `timesOfDay` always has at least one entry — `timeOfDay` alone
+ *  when it only fires once a day. */
 function present<T extends StoredReminder>(reminder: T) {
-  return { ...reminder, daysOfWeek: parseDays(reminder.daysOfWeek) };
+  return {
+    ...reminder,
+    daysOfWeek: parseDays(reminder.daysOfWeek),
+    timesOfDay: parseTimes(reminder.timesOfDay, reminder.timeOfDay),
+  };
+}
+
+/** The earliest valid time in a list, which `timeOfDay` mirrors. */
+function firstTime(times: number[] | null | undefined): number | undefined {
+  const valid = (times ?? []).filter(
+    (t) => Number.isInteger(t) && t >= MIN_TIME_OF_DAY && t <= MAX_TIME_OF_DAY
+  );
+  return valid.length > 0 ? Math.min(...valid) : undefined;
 }
 
 /**
- * When the reminder fires: a wall-clock time, on either chosen days or every
- * N days — the two schedule modes are mutually exclusive (see the model
- * comment on Reminder.everyDays).
+ * When the reminder fires: one or more wall-clock times on chosen days, one
+ * time every N days, or every N minutes counted from the last log. The three
+ * schedule modes are mutually exclusive (see the model comments on
+ * Reminder.everyDays and Reminder.everyMinutes).
  *
  * `timeOfDay` is minutes after local midnight, which the client computes from
  * its own picker — sending an hour and a minute separately only invites the two
@@ -53,8 +77,22 @@ function present<T extends StoredReminder>(reminder: T) {
  */
 const scheduleFields = {
   timeOfDay: z.number().int().min(MIN_TIME_OF_DAY).max(MAX_TIME_OF_DAY).optional(),
+  // Several times a day, on the weekday schedule. Sent by app versions that
+  // know about it; older ones only ever send timeOfDay.
+  timesOfDay: z
+    .array(z.number().int().min(MIN_TIME_OF_DAY).max(MAX_TIME_OF_DAY))
+    .max(MAX_TIMES_PER_DAY)
+    .nullable()
+    .optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).nullable().optional(),
   everyDays: z.number().int().min(MIN_EVERY_DAYS).max(MAX_EVERY_DAYS).nullable().optional(),
+  everyMinutes: z
+    .number()
+    .int()
+    .min(MIN_EVERY_MINUTES)
+    .max(MAX_EVERY_MINUTES)
+    .nullable()
+    .optional(),
   // Minutes to ADD to UTC for the caregiver's local time, i.e. +180 for Cairo.
   tzOffsetMinutes: z.number().int().min(-840).max(840).nullable().optional(),
 };
@@ -77,7 +115,7 @@ const createReminderSchema = z
         path: ["label"],
       });
     }
-    if (data.timeOfDay === undefined) {
+    if (data.timeOfDay === undefined && firstTime(data.timesOfDay) === undefined) {
       ctx.addIssue({
         code: "custom",
         message: "Choose a time for this reminder",
@@ -112,13 +150,24 @@ router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
 router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
 
-  const { babyId, type, label, timeOfDay, daysOfWeek, everyDays, tzOffsetMinutes } =
-    parseOrThrow(createReminderSchema, req.body);
+  const {
+    babyId,
+    type,
+    label,
+    timeOfDay,
+    timesOfDay,
+    daysOfWeek,
+    everyDays,
+    everyMinutes,
+    tzOffsetMinutes,
+  } = parseOrThrow(createReminderSchema, req.body);
 
   await requireBabyAccess(accountId, babyId);
 
   // One reminder per activity per caregiver — two "feed" reminders would just
-  // double-notify. Custom ones are distinguished by their name instead.
+  // double-notify, and one reminder can now fire several times a day, which
+  // is what a second one was usually for. Custom ones are distinguished by
+  // their name instead.
   const duplicate = await prisma.reminder.findFirst({
     where: {
       babyId,
@@ -130,10 +179,14 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
   });
   if (duplicate) {
     throw conflict(
-      "You already have a reminder for that. Edit the existing one instead.",
+      "You already have a reminder for that. Open it to add more times instead.",
       "duplicate_reminder"
     );
   }
+
+  // A vaccine reminder is monthly, from the date of birth, and has no modes.
+  const hourly = type !== "vaccine" && everyMinutes ? everyMinutes : null;
+  const daily = !hourly && !everyDays && type !== "vaccine";
 
   const reminder = await prisma.reminder.create({
     data: {
@@ -141,11 +194,14 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
       accountId,
       type,
       label: label?.trim() || null,
-      timeOfDay: timeOfDay!,
-      // The two schedule modes are mutually exclusive — an interval clears
-      // any weekday restriction, since it's the one actually in effect.
-      daysOfWeek: everyDays ? null : serialiseDays(daysOfWeek),
-      everyDays: everyDays ?? null,
+      // Checked above: at least one of the two is there.
+      timeOfDay: firstTime(timesOfDay) ?? timeOfDay!,
+      // The schedule modes are mutually exclusive — an interval clears any
+      // weekday restriction or extra times, since it's the one in effect.
+      timesOfDay: daily ? serialiseTimes(timesOfDay) : null,
+      daysOfWeek: daily ? serialiseDays(daysOfWeek) : null,
+      everyDays: hourly ? null : everyDays ?? null,
+      everyMinutes: hourly,
       // Always stored now, whether or not days are restricted: a time of day
       // can't be evaluated without knowing whose clock it is.
       tzOffsetMinutes: tzOffsetMinutes ?? null,
@@ -160,8 +216,16 @@ router.post("/", authMiddleware, async (req, res: Response): Promise<void> => {
 router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
   const id = parseId(req.params.id, "reminder");
-  const { label, enabled, timeOfDay, daysOfWeek, everyDays, tzOffsetMinutes } =
-    parseOrThrow(updateReminderSchema, req.body);
+  const {
+    label,
+    enabled,
+    timeOfDay,
+    timesOfDay,
+    daysOfWeek,
+    everyDays,
+    everyMinutes,
+    tzOffsetMinutes,
+  } = parseOrThrow(updateReminderSchema, req.body);
 
   // Reminders are personal, so ownership is the whole check.
   const existing = await prisma.reminder.findFirst({
@@ -174,21 +238,45 @@ router.patch("/:id", authMiddleware, async (req, res: Response): Promise<void> =
   const data: Record<string, unknown> = {};
   if (label !== undefined) data.label = label?.trim() || null;
   if (enabled !== undefined) data.enabled = enabled;
-  if (timeOfDay !== undefined) {
-    data.timeOfDay = timeOfDay;
-    // Moving the time clears today's delivery record, so a reminder pushed from
-    // 9am to 6pm still arrives this evening rather than counting as already
-    // sent for the day.
+  if (timeOfDay !== undefined) data.timeOfDay = timeOfDay;
+  if (timesOfDay !== undefined) {
+    data.timesOfDay = serialiseTimes(timesOfDay);
+    const first = firstTime(timesOfDay);
+    if (first !== undefined) data.timeOfDay = first;
+  } else if (timeOfDay !== undefined) {
+    // Only an app version that predates several times a day sends a time
+    // without the list — and it's editing the one time it can see.
+    data.timesOfDay = null;
+  }
+  if (timeOfDay !== undefined || timesOfDay !== undefined) {
+    // Moving the time clears today's delivery record, so a reminder pushed
+    // from 9am to 6pm still arrives this evening rather than counting as
+    // already sent for the day.
     data.lastNotifiedAt = null;
   }
   if (daysOfWeek !== undefined) data.daysOfWeek = serialiseDays(daysOfWeek);
   if (everyDays !== undefined) data.everyDays = everyDays ?? null;
+  if (everyMinutes !== undefined) {
+    data.everyMinutes = existing.type === "vaccine" ? null : everyMinutes ?? null;
+  } else if (daysOfWeek !== undefined || everyDays !== undefined) {
+    // Same story: an older app choosing a days schedule doesn't know the
+    // hourly mode exists, so it can't have meant to keep it.
+    data.everyMinutes = null;
+  }
   if (tzOffsetMinutes !== undefined) data.tzOffsetMinutes = tzOffsetMinutes ?? null;
 
-  // The two schedule modes are mutually exclusive — the client sends both
-  // together on any schedule change, but an interval taking effect always
-  // wins over a stale weekday restriction regardless.
-  if (data.everyDays) data.daysOfWeek = null;
+  // The schedule modes are mutually exclusive — the client sends all of them
+  // together on any schedule change, but whichever interval takes effect
+  // always wins over stale weekday settings regardless.
+  if (data.everyMinutes) {
+    data.everyDays = null;
+    data.daysOfWeek = null;
+    data.timesOfDay = null;
+  }
+  if (data.everyDays) {
+    data.daysOfWeek = null;
+    data.timesOfDay = null;
+  }
 
   if (existing.type === "custom" && data.label === null) {
     throw badRequest("Give this reminder a name.", "label_required");

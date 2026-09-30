@@ -43,6 +43,24 @@ export interface TimerState {
    * answers wrongly. Absent on a state saved before it existed.
    */
   claimedAtISO?: string | null;
+  /**
+   * Seconds the start has been moved earlier by the + button — a late Start
+   * tap being backdated. The − button takes these back first, before it
+   * starts cutting from the end. Absent on older saved states.
+   */
+  backdatedSeconds?: number;
+  /**
+   * Seconds cut from the end by the − button, while paused at that earlier
+   * end. The + button gives these back first. Absent on older saved states.
+   */
+  trimmedSeconds?: number;
+  /**
+   * Whether the current pause came from cutting the end ("it actually
+   * finished earlier") rather than the Pause button. Saving drops that pause
+   * from the timeline, since nobody paused. Undoing the cut completely
+   * resumes the session as if it was never paused.
+   */
+  trimPaused?: boolean;
   timeline: TimelineEvent[];
   babyId: number;
 }
@@ -147,8 +165,16 @@ export interface UseTimerResult {
   usedBothSides: boolean;
   /** The final per-side split, for the saved log. */
   getSideSeconds: () => SideSeconds | null;
-  /** Nudge the start earlier (positive) or later (negative), in seconds. */
-  adjustStart: (deltaSeconds: number) => void;
+  /**
+   * Add (positive) or take away (negative) elapsed time, in seconds. Adding
+   * backdates the start (a late Start tap). Taking away first undoes any
+   * backdating, then cuts from the END and pauses there (a forgotten Finish
+   * tap), so the start the session really had is never moved. Returns
+   * whether anything changed.
+   */
+  adjust: (deltaSeconds: number) => boolean;
+  /** Whether `adjust` with a negative amount has anything left to take. */
+  canSubtract: boolean;
   showComment: boolean;
   showDiaperStatus: boolean;
   openDiaperStatus: () => void;
@@ -192,14 +218,40 @@ export function useTimer(
   const bankedSideRef = useRef<SideSeconds>(NO_SIDE_SECONDS);
   /** See TimerState.claimedAtISO — when this device took the session over. */
   const claimedAtRef = useRef<Date | null>(null);
+  /** See TimerState.backdatedSeconds / trimmedSeconds / trimPaused. */
+  const backdatedRef = useRef(0);
+  const trimmedRef = useRef(0);
+  const trimPausedRef = useRef(false);
+  /*
+   * Mirrors of the `startTime` and `paused` state, written at the same time
+   * as the state. `adjust` reads these rather than the state because holding
+   * the −/+ button calls it several times a second, faster than a re-render
+   * is guaranteed to deliver the previous call's result.
+   */
+  const startTimeRef = useRef<Date | null>(null);
+  const pausedRef = useRef(false);
+  const applyStartTime = useCallback((next: Date | null) => {
+    startTimeRef.current = next;
+    setStartTime(next);
+  }, []);
+  const applyPaused = useCallback((next: boolean) => {
+    pausedRef.current = next;
+    setPaused(next);
+  }, []);
+  /** Clear the ± bookkeeping — a new, adopted or ended session has none. */
+  const resetAdjustments = useCallback(() => {
+    backdatedRef.current = 0;
+    trimmedRef.current = 0;
+    trimPausedRef.current = false;
+  }, []);
 
   // Restore persisted state on mount / babyId change
   useEffect(() => {
     if (!babyId) return;
     restoredRef.current = false;
-    setStartTime(null);
+    applyStartTime(null);
     setElapsed(0);
-    setPaused(false);
+    applyPaused(false);
     setActiveSide(null);
     setShowComment(false);
     setShowDiaperStatus(false);
@@ -209,6 +261,7 @@ export function useTimer(
     timelineRef.current = [];
     bankedSideRef.current = NO_SIDE_SECONDS;
     claimedAtRef.current = null;
+    resetAdjustments();
 
     loadTimerState(type, babyId).then((saved) => {
       if (!saved || restoredRef.current) return;
@@ -220,8 +273,8 @@ export function useTimer(
       if (isNaN(restored.getTime()) || isNaN(originalStart.getTime())) return;
       setActiveSide(saved.activeSide);
       pausedElapsedRef.current = saved.pausedElapsed;
-      setPaused(saved.paused);
-      setStartTime(restored);
+      applyPaused(saved.paused);
+      applyStartTime(restored);
       originalStartTimeRef.current = originalStart;
       timelineRef.current = Array.isArray(saved.timeline) ? saved.timeline : [];
       // Absent on a session started before per-side timing shipped; zero is
@@ -232,6 +285,10 @@ export function useTimer(
       claimedAtRef.current = saved.claimedAtISO
         ? new Date(saved.claimedAtISO)
         : restored;
+      // All absent on a state saved before the minus button cut from the end.
+      backdatedRef.current = saved.backdatedSeconds ?? 0;
+      trimmedRef.current = saved.trimmedSeconds ?? 0;
+      trimPausedRef.current = !!saved.trimPaused;
       if (saved.paused) {
         setElapsed(saved.pausedElapsed);
         if (saved.pausedAtISO) endTimeRef.current = new Date(saved.pausedAtISO);
@@ -246,7 +303,7 @@ export function useTimer(
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [type, babyId]);
+  }, [type, babyId, applyStartTime, applyPaused, resetAdjustments]);
 
   // Tick
   useEffect(() => {
@@ -269,7 +326,17 @@ export function useTimer(
    * roll the banked time back to whatever was last written.
    */
   const persist = useCallback(
-    (state: Omit<TimerState, "babyId" | "sideSeconds" | "claimedAtISO">) => {
+    (
+      state: Omit<
+        TimerState,
+        | "babyId"
+        | "sideSeconds"
+        | "claimedAtISO"
+        | "backdatedSeconds"
+        | "trimmedSeconds"
+        | "trimPaused"
+      >
+    ) => {
       if (!babyId) return;
       saveTimerState(type, babyId, {
         ...state,
@@ -277,6 +344,9 @@ export function useTimer(
         claimedAtISO: claimedAtRef.current
           ? claimedAtRef.current.toISOString()
           : null,
+        backdatedSeconds: backdatedRef.current,
+        trimmedSeconds: trimmedRef.current,
+        trimPaused: trimPausedRef.current,
         babyId,
       });
     },
@@ -288,15 +358,16 @@ export function useTimer(
       if (!babyId) return;
       const now = new Date();
       setActiveSide(side || null);
-      setStartTime(now);
+      applyStartTime(now);
       setElapsed(0);
-      setPaused(false);
+      applyPaused(false);
       pausedElapsedRef.current = 0;
       endTimeRef.current = null;
       originalStartTimeRef.current = now;
       timelineRef.current = [{ event: "started", at: now.toISOString() }];
       bankedSideRef.current = NO_SIDE_SECONDS;
       claimedAtRef.current = now;
+      resetAdjustments();
       persist({
         originalStartTimeISO: now.toISOString(),
         startTimeISO: now.toISOString(),
@@ -307,7 +378,7 @@ export function useTimer(
         timeline: timelineRef.current,
       });
     },
-    [babyId, persist]
+    [babyId, persist, applyStartTime, applyPaused, resetAdjustments]
   );
 
   /**
@@ -324,9 +395,9 @@ export function useTimer(
       if (!babyId) return;
       const { startTime: original, side } = input;
       setActiveSide(side);
-      setStartTime(original);
+      applyStartTime(original);
       setElapsed(Math.max(0, Math.floor((Date.now() - original.getTime()) / 1000)));
-      setPaused(false);
+      applyPaused(false);
       pausedElapsedRef.current = 0;
       endTimeRef.current = null;
       originalStartTimeRef.current = original;
@@ -338,6 +409,7 @@ export function useTimer(
       // The adoption moment, not the session's start: server views requested
       // from now on will include this lock, ones from before it may not.
       claimedAtRef.current = new Date();
+      resetAdjustments();
       persist({
         originalStartTimeISO: original.toISOString(),
         startTimeISO: original.toISOString(),
@@ -348,7 +420,7 @@ export function useTimer(
         timeline: timelineRef.current,
       });
     },
-    [babyId, persist]
+    [babyId, persist, applyStartTime, applyPaused, resetAdjustments]
   );
 
   const handlePause = useCallback(() => {
@@ -356,7 +428,10 @@ export function useTimer(
     const now = new Date();
     pausedElapsedRef.current = elapsed;
     endTimeRef.current = now;
-    setPaused(true);
+    applyPaused(true);
+    // A real pause, from the button: nothing has been cut from the end.
+    trimmedRef.current = 0;
+    trimPausedRef.current = false;
     if (intervalRef.current) clearInterval(intervalRef.current);
     timelineRef.current.push({ event: "paused", at: now.toISOString() });
     persist({
@@ -370,14 +445,18 @@ export function useTimer(
       activeSide,
       timeline: timelineRef.current,
     });
-  }, [startTime, paused, elapsed, activeSide, babyId, persist]);
+  }, [startTime, paused, elapsed, activeSide, babyId, persist, applyPaused]);
 
   const handleResume = useCallback(() => {
     if (!paused || !babyId) return;
     const now = new Date();
-    setStartTime(now);
-    setPaused(false);
+    applyStartTime(now);
+    applyPaused(false);
     endTimeRef.current = null;
+    // Whatever was cut from the end is settled once the session resumes: the
+    // gap from there to now is a pause like any other.
+    trimmedRef.current = 0;
+    trimPausedRef.current = false;
     timelineRef.current.push({ event: "resumed", at: now.toISOString() });
     persist({
       originalStartTimeISO: (originalStartTimeRef.current || now).toISOString(),
@@ -388,19 +467,29 @@ export function useTimer(
       activeSide,
       timeline: timelineRef.current,
     });
-  }, [paused, activeSide, babyId, persist]);
+  }, [paused, activeSide, babyId, persist, applyStartTime, applyPaused]);
 
   const handleStop = useCallback(() => {
     if (!startTime || !babyId) return;
     // When paused, the activity really ended at the pause — not at the tap.
     if (!paused) endTimeRef.current = new Date();
     const stopAt = endTimeRef.current ?? new Date();
-    timelineRef.current.push({ event: "stopped", at: stopAt.toISOString() });
+    // A pause that only exists because the end was cut isn't one anybody
+    // took. The session simply ended there.
+    const timeline = timelineRef.current;
+    if (
+      paused &&
+      trimPausedRef.current &&
+      timeline[timeline.length - 1]?.event === "paused"
+    ) {
+      timeline.pop();
+    }
+    timeline.push({ event: "stopped", at: stopAt.toISOString() });
     setShowComment(true);
-    setPaused(false);
+    applyPaused(false);
     clearTimerState(type, babyId);
     if (intervalRef.current) clearInterval(intervalRef.current);
-  }, [startTime, paused, type, babyId]);
+  }, [startTime, paused, type, babyId, applyPaused]);
 
   /**
    * Swap sides mid-feed.
@@ -447,65 +536,153 @@ export function useTimer(
     [startTime, activeSide, paused, elapsed, babyId, persist]
   );
 
-  // Nudge the running/paused timer's start by deltaSeconds (positive = earlier,
-  // i.e. "add" elapsed; negative = later, i.e. "subtract"). Lets a late tap be
-  // backdated — e.g. baby fell asleep 10 min ago. Clamped so elapsed can't go
-  // below 0 (the start can't pass "now").
-  const adjustStart = useCallback(
-    (deltaSeconds: number) => {
-      if (!startTime || !babyId) return;
-      const original = originalStartTimeRef.current || startTime;
+  /**
+   * The -/+ buttons. See UseTimerResult.adjust for the rule; here's the why.
+   *
+   * Reported: a pump left running for an hour after it really ended at 5:10.
+   * Taking the extra time off moved the START to 5:50 instead of pulling the
+   * end back to 5:10, because minus used to mean "I tapped Start too early".
+   * Forgetting Finish is the far more common slip, and correcting it must
+   * leave the start alone.
+   *
+   * So minus first undoes any plus (a backdate that overshot), and only then
+   * cuts from the end. Cutting pauses the session at its new end, because it
+   * has ended: a clock that kept counting would add back what was just taken
+   * off. Plus reverses the same steps in the opposite order. It gives back
+   * cut time first (resuming as if nothing happened once all of it is back),
+   * and only then backdates the start.
+   *
+   * The end can only be cut back to the last resume. Anything earlier sits on
+   * the other side of a real pause, and changing that belongs to editing the
+   * saved entry.
+   *
+   * Everything here reads refs rather than state: holding a button calls this
+   * several times a second, faster than a re-render is guaranteed to land.
+   */
+  const adjust = useCallback(
+    (deltaSeconds: number): boolean => {
+      const segmentStart = startTimeRef.current;
+      if (!segmentStart || !babyId || deltaSeconds === 0) return false;
+      const requested = Math.abs(Math.round(deltaSeconds));
+      let remaining = requested;
+      let nextOriginal = originalStartTimeRef.current ?? segmentStart;
+      const timeline = timelineRef.current;
 
-      if (paused) {
-        // Paused: elapsed is frozen in pausedElapsedRef. Shift it directly,
-        // clamped at 0, and move the saved start to match.
-        const nextElapsed = Math.max(0, pausedElapsedRef.current + deltaSeconds);
-        const applied = nextElapsed - pausedElapsedRef.current;
-        if (applied === 0) return;
-        pausedElapsedRef.current = nextElapsed;
-        setElapsed(nextElapsed);
-        const nextOriginal = new Date(original.getTime() - applied * 1000);
-        originalStartTimeRef.current = nextOriginal;
-        persist({
-          originalStartTimeISO: nextOriginal.toISOString(),
-          startTimeISO: startTime.toISOString(),
-          pausedElapsed: nextElapsed,
-          paused: true,
-          pausedAtISO: (endTimeRef.current ?? new Date()).toISOString(),
-          activeSide,
-          timeline: timelineRef.current,
-        });
-        return;
+      /** Move the pause marker along with the end it records. */
+      const movePauseMarker = (at: Date) => {
+        const last = timeline.length - 1;
+        if (timeline[last]?.event === "paused") {
+          timeline[last] = { event: "paused", at: at.toISOString() };
+        }
+      };
+
+      /*
+       * Backdating banks the extra time alongside the paused time instead of
+       * moving the running segment's start, so the segment only ever measures
+       * what was actually timed — which is what cutting the end relies on.
+       */
+      const moveStart = (seconds: number) => {
+        pausedElapsedRef.current += seconds;
+        backdatedRef.current += seconds;
+        nextOriginal = new Date(nextOriginal.getTime() - seconds * 1000);
+        if (timeline[0]?.event === "started") {
+          timeline[0] = { event: "started", at: nextOriginal.toISOString() };
+        }
+      };
+
+      if (deltaSeconds < 0) {
+        const undo = Math.min(remaining, backdatedRef.current);
+        if (undo > 0) {
+          moveStart(-undo);
+          remaining -= undo;
+        }
+        if (remaining > 0 && pausedRef.current) {
+          const pausedAt = endTimeRef.current ?? new Date();
+          const segment = Math.max(
+            0,
+            Math.floor((pausedAt.getTime() - segmentStart.getTime()) / 1000)
+          );
+          const cut = Math.min(remaining, segment);
+          if (cut > 0) {
+            const endAt = new Date(pausedAt.getTime() - cut * 1000);
+            endTimeRef.current = endAt;
+            pausedElapsedRef.current -= cut;
+            trimmedRef.current += cut;
+            movePauseMarker(endAt);
+            remaining -= cut;
+          }
+        } else if (remaining > 0) {
+          const segment = Math.max(
+            0,
+            Math.floor((Date.now() - segmentStart.getTime()) / 1000)
+          );
+          const cut = Math.min(remaining, segment);
+          if (cut > 0) {
+            const endAt = new Date(segmentStart.getTime() + (segment - cut) * 1000);
+            pausedElapsedRef.current += segment - cut;
+            endTimeRef.current = endAt;
+            trimmedRef.current = cut;
+            trimPausedRef.current = true;
+            timeline.push({ event: "paused", at: endAt.toISOString() });
+            applyPaused(true);
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            remaining -= cut;
+          }
+        }
+      } else {
+        if (pausedRef.current && trimmedRef.current > 0) {
+          const giveBack = Math.min(remaining, trimmedRef.current);
+          const endAt = new Date(
+            (endTimeRef.current ?? new Date()).getTime() + giveBack * 1000
+          );
+          endTimeRef.current = endAt;
+          pausedElapsedRef.current += giveBack;
+          trimmedRef.current -= giveBack;
+          remaining -= giveBack;
+          if (trimmedRef.current === 0 && trimPausedRef.current) {
+            // All of the cut is back, so the pause it made never happened:
+            // the segment picks up where it left off, still counting to now.
+            pausedElapsedRef.current -= Math.round(
+              (endAt.getTime() - segmentStart.getTime()) / 1000
+            );
+            endTimeRef.current = null;
+            trimPausedRef.current = false;
+            if (timeline[timeline.length - 1]?.event === "paused") timeline.pop();
+            applyPaused(false);
+          } else {
+            movePauseMarker(endAt);
+          }
+        }
+        if (remaining > 0) {
+          moveStart(remaining);
+          remaining = 0;
+        }
       }
 
-      // Running: total elapsed = pausedElapsed + (now - startTime). Shift both
-      // the running segment start and the saved original by the same amount,
-      // clamping so the total can't drop below 0.
-      const currentElapsed =
-        pausedElapsedRef.current +
-        Math.floor((Date.now() - startTime.getTime()) / 1000);
-      const applied =
-        Math.max(0, currentElapsed + deltaSeconds) - currentElapsed;
-      if (applied === 0) return;
-      const nextStart = new Date(startTime.getTime() - applied * 1000);
-      const nextOriginal = new Date(original.getTime() - applied * 1000);
-      setStartTime(nextStart);
+      if (remaining === requested) return false;
+
       originalStartTimeRef.current = nextOriginal;
+      const isPaused = pausedRef.current;
       setElapsed(
-        pausedElapsedRef.current +
-          Math.floor((Date.now() - nextStart.getTime()) / 1000)
+        isPaused
+          ? pausedElapsedRef.current
+          : pausedElapsedRef.current +
+              Math.floor((Date.now() - segmentStart.getTime()) / 1000)
       );
       persist({
         originalStartTimeISO: nextOriginal.toISOString(),
-        startTimeISO: nextStart.toISOString(),
+        startTimeISO: segmentStart.toISOString(),
         pausedElapsed: pausedElapsedRef.current,
-        paused: false,
-        pausedAtISO: null,
+        paused: isPaused,
+        pausedAtISO: isPaused
+          ? (endTimeRef.current ?? new Date()).toISOString()
+          : null,
         activeSide,
-        timeline: timelineRef.current,
+        timeline,
       });
+      return true;
     },
-    [startTime, paused, activeSide, babyId, persist]
+    [activeSide, babyId, persist, applyPaused]
   );
 
   // A diaper change is a moment: stamp start === end, then pick a status.
@@ -513,18 +690,18 @@ export function useTimer(
     const now = new Date();
     originalStartTimeRef.current = now;
     endTimeRef.current = now;
-    setStartTime(now);
+    applyStartTime(now);
     setElapsed(0);
     setShowDiaperStatus(true);
-  }, []);
+  }, [applyStartTime]);
 
   const markInstant = useCallback(() => {
     const now = new Date();
     originalStartTimeRef.current = now;
     endTimeRef.current = now;
-    setStartTime(now);
+    applyStartTime(now);
     setElapsed(0);
-  }, []);
+  }, [applyStartTime]);
 
   const handleDiaperStatusSelect = useCallback((status: string) => {
     void status; // the caller records which one
@@ -535,9 +712,9 @@ export function useTimer(
   const handleCancel = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     if (babyId) clearTimerState(type, babyId);
-    setStartTime(null);
+    applyStartTime(null);
     setElapsed(0);
-    setPaused(false);
+    applyPaused(false);
     pausedElapsedRef.current = 0;
     setActiveSide(null);
     setShowDiaperStatus(false);
@@ -547,7 +724,8 @@ export function useTimer(
     timelineRef.current = [];
     bankedSideRef.current = NO_SIDE_SECONDS;
     claimedAtRef.current = null;
-  }, [type, babyId]);
+    resetAdjustments();
+  }, [type, babyId, applyStartTime, applyPaused, resetAdjustments]);
 
   const getOriginalStartTime = useCallback(
     () => originalStartTimeRef.current,
@@ -573,6 +751,18 @@ export function useTimer(
   const usedBothSides =
     !!sideSeconds && sideSeconds.left > 0 && sideSeconds.right > 0;
 
+  // How much of the running (or last) segment the minus button could cut,
+  // plus whatever backdating it would undo first — see adjust.
+  const segmentSeconds = !startTime
+    ? 0
+    : paused
+      ? Math.floor(
+          ((endTimeRef.current?.getTime() ?? Date.now()) - startTime.getTime()) /
+            1000
+        )
+      : elapsed - pausedElapsedRef.current;
+  const canSubtract = backdatedRef.current > 0 || segmentSeconds >= 1;
+
   const isActive = !!startTime && !showComment && !showDiaperStatus;
   const isRunning = isActive && !paused;
 
@@ -593,7 +783,8 @@ export function useTimer(
     sideSeconds,
     usedBothSides,
     getSideSeconds,
-    adjustStart,
+    adjust,
+    canSubtract,
     showComment,
     showDiaperStatus,
     openDiaperStatus,

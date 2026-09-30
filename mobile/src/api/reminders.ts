@@ -45,19 +45,37 @@ export interface Reminder {
   babyId: number;
   type: ReminderType;
   label: string | null;
-  /** Minutes after local midnight — 540 is 9:00 AM. */
+  /** Minutes after local midnight — 540 is 9:00 AM. The first of
+   *  `timesOfDay` when there are several. */
   timeOfDay: number;
+  /** Every time of day it fires, earliest first — just `[timeOfDay]` for a
+   *  once-a-day reminder. Only the weekday schedule uses more than one.
+   *  Absent from a server that predates several times a day. */
+  timesOfDay?: number[] | null;
   /** Weekday numbers (0 = Sunday) this may fire on. Null means every day.
    *  Mutually exclusive with `everyDays` — never both set. */
   daysOfWeek: number[] | null;
   /** The other schedule mode: fire every N days instead of on chosen
    *  weekdays. Null means this reminder uses `daysOfWeek` instead. */
   everyDays: number | null;
+  /** The third schedule mode: fire this many minutes after the latest log
+   *  of this activity (or after it last fired, or was saved). Null means
+   *  one of the other two. Absent from a server that predates it. */
+  everyMinutes?: number | null;
   tzOffsetMinutes: number | null;
   enabled: boolean;
   lastNotifiedAt: string | null;
   createdAt: string;
 }
+
+/** Mirrors api/src/lib/reminders.ts. */
+export const MAX_TIMES_PER_DAY = 12;
+export const MIN_EVERY_MINUTES = 30;
+export const MAX_EVERY_MINUTES = 24 * 60;
+/** What a new "every few hours" reminder starts at, before it's touched. */
+export const DEFAULT_EVERY_MINUTES = 2 * 60;
+/** How far the hours stepper moves per tap. */
+export const EVERY_MINUTES_STEP = 30;
 
 export const MIN_EVERY_DAYS = 1;
 export const MAX_EVERY_DAYS = 60;
@@ -102,10 +120,34 @@ export function formatEveryDays(days: number): string {
   return days === 1 ? "Every day" : `Every ${days} days`;
 }
 
-/** Which of the two mutually-exclusive schedule modes a reminder is in. */
+/** "Every 2 hours" / "Every 2.5 hours" / "Every 45 min" */
+export function formatEveryMinutes(minutes: number): string {
+  if (minutes < 60) return `Every ${minutes} min`;
+  const hours = minutes / 60;
+  if (hours === 1) return "Every hour";
+  return `Every ${Number.isInteger(hours) ? hours : hours.toFixed(1)} hours`;
+}
+
+/** Every time a reminder fires in a day, earliest first. Never empty. */
+export function timesOf(r: {
+  timeOfDay: number;
+  timesOfDay?: number[] | null;
+}): number[] {
+  return r.timesOfDay && r.timesOfDay.length > 0 ? r.timesOfDay : [r.timeOfDay];
+}
+
+/** "9:00 AM" / "9:00 AM, 3:00 PM" / "7:00 AM + 4 more" */
+export function formatTimes(times: number[]): string {
+  if (times.length <= 3) return times.map(formatTimeOfDay).join(", ");
+  return `${formatTimeOfDay(times[0])} + ${times.length - 1} more`;
+}
+
+/** Which of the three mutually-exclusive schedule modes a reminder is in. */
 export function scheduleModeOf(r: {
   everyDays: number | null;
-}): "days" | "interval" {
+  everyMinutes?: number | null;
+}): "days" | "interval" | "hours" {
+  if (r.everyMinutes) return "hours";
   return r.everyDays ? "interval" : "days";
 }
 
@@ -121,8 +163,10 @@ export async function createReminder(data: {
   type: ReminderType;
   label?: string | null;
   timeOfDay: number;
+  timesOfDay?: number[] | null;
   daysOfWeek?: number[] | null;
   everyDays?: number | null;
+  everyMinutes?: number | null;
 }): Promise<Reminder> {
   const res = await apiClient.post<Reminder>("/reminders", {
     ...data,
@@ -137,8 +181,10 @@ export async function updateReminder(
     label?: string | null;
     enabled?: boolean;
     timeOfDay?: number;
+    timesOfDay?: number[] | null;
     daysOfWeek?: number[] | null;
     everyDays?: number | null;
+    everyMinutes?: number | null;
   }
 ): Promise<Reminder> {
   const res = await apiClient.patch<Reminder>(`/reminders/${id}`, {
@@ -146,8 +192,10 @@ export async function updateReminder(
     // The offset travels with any change to *when* it fires, since the server
     // reads the time and the schedule on the caregiver's clock.
     ...(data.timeOfDay !== undefined ||
+    data.timesOfDay !== undefined ||
     data.daysOfWeek !== undefined ||
-    data.everyDays !== undefined
+    data.everyDays !== undefined ||
+    data.everyMinutes !== undefined
       ? { tzOffsetMinutes: localUtcOffsetMinutes() }
       : {}),
   });

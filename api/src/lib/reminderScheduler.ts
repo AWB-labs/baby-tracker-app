@@ -2,10 +2,13 @@ import prisma from "./prisma";
 import { sendPushNotifications, PushMessage } from "./push";
 import {
   isAllowedDay,
+  isDueAfterLast,
   isDueByInterval,
   localDayKey,
   localMinutesOfDay,
   localMonthKey,
+  parseTimes,
+  reminderLogType,
   reminderMeta,
 } from "./reminders";
 import { ageInMonths, FIRST_MONTH, LAST_MONTH, isMandatoryMonth } from "./vaccines";
@@ -24,6 +27,19 @@ const TICK_MS = 60_000;
  */
 const FIRE_WINDOW_MINUTES = 180;
 
+/** A running-timer lock untouched for this long was abandoned — matches
+ *  STALE_MS in routes/activeTimers.ts. */
+const ACTIVE_TIMER_STALE_MS = 24 * 60 * 60 * 1000;
+
+/** "2h 30m" / "45m" — for "the last one was … ago". */
+function formatAgo(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 /**
  * Decide whether a scheduled reminder is due.
  *
@@ -32,14 +48,19 @@ const FIRE_WINDOW_MINUTES = 180;
  * Three conditions, all of which must hold:
  *
  *   - today is one of the reminder's days
- *   - their local time is at or past the scheduled time, but not more than
- *     FIRE_WINDOW_MINUTES past it
- *   - nothing has been sent for this reminder on their current local day
+ *   - their local time is at or past one of the scheduled times, but not more
+ *     than FIRE_WINDOW_MINUTES past it
+ *   - nothing has been sent for that time yet: on the every-N-days schedule,
+ *     nothing on their current local day; on the weekday schedule, which can
+ *     fire several times a day, nothing since that time came round today
  *
  * Pure and exported so the timing rules can be tested without a database.
  */
 export function shouldFire(input: {
   timeOfDay: number;
+  /** Every time of day it fires, when more than one — see parseTimes. Only
+   *  read on the weekday schedule; every-N-days fires once, at timeOfDay. */
+  timesOfDay?: string | null;
   daysOfWeek: string | null;
   /** The other schedule mode — see isDueByInterval. Takes over from
    *  daysOfWeek whenever set; the two are mutually exclusive. */
@@ -51,6 +72,7 @@ export function shouldFire(input: {
 }): boolean {
   const {
     timeOfDay,
+    timesOfDay,
     daysOfWeek,
     everyDays,
     createdAt,
@@ -65,6 +87,24 @@ export function shouldFire(input: {
   if (!due) return false;
 
   const nowMinutes = localMinutesOfDay(now, tzOffsetMinutes);
+
+  if (!everyDays) {
+    // The latest of today's times that has already come round. Only that
+    // one can be owed: if the ticker was down through two of them, one
+    // notification says the same thing as two, and says it once.
+    const slot = parseTimes(timesOfDay, timeOfDay)
+      .filter((t) => t <= nowMinutes)
+      .pop();
+    if (slot === undefined) return false;
+    if (nowMinutes - slot > FIRE_WINDOW_MINUTES) return false;
+    // When that time was today, to the minute, as a real instant.
+    const slotAt =
+      now.getTime() -
+      (nowMinutes - slot) * 60_000 -
+      (now.getTime() % 60_000);
+    return !lastNotifiedAt || lastNotifiedAt.getTime() < slotAt;
+  }
+
   if (nowMinutes < timeOfDay) return false;
   if (nowMinutes - timeOfDay > FIRE_WINDOW_MINUTES) return false;
 
@@ -138,11 +178,14 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
       type: true,
       label: true,
       timeOfDay: true,
+      timesOfDay: true,
       daysOfWeek: true,
       everyDays: true,
+      everyMinutes: true,
       tzOffsetMinutes: true,
       lastNotifiedAt: true,
       createdAt: true,
+      updatedAt: true,
       baby: { select: { name: true, dob: true } },
       account: {
         select: { pushTokens: { select: { token: true } } },
@@ -174,6 +217,51 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
       const set = recordedByBaby.get(row.babyId) ?? new Set<number>();
       set.add(row.monthNumber);
       recordedByBaby.set(row.babyId, set);
+    }
+  }
+
+  /*
+   * The latest log, and any session running right now, of each activity an
+   * every-few-hours reminder is watching — again fetched once for all of
+   * them, and only when at least one exists.
+   */
+  const watched = reminders.filter(
+    (r) => r.everyMinutes && r.type !== "vaccine" && reminderLogType(r.type)
+  );
+  const lastActivity = new Map<string, Date>();
+  const running = new Map<string, Date>();
+  const activityKey = (babyId: number, logType: string) => `${babyId}:${logType}`;
+  if (watched.length > 0) {
+    const babyIds = [...new Set(watched.map((r) => r.babyId))];
+    const logTypes = [...new Set(watched.map((r) => reminderLogType(r.type)!))];
+    const [latest, active] = await Promise.all([
+      prisma.activityLog.groupBy({
+        by: ["babyId", "type"],
+        where: { babyId: { in: babyIds }, type: { in: logTypes } },
+        _max: { startTime: true, endTime: true },
+      }),
+      prisma.activeTimer.findMany({
+        where: {
+          babyId: { in: babyIds },
+          type: { in: logTypes },
+          // Same cut-off the timers route uses to expire an abandoned lock.
+          updatedAt: { gt: new Date(now.getTime() - ACTIVE_TIMER_STALE_MS) },
+        },
+        select: { babyId: true, type: true, startTime: true },
+      }),
+    ]);
+    for (const row of latest) {
+      // A sleep counts from when it ended — "awake for two hours" is the
+      // question — every other activity from when it started, which is the
+      // time the caregiver gave it.
+      const at =
+        row.type === "sleep"
+          ? row._max.endTime ?? row._max.startTime
+          : row._max.startTime;
+      if (at) lastActivity.set(activityKey(row.babyId, row.type), at);
+    }
+    for (const lock of active) {
+      running.set(activityKey(lock.babyId, lock.type), lock.startTime);
     }
   }
 
@@ -211,28 +299,55 @@ export async function runReminderTick(now: Date = new Date()): Promise<number> {
       continue;
     }
 
-    // Purely a question about the clock now, so no per-reminder query: a tick
-    // is one read of the reminder table however many reminders exist.
-    const due = shouldFire({
-      timeOfDay: reminder.timeOfDay,
-      daysOfWeek: reminder.daysOfWeek,
-      everyDays: reminder.everyDays,
-      createdAt: reminder.createdAt,
-      tzOffsetMinutes: reminder.tzOffsetMinutes,
-      lastNotifiedAt: reminder.lastNotifiedAt,
-      now,
-    });
-    if (!due) continue;
-
     const meta = reminderMeta(reminder.type);
     const name = reminder.label || meta?.label || reminder.type;
     const icon = meta?.icon ?? "⏰";
+    let body = `Time for ${reminder.baby.name}'s ${name.toLowerCase()}.`;
+
+    if (reminder.everyMinutes) {
+      const logType = reminderLogType(reminder.type);
+      const key = logType ? activityKey(reminder.babyId, logType) : null;
+      const runningSince = key ? running.get(key) ?? null : null;
+      const logged = key ? lastActivity.get(key) ?? null : null;
+      // A session running right now counts as the latest one, from when it
+      // began: a pump in progress is a pump. A running sleep is different,
+      // since sleep counts from waking, and there's nothing to remind about
+      // while the baby is still asleep.
+      const lastActivityAt =
+        runningSince && (!logged || runningSince > logged) ? runningSince : logged;
+      const due = isDueAfterLast({
+        everyMinutes: reminder.everyMinutes,
+        lastActivityAt,
+        lastNotifiedAt: reminder.lastNotifiedAt,
+        savedAt: reminder.updatedAt,
+        inProgress: logType === "sleep" && !!runningSince,
+        now,
+      });
+      if (!due) continue;
+      if (lastActivityAt) {
+        body += ` The last one was ${formatAgo(now.getTime() - lastActivityAt.getTime())} ago.`;
+      }
+    } else {
+      // Purely a question about the clock now, so no per-reminder query: a
+      // tick is one read of the reminder table however many reminders exist.
+      const due = shouldFire({
+        timeOfDay: reminder.timeOfDay,
+        timesOfDay: reminder.timesOfDay,
+        daysOfWeek: reminder.daysOfWeek,
+        everyDays: reminder.everyDays,
+        createdAt: reminder.createdAt,
+        tzOffsetMinutes: reminder.tzOffsetMinutes,
+        lastNotifiedAt: reminder.lastNotifiedAt,
+        now,
+      });
+      if (!due) continue;
+    }
 
     for (const token of tokens) {
       messages.push({
         to: token,
         title: `${icon} ${name} reminder`,
-        body: `Time for ${reminder.baby.name}'s ${name.toLowerCase()}.`,
+        body,
         data: { babyId: reminder.babyId, reminderId: reminder.id },
       });
     }

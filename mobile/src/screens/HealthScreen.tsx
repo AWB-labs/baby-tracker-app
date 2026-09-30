@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "../components/DateTimePicker";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius } from "../design/tokens";
 import { CONDITION_META } from "../design/activity";
@@ -23,7 +23,7 @@ import {
 import { useToast } from "../components/Toast";
 import { useUnits } from "../context/SettingsContext";
 import { useLogs } from "../hooks/useLogs";
-import { DATE_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
+import { DATE_LOCALE, TIME_LOCALE, MIN_PICKABLE_DATE, safePickedDate } from "../lib/calendar";
 import { useBaby } from "../context/BabyContext";
 import { useAuth } from "../context/AuthContext";
 import BabySwitcher from "../components/BabySwitcher";
@@ -300,6 +300,9 @@ export default function HealthScreen() {
             value={time}
             mode="time"
             display={Platform.OS === "ios" ? "spinner" : "default"}
+            // The one time picker the 12-hour pinning missed — see TIME_LOCALE.
+            locale={TIME_LOCALE}
+            is24Hour={false}
             onChange={(_, tm) => {
               setShowTimePicker(Platform.OS === "ios");
               if (tm) setTime(tm);

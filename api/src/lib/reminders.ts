@@ -1,9 +1,9 @@
 /**
- * Reminder types. Every type except "custom" is anchored to an activity: the
- * countdown restarts from the most recent log of `logType` for the baby, so a
- * feed logged by any caregiver resets every caregiver's feed reminder.
- * A "custom" reminder has nothing to watch, so it simply repeats on its
- * interval.
+ * Reminder types. Every type except "custom" and "vaccine" is anchored to an
+ * activity: in the every-few-hours mode (see isDueAfterLast), the countdown
+ * restarts from the most recent log of `logType` for the baby, so a feed
+ * logged by any caregiver resets every caregiver's feed reminder. A "custom"
+ * reminder has nothing to watch, so it simply repeats on its interval.
  */
 export const REMINDER_TYPES = [
   { value: "feed", logType: "feed", label: "Feed", icon: "🤱" },
@@ -73,6 +73,36 @@ export function formatTimeOfDay(minutes: number): string {
 export function localMinutesOfDay(now: Date, tzOffsetMinutes: number | null): number {
   const local = new Date(now.getTime() + (tzOffsetMinutes ?? 0) * 60_000);
   return local.getUTCHours() * 60 + local.getUTCMinutes();
+}
+
+/** Most times a single reminder can fire in one day. */
+export const MAX_TIMES_PER_DAY = 12;
+
+function isTimeOfDay(t: number): boolean {
+  return Number.isInteger(t) && t >= MIN_TIME_OF_DAY && t <= MAX_TIME_OF_DAY;
+}
+
+/**
+ * Normalise a reminder's times of day for storage: deduplicated and sorted.
+ * A single time collapses to null, the same as "no extra times", so a
+ * once-a-day reminder never takes a different path from one that was only
+ * ever given `timeOfDay`.
+ */
+export function serialiseTimes(times: number[] | null | undefined): string | null {
+  if (!times) return null;
+  const unique = Array.from(new Set(times.filter(isTimeOfDay))).sort((a, b) => a - b);
+  return unique.length > 1 ? unique.join(",") : null;
+}
+
+/** Every time a reminder fires in a day, earliest first. Never empty. */
+export function parseTimes(stored: string | null | undefined, timeOfDay: number): number[] {
+  if (!stored) return [timeOfDay];
+  const times = stored
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter(isTimeOfDay);
+  if (times.length === 0) return [timeOfDay];
+  return Array.from(new Set(times)).sort((a, b) => a - b);
 }
 
 /** The caregiver's local calendar day at `now`, as YYYY-MM-DD. */
@@ -197,4 +227,52 @@ export function isDueByInterval(input: {
 /** "Every day" / "Every 3 days" — for the notification and the UI. */
 export function formatEveryDays(days: number): string {
   return days === 1 ? "Every day" : `Every ${days} days`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Every few hours, counted from the last log                                 */
+/* -------------------------------------------------------------------------- */
+
+export const MIN_EVERY_MINUTES = 30;
+export const MAX_EVERY_MINUTES = 24 * 60;
+
+/**
+ * Is an "every N hours" reminder due?
+ *
+ * Counted from whichever came last: the latest log of the activity it
+ * watches, the last time it fired, or the last time it was saved. That's the
+ * whole feature: pump at 12:30 instead of 12:00, and a two-hourly reminder
+ * moves to 2:30 rather than nagging at 2:00. With nothing logged it still
+ * repeats every N hours from when it last fired, and saving it starts the
+ * count fresh instead of firing on the spot for time that passed before it
+ * existed.
+ *
+ * `inProgress` means the activity is happening right now (a sleep timer
+ * running), so there's nothing to remind anyone about.
+ *
+ * Pure and exported so the timing rule can be tested without a database.
+ */
+export function isDueAfterLast(input: {
+  everyMinutes: number;
+  lastActivityAt: Date | null;
+  lastNotifiedAt: Date | null;
+  savedAt: Date;
+  inProgress: boolean;
+  now: Date;
+}): boolean {
+  if (input.inProgress) return false;
+  const anchor = Math.max(
+    input.lastActivityAt?.getTime() ?? 0,
+    input.lastNotifiedAt?.getTime() ?? 0,
+    input.savedAt.getTime()
+  );
+  return input.now.getTime() >= anchor + input.everyMinutes * 60_000;
+}
+
+/** "Every 2 hours" / "Every 2.5 hours" / "Every 45 min" */
+export function formatEveryMinutes(minutes: number): string {
+  if (minutes < 60) return `Every ${minutes} min`;
+  const hours = minutes / 60;
+  if (hours === 1) return "Every hour";
+  return `Every ${Number.isInteger(hours) ? hours : hours.toFixed(1)} hours`;
 }

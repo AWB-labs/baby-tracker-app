@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "./DateTimePicker";
 import { useTheme, useThemeContext } from "../design/ThemeProvider";
 import {
   useActivityTone,

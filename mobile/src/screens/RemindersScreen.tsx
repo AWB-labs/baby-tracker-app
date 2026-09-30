@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Switch, View } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "../components/DateTimePicker";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius, PRESSED_OPACITY } from "../design/tokens";
@@ -40,11 +40,19 @@ import {
   DEFAULT_TIME_OF_DAY,
   formatDays,
   formatEveryDays,
+  formatEveryMinutes,
+  formatTimes,
+  timesOf,
   scheduleModeOf,
   MONTHLY_TYPES,
   MIN_EVERY_DAYS,
   MAX_EVERY_DAYS,
   DEFAULT_EVERY_DAYS,
+  MIN_EVERY_MINUTES,
+  MAX_EVERY_MINUTES,
+  DEFAULT_EVERY_MINUTES,
+  EVERY_MINUTES_STEP,
+  MAX_TIMES_PER_DAY,
   WEEKDAYS,
   REMINDER_TYPES,
   REMINDER_META,
@@ -52,12 +60,47 @@ import {
   type ReminderType,
 } from "../api/reminders";
 
-type ScheduleMode = "days" | "interval";
+type ScheduleMode = "days" | "interval" | "hours";
 
 const SCHEDULE_MODE_OPTIONS: { value: ScheduleMode; label: string }[] = [
-  { value: "days", label: "Specific days" },
+  { value: "days", label: "Set times" },
   { value: "interval", label: "Every X days" },
+  { value: "hours", label: "Every X hours" },
 ];
+
+/** What each activity's "every few hours" counts from, for the helper text:
+ *  "2 hours after the last pump". Custom and vaccine watch no activity. */
+const LAST_ACTIVITY: Partial<Record<ReminderType, string>> = {
+  feed: "the last feed",
+  pump: "the last pump",
+  sleep: "the last sleep ends",
+  diaper: "the last diaper change",
+  shower: "the last shower",
+  vitamin: "the last vitamin",
+  nailcut: "the last nail cut",
+  medication: "the last dose",
+};
+
+/** "2", "2.5" — the stepper's number, in hours. */
+function formatHours(minutes: number): string {
+  const hours = minutes / 60;
+  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+}
+
+/** Sorted, deduplicated, never empty. */
+function normaliseTimes(times: number[]): number[] {
+  const unique = Array.from(new Set(times)).sort((a, b) => a - b);
+  return unique.length > 0 ? unique : [DEFAULT_TIME_OF_DAY];
+}
+
+/** A sensible next time to offer when "Add another time" is tapped: three
+ *  hours after the latest one so far, nudged along past any it would
+ *  duplicate. */
+function nextFreeTime(times: number[]): number {
+  let candidate = (Math.max(...times) + 180) % 1440;
+  while (times.includes(candidate)) candidate = (candidate + 60) % 1440;
+  return candidate;
+}
 
 /** One-tap picks for the times parents actually choose. */
 const QUICK_TIMES: { label: string; minutes: number }[] = [
@@ -74,23 +117,48 @@ interface Draft {
   editing: Reminder | null;
   type: ReminderType;
   label: string;
-  timeOfDay: number;
-  /** Which of the two mutually-exclusive schedules is showing — only one of
-   *  `days`/`everyDays` below is actually sent, based on this. */
+  /**
+   * Every time of day it fires, in the order they were added — kept unsorted
+   * while editing, so a row doesn't jump out from under the wheel mid-spin.
+   * Only "Set times" uses more than one; the other schedules use the first.
+   */
+  times: number[];
+  /** Whether `times` is still just the default a new reminder starts with.
+   *  The first quick-time tap replaces that default rather than adding to it
+   *  — nobody picking "7 AM" meant "7 AM and also 9 AM". */
+  timesTouched: boolean;
+  /** Which of the three mutually-exclusive schedules is showing — only that
+   *  one's settings below are actually sent, based on this. */
   scheduleMode: ScheduleMode;
   days: number[];
   everyDays: number;
+  everyMinutes: number;
 }
 
 const FRESH_DRAFT: Draft = {
   editing: null,
   type: "feed",
   label: "",
-  timeOfDay: DEFAULT_TIME_OF_DAY,
+  times: [DEFAULT_TIME_OF_DAY],
+  timesTouched: false,
   scheduleMode: "days",
   days: [],
   everyDays: DEFAULT_EVERY_DAYS,
+  everyMinutes: DEFAULT_EVERY_MINUTES,
 };
+
+/** One line for the list and the toast: "9:00 AM, 3:00 PM · Every day". */
+function describeSchedule(r: Reminder): string {
+  if (MONTHLY_TYPES.has(r.type)) return `${formatTimeOfDay(r.timeOfDay)} · Monthly`;
+  if (r.everyMinutes) {
+    const after = LAST_ACTIVITY[r.type];
+    return after
+      ? `${formatEveryMinutes(r.everyMinutes)} after ${after}`
+      : formatEveryMinutes(r.everyMinutes);
+  }
+  const when = r.everyDays ? formatTimeOfDay(r.timeOfDay) : formatTimes(timesOf(r));
+  return `${when} · ${r.everyDays ? formatEveryDays(r.everyDays) : formatDays(r.daysOfWeek)}`;
+}
 
 /**
  * Reminders, on their own screen.
@@ -114,7 +182,8 @@ export default function RemindersScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [showWheel, setShowWheel] = useState(false);
+  /** Which of the draft's times the exact-time wheel is open on, if any. */
+  const [wheelIndex, setWheelIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Reminder | null>(null);
 
@@ -153,20 +222,22 @@ export default function RemindersScreen() {
   };
 
   const openAdd = () => {
-    setShowWheel(false);
+    setWheelIndex(null);
     setDraft({ ...FRESH_DRAFT });
   };
 
   const openEdit = (r: Reminder) => {
-    setShowWheel(false);
+    setWheelIndex(null);
     setDraft({
       editing: r,
       type: r.type,
       label: r.label ?? "",
-      timeOfDay: r.timeOfDay,
+      times: timesOf(r),
+      timesTouched: true,
       scheduleMode: scheduleModeOf(r),
       days: r.daysOfWeek ?? [],
       everyDays: r.everyDays ?? DEFAULT_EVERY_DAYS,
+      everyMinutes: r.everyMinutes ?? DEFAULT_EVERY_MINUTES,
     });
   };
 
@@ -177,18 +248,32 @@ export default function RemindersScreen() {
       return;
     }
     setSaving(true);
-    // Always both, together — the two schedule modes are mutually exclusive
-    // server-side, and sending only the one that changed would leave a stale
-    // value from the other mode in place instead of clearing it.
-    const schedule =
-      draft.scheduleMode === "interval"
-        ? { daysOfWeek: null, everyDays: draft.everyDays }
-        : { daysOfWeek: draft.days.length > 0 ? draft.days : null, everyDays: null };
+    // Always all of them, together — the schedule modes are mutually
+    // exclusive server-side, and sending only the one that changed would
+    // leave a stale value from another mode in place instead of clearing it.
+    const times = normaliseTimes(draft.times);
+    const cleared = {
+      timesOfDay: null,
+      daysOfWeek: null,
+      everyDays: null,
+      everyMinutes: null,
+    };
+    const schedule = MONTHLY_TYPES.has(draft.type)
+      ? { timeOfDay: times[0], ...cleared }
+      : draft.scheduleMode === "hours"
+        ? { timeOfDay: times[0], ...cleared, everyMinutes: draft.everyMinutes }
+        : draft.scheduleMode === "interval"
+          ? { timeOfDay: times[0], ...cleared, everyDays: draft.everyDays }
+          : {
+              timeOfDay: times[0],
+              ...cleared,
+              timesOfDay: times,
+              daysOfWeek: draft.days.length > 0 ? draft.days : null,
+            };
     try {
       if (draft.editing) {
         const updated = await updateReminder(draft.editing.id, {
           label: draft.label.trim() || null,
-          timeOfDay: draft.timeOfDay,
           ...schedule,
         });
         setReminders((prev) =>
@@ -200,18 +285,26 @@ export default function RemindersScreen() {
           babyId: activeBaby.id,
           type: draft.type,
           label: draft.label.trim() || null,
-          timeOfDay: draft.timeOfDay,
           ...schedule,
         });
         setReminders((prev) => [...prev, created]);
+        const after = LAST_ACTIVITY[created.type];
         toast.success(
-          `You'll be reminded at ${formatTimeOfDay(created.timeOfDay)}${
-            created.everyDays
-              ? ` ${formatEveryDays(created.everyDays).toLowerCase()}`
-              : created.daysOfWeek
-                ? ` on ${formatDays(created.daysOfWeek).toLowerCase()}`
-                : " every day"
-          }.`
+          created.everyMinutes
+            ? `You'll be reminded ${formatEveryMinutes(created.everyMinutes).toLowerCase()}${
+                after ? ` after ${after}` : ""
+              }.`
+            : `You'll be reminded at ${
+                created.everyDays
+                  ? formatTimeOfDay(created.timeOfDay)
+                  : formatTimes(timesOf(created))
+              }${
+                created.everyDays
+                  ? ` ${formatEveryDays(created.everyDays).toLowerCase()}`
+                  : created.daysOfWeek
+                    ? ` on ${formatDays(created.daysOfWeek).toLowerCase()}`
+                    : " every day"
+              }.`
         );
       }
       setDraft(null);
@@ -254,6 +347,16 @@ export default function RemindersScreen() {
       toast.showError(err);
     }
   };
+
+  /*
+   * Which parts of the time section apply. Several times a day only on the
+   * weekday schedule — an every-N-days or monthly reminder fires once on its
+   * day, and every-X-hours has no clock time at all.
+   */
+  const monthly = !!draft && MONTHLY_TYPES.has(draft.type);
+  const hourly = !!draft && !monthly && draft.scheduleMode === "hours";
+  const multiTime = !!draft && !monthly && draft.scheduleMode === "days";
+  const visibleTimes = draft ? (multiTime ? draft.times : draft.times.slice(0, 1)) : [];
 
   return (
     <Screen refreshing={refreshing} onRefresh={onRefresh}>
@@ -309,19 +412,13 @@ export default function RemindersScreen() {
           {reminders.map((r, index) => {
             const meta = REMINDER_META.get(r.type);
             const name = r.label || meta?.label || r.type;
-            const scheduleLabel = MONTHLY_TYPES.has(r.type)
-              ? "Monthly"
-              : r.everyDays
-                ? formatEveryDays(r.everyDays)
-                : formatDays(r.daysOfWeek);
+            const scheduleLabel = describeSchedule(r);
             return (
               <FadeInUp key={r.id} index={index}>
                 <Pressable
                   onPress={() => openEdit(r)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Edit the ${name} reminder — at ${formatTimeOfDay(
-                    r.timeOfDay
-                  )}, ${scheduleLabel}`}
+                  accessibilityLabel={`Edit the ${name} reminder — ${scheduleLabel}`}
                   style={({ pressed }) => [
                     styles.row,
                     {
@@ -342,8 +439,8 @@ export default function RemindersScreen() {
                     <Text variant="subheadStrong" numberOfLines={1}>
                       {name}
                     </Text>
-                    <Text variant="caption" tone="subtle" tabular>
-                      {formatTimeOfDay(r.timeOfDay)} · {scheduleLabel}
+                    <Text variant="caption" tone="subtle" tabular numberOfLines={1}>
+                      {scheduleLabel}
                     </Text>
                   </View>
                   <Switch
@@ -440,62 +537,167 @@ export default function RemindersScreen() {
               />
             )}
 
-            {/* When — one tap for the usual times, the wheel for exact. */}
-            <Field label="At what time">
-              <ChipWrap>
-                {QUICK_TIMES.map((q) => (
-                  <Chip
-                    key={q.label}
-                    label={q.label}
-                    selected={draft.timeOfDay === q.minutes}
-                    onPress={() =>
-                      setDraft({ ...draft, timeOfDay: q.minutes })
-                    }
-                  />
+            {/* Which schedule mode, before the details that depend on it —
+                clock times on chosen days, a plain N-day repeat for something
+                like a nail cut, or every few hours counted from the last log.
+                Above the time section rather than below it, since "every X
+                hours" hides that section: the switch shouldn't move out from
+                under the finger that tapped it. */}
+            {!monthly && (
+              <Field label="How often">
+                <Segmented
+                  options={SCHEDULE_MODE_OPTIONS}
+                  value={draft.scheduleMode}
+                  onChange={(scheduleMode) => {
+                    setWheelIndex(null);
+                    setDraft({ ...draft, scheduleMode });
+                  }}
+                />
+              </Field>
+            )}
+
+            {/* When — one tap for the usual times, the wheel for exact. Not
+                shown for "every X hours", which has no clock time at all. */}
+            {!hourly && (
+              <>
+                <Field
+                  label="At what time"
+                  helper={
+                    multiTime
+                      ? "Tap more than one to be reminded several times a day."
+                      : undefined
+                  }
+                >
+                  <ChipWrap>
+                    {QUICK_TIMES.map((q) => {
+                      const selected = multiTime
+                        ? draft.times.includes(q.minutes)
+                        : draft.times[0] === q.minutes;
+                      return (
+                        <Chip
+                          key={q.label}
+                          label={q.label}
+                          selected={selected}
+                          onPress={() => {
+                            setWheelIndex(null);
+                            const touched = { ...draft, timesTouched: true };
+                            if (!multiTime) {
+                              setDraft({
+                                ...touched,
+                                times: [q.minutes, ...draft.times.slice(1)],
+                              });
+                            } else if (!draft.timesTouched) {
+                              setDraft({ ...touched, times: [q.minutes] });
+                            } else if (!selected) {
+                              if (draft.times.length >= MAX_TIMES_PER_DAY) return;
+                              setDraft({ ...touched, times: [...draft.times, q.minutes] });
+                            } else if (draft.times.length > 1) {
+                              // Never down to none — the last one stays.
+                              setDraft({
+                                ...touched,
+                                times: draft.times.filter((m) => m !== q.minutes),
+                              });
+                            }
+                          }}
+                        />
+                      );
+                    })}
+                  </ChipWrap>
+                </Field>
+
+                {visibleTimes.map((minutes, index) => (
+                  <View key={index} style={styles.timeBlock}>
+                    <View style={styles.timeLine}>
+                      <Pressable
+                        onPress={() =>
+                          setWheelIndex((open) => (open === index ? null : index))
+                        }
+                        accessibilityRole="button"
+                        accessibilityLabel={`Reminder time: ${formatTimeOfDay(minutes)}. Opens the exact time picker.`}
+                        style={({ pressed }) => [
+                          styles.timeRow,
+                          styles.flex,
+                          {
+                            backgroundColor: t.accentSofter,
+                            borderColor: t.borderStrong,
+                            opacity: pressed ? PRESSED_OPACITY : 1,
+                          },
+                        ]}
+                      >
+                        <Emoji size={16}>⏰</Emoji>
+                        <Text variant="bodyStrong" tabular style={{ color: t.accentText }}>
+                          {formatTimeOfDay(minutes)}
+                        </Text>
+                        <Text variant="caption" tone="subtle">
+                          tap for exact time
+                        </Text>
+                      </Pressable>
+                      {visibleTimes.length > 1 && (
+                        <IconButton
+                          icon="close"
+                          label={`Remove ${formatTimeOfDay(minutes)}`}
+                          variant="surface"
+                          onPress={() => {
+                            setWheelIndex(null);
+                            setDraft({
+                              ...draft,
+                              times: draft.times.filter((_, i) => i !== index),
+                            });
+                          }}
+                        />
+                      )}
+                    </View>
+
+                    {wheelIndex === index && (
+                      <DateTimePicker
+                        value={timeOfDayToDate(minutes)}
+                        mode="time"
+                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                        locale={TIME_LOCALE}
+                        // Left unset on Android, this falls back to the device's
+                        // system 24-hour setting — forced off so it always shows
+                        // AM/PM, matching the row's own "tap for exact time" label.
+                        is24Hour={false}
+                        onChange={(_e, date) => {
+                          if (Platform.OS !== "ios") setWheelIndex(null);
+                          if (date)
+                            setDraft((d) =>
+                              d
+                                ? {
+                                    ...d,
+                                    timesTouched: true,
+                                    times: d.times.map((m, i) =>
+                                      i === index ? dateToTimeOfDay(date) : m
+                                    ),
+                                  }
+                                : d
+                            );
+                        }}
+                      />
+                    )}
+                  </View>
                 ))}
-              </ChipWrap>
-            </Field>
 
-            <Pressable
-              onPress={() => setShowWheel((v) => !v)}
-              accessibilityRole="button"
-              accessibilityLabel={`Reminder time: ${formatTimeOfDay(draft.timeOfDay)}. Opens the exact time picker.`}
-              style={({ pressed }) => [
-                styles.timeRow,
-                {
-                  backgroundColor: t.accentSofter,
-                  borderColor: t.borderStrong,
-                  opacity: pressed ? PRESSED_OPACITY : 1,
-                },
-              ]}
-            >
-              <Emoji size={16}>⏰</Emoji>
-              <Text variant="bodyStrong" tabular style={{ color: t.accentText }}>
-                {formatTimeOfDay(draft.timeOfDay)}
-              </Text>
-              <Text variant="caption" tone="subtle">
-                tap for exact time
-              </Text>
-            </Pressable>
-
-            {showWheel && (
-              <DateTimePicker
-                value={timeOfDayToDate(draft.timeOfDay)}
-                mode="time"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                locale={TIME_LOCALE}
-                // Left unset on Android, this falls back to the device's
-                // system 24-hour setting — forced off so it always shows
-                // AM/PM, matching the row's own "tap for exact time" label.
-                is24Hour={false}
-                onChange={(_e, date) => {
-                  if (Platform.OS !== "ios") setShowWheel(false);
-                  if (date)
-                    setDraft((d) =>
-                      d ? { ...d, timeOfDay: dateToTimeOfDay(date) } : d
-                    );
-                }}
-              />
+                {multiTime && draft.times.length < MAX_TIMES_PER_DAY && (
+                  <Button
+                    label="Add another time"
+                    icon="plus"
+                    variant="secondary"
+                    fullWidth
+                    onPress={() => {
+                      const next = nextFreeTime(draft.times);
+                      setDraft({
+                        ...draft,
+                        timesTouched: true,
+                        times: [...draft.times, next],
+                      });
+                      // Straight onto the wheel for it — the guess is only a
+                      // starting point.
+                      setWheelIndex(draft.times.length);
+                    }}
+                  />
+                )}
+              </>
             )}
 
             {/* A vaccine reminder counts from the baby's date of birth, so
@@ -512,18 +714,63 @@ export default function RemindersScreen() {
               </Field>
             ) : (
             <>
-              {/* Which schedule mode — specific weekdays, or a plain N-day
-                  repeat for something like a nail cut that isn't tied to
-                  particular days at all. */}
-              <Field label="How often">
-                <Segmented
-                  options={SCHEDULE_MODE_OPTIONS}
-                  value={draft.scheduleMode}
-                  onChange={(scheduleMode) => setDraft({ ...draft, scheduleMode })}
-                />
-              </Field>
-
-              {draft.scheduleMode === "interval" ? (
+              {draft.scheduleMode === "hours" ? (
+                <Field
+                  label="Every how many hours"
+                  helper={
+                    LAST_ACTIVITY[draft.type]
+                      ? `${formatEveryMinutes(draft.everyMinutes)} after ${
+                          LAST_ACTIVITY[draft.type]
+                        }. Log one late and the next reminder moves with it.`
+                      : `${formatEveryMinutes(draft.everyMinutes)}, counted from the last reminder.`
+                  }
+                >
+                  <View style={styles.everyDaysRow}>
+                    <IconButton
+                      icon="minus"
+                      label="Half an hour less"
+                      variant="surface"
+                      disabled={draft.everyMinutes <= MIN_EVERY_MINUTES}
+                      onPress={() =>
+                        setDraft({
+                          ...draft,
+                          everyMinutes: Math.max(
+                            MIN_EVERY_MINUTES,
+                            draft.everyMinutes - EVERY_MINUTES_STEP
+                          ),
+                        })
+                      }
+                    />
+                    <View style={styles.everyHoursValue}>
+                      <Text
+                        variant="title2"
+                        tabular
+                        style={[styles.everyDaysValue, { color: t.accentText }]}
+                      >
+                        {formatHours(draft.everyMinutes)}
+                      </Text>
+                      <Text variant="caption" tone="subtle">
+                        {draft.everyMinutes === 60 ? "hour" : "hours"}
+                      </Text>
+                    </View>
+                    <IconButton
+                      icon="plus"
+                      label="Half an hour more"
+                      variant="surface"
+                      disabled={draft.everyMinutes >= MAX_EVERY_MINUTES}
+                      onPress={() =>
+                        setDraft({
+                          ...draft,
+                          everyMinutes: Math.min(
+                            MAX_EVERY_MINUTES,
+                            draft.everyMinutes + EVERY_MINUTES_STEP
+                          ),
+                        })
+                      }
+                    />
+                  </View>
+                </Field>
+              ) : draft.scheduleMode === "interval" ? (
                 <Field
                   label="Every how many days"
                   helper={formatEveryDays(draft.everyDays)}
@@ -683,6 +930,9 @@ const styles = StyleSheet.create({
     gap: space.lg,
   },
   everyDaysValue: { minWidth: 40, textAlign: "center" },
+  everyHoursValue: { alignItems: "center" },
+  timeBlock: { gap: space.sm },
+  timeLine: { flexDirection: "row", alignItems: "center", gap: space.sm },
   dayRow: { flexDirection: "row", gap: space.xs },
   dayTile: {
     flex: 1,

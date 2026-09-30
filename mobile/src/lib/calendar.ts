@@ -54,7 +54,7 @@ export const TIME_LOCALE = `${LOCALE_BASE}-u-hc-h12`;
 export const MIN_PICKABLE_DATE = new Date(1900, 0, 1);
 
 /** Far enough ahead for a due date or a scheduled reminder, not for a typo. */
-const MAX_PICKABLE = new Date(2100, 0, 1);
+export const MAX_PICKABLE_DATE = new Date(2100, 0, 1);
 
 /**
  * The date a picker just reported, or the previous value if it's unusable.
@@ -70,7 +70,7 @@ export function safePickedDate(
   if (!picked) return fallback;
   const ms = picked.getTime();
   if (Number.isNaN(ms)) return fallback;
-  if (ms < MIN_PICKABLE_DATE.getTime() || ms > MAX_PICKABLE.getTime()) {
+  if (ms < MIN_PICKABLE_DATE.getTime() || ms > MAX_PICKABLE_DATE.getTime()) {
     return fallback;
   }
   return picked;

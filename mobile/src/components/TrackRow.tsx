@@ -127,6 +127,49 @@ interface Props {
  */
 const SYNC_TRUST_BUFFER_MS = 3_000;
 
+/** How long the -/+ buttons must be held before they start repeating, and
+ *  how often they repeat after that. */
+const HOLD_DELAY_MS = 350;
+const HOLD_REPEAT_MS = 100;
+/** Repeats before a held button moves from 1-minute to 5-minute steps. */
+const HOLD_ACCELERATE_AFTER = 10;
+
+/**
+ * Tap for one step, hold to keep stepping. A Finish forgotten for an hour is
+ * sixty taps of the minus button otherwise. `step` gets how many repeats the
+ * hold has made so far (0 for a tap), so it can take bigger strides the
+ * longer the button is held, and returns false once there's nothing left to
+ * do, which ends the hold early.
+ */
+function useHoldRepeat(step: (repeats: number) => boolean) {
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  const repeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stop = useCallback(() => {
+    if (repeatRef.current) {
+      clearInterval(repeatRef.current);
+      repeatRef.current = null;
+    }
+  }, []);
+  useEffect(() => stop, [stop]);
+  return {
+    onPress: () => {
+      stepRef.current(0);
+    },
+    onLongPress: () => {
+      stop();
+      let repeats = 0;
+      if (!stepRef.current(repeats)) return;
+      repeatRef.current = setInterval(() => {
+        repeats += 1;
+        if (!stepRef.current(repeats)) stop();
+      }, HOLD_REPEAT_MS);
+    },
+    delayLongPress: HOLD_DELAY_MS,
+    onPressOut: stop,
+  };
+}
+
 /**
  * One activity as one compact row.
  *
@@ -415,6 +458,13 @@ export default function TrackRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, timer.showComment]);
 
+  // Called up here with the other hooks, though only the running row shows
+  // the buttons they drive.
+  const holdStep = (repeats: number) =>
+    60 * (repeats >= HOLD_ACCELERATE_AFTER ? 5 : 1);
+  const minusHold = useHoldRepeat((repeats) => timer.adjust(-holdStep(repeats)));
+  const plusHold = useHoldRepeat((repeats) => timer.adjust(holdStep(repeats)));
+
   const running = timer.isActive;
 
   // Whether *any* local timer state exists for this activity, whether it's
@@ -693,25 +743,28 @@ export default function TrackRow({
             </View>
           )}
 
-          {/* Backdate a late tap without abandoning the session. */}
+          {/* Fix a late Start tap (+, moves the start earlier) or a forgotten
+              Finish (-, pulls the end back and pauses there) without
+              abandoning the session. Minus never moves the start, except to
+              undo a plus. Hold either one to keep going. */}
           <View style={styles.adjustRow}>
             <IconButton
               icon="minus"
-              label="Subtract 1 minute from elapsed time"
+              label="Subtract 1 minute. Takes it off the end, keeping the start time. Hold to keep going."
               variant="surface"
               size="sm"
-              disabled={timer.elapsed < 60}
-              onPress={() => timer.adjustStart(-60)}
+              disabled={!timer.canSubtract}
+              {...minusHold}
             />
             <Text variant="caption" tone="subtle">
-              adjust timer · 1 min
+              adjust · hold for more
             </Text>
             <IconButton
               icon="plus"
-              label="Add 1 minute to elapsed time"
+              label="Add 1 minute. Hold to keep going."
               variant="surface"
               size="sm"
-              onPress={() => timer.adjustStart(60)}
+              {...plusHold}
             />
           </View>
 

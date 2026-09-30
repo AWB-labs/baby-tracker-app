@@ -6,7 +6,7 @@ import {
   View,
   type DimensionValue,
 } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "../components/DateTimePicker";
 import Svg, { Circle, Polyline } from "react-native-svg";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius } from "../design/tokens";

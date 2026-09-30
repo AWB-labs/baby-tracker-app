@@ -323,9 +323,24 @@ model Reminder {
   /// other way to know where the account is. Now always recorded, not just when
   /// days are restricted — a time of day is meaningless without it.
   tzOffsetMinutes Int?
+  /// Every time of day a reminder on the weekday schedule fires, as sorted
+  /// comma-separated minutes after midnight ("420,720,1140"), when it fires
+  /// more than once a day. Null means once a day, at `timeOfDay`. When set,
+  /// `timeOfDay` is kept equal to the first of these, so an app version that
+  /// only knows `timeOfDay` still shows a real time for it.
+  timesOfDay      String?
+  /// The third schedule mode: fire this many minutes after the latest of the
+  /// most recent log of the reminder's activity, the last time it fired, and
+  /// the last time it was edited (`updatedAt`). A pump logged late moves the
+  /// next reminder with it. Null means one of the other modes. Mutually
+  /// exclusive with daysOfWeek, everyDays and timesOfDay.
+  everyMinutes    Int?
   enabled         Boolean   @default(true)
   lastNotifiedAt  DateTime?
   createdAt       DateTime  @default(now())
+  /// Anchors `everyMinutes`, so a reminder counts from when it was set up or
+  /// changed rather than firing the moment it's saved.
+  updatedAt       DateTime  @default(now()) @updatedAt
 
   baby    Baby    @relation(fields: [babyId], references: [id], onDelete: Cascade)
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)

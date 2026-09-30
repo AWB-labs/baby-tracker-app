@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Platform, Pressable, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "./DateTimePicker";
 import { useTheme, useThemeContext } from "../design/ThemeProvider";
 import { space, radius, PRESSED_OPACITY } from "../design/tokens";
 import { Field, Text } from "./ui";
@@ -8,6 +8,19 @@ import { TIME_LOCALE } from "../lib/calendar";
 
 function formatTimeDisplay(d: Date): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+/**
+ * The picked clock time, on `value`'s own day, or null if the picker handed
+ * back nothing usable. This field only ever edits a time of day, and every
+ * caller combines it with a date picked separately, so whatever day the
+ * native wheel attaches is dropped rather than trusted.
+ */
+function withPickedTime(value: Date, picked: Date | undefined): Date | null {
+  if (!picked || Number.isNaN(picked.getTime())) return null;
+  const next = new Date(value);
+  next.setHours(picked.getHours(), picked.getMinutes(), 0, 0);
+  return next;
 }
 
 interface Props {
@@ -45,6 +58,10 @@ interface Props {
  * different answer. Pinning `locale` to the same resolved string every date
  * picker already uses removes the ambiguity — there's nothing left for either
  * instance to resolve independently.
+ *
+ * The "every change snaps back to 2:00 AM" report was the picker itself, not
+ * this field: see components/DateTimePicker for the reused-native-view bug
+ * behind it, and why every picker now goes through that wrapper.
  */
 export default function TimeField({ label, value, onChange, style }: Props) {
   const t = useTheme();
@@ -62,7 +79,8 @@ export default function TimeField({ label, value, onChange, style }: Props) {
           accentColor={t.accent}
           themeVariant={isDark ? "dark" : "light"}
           onChange={(_, picked) => {
-            if (picked) onChange(picked);
+            const next = withPickedTime(value, picked);
+            if (next) onChange(next);
           }}
         />
       </Field>
@@ -97,7 +115,8 @@ export default function TimeField({ label, value, onChange, style }: Props) {
           is24Hour={false}
           onChange={(_, picked) => {
             setOpen(false);
-            if (picked) onChange(picked);
+            const next = withPickedTime(value, picked);
+            if (next) onChange(next);
           }}
         />
       )}

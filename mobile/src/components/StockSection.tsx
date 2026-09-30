@@ -121,12 +121,17 @@ export default function StockSection({
             </View>
             <Icon name="edit" size="xs" color={t.textSubtle} />
           </View>
+          {/* No adjustsFontSizeToFit here, unlike before: it was the one
+              thing this card's value did differently from the diaper card's,
+              and it's the reason the amount kept vanishing. On iOS's new
+              architecture, shrink-to-fit text is measured and drawn as two
+              separate passes that can disagree, and this card re-renders every
+              second while any timer runs, so it hit that mismatch often. Even
+              imperial's longest ("42.3 fl oz") fits at this size. */}
           <Text
             variant="title3"
             tabular
             numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.8}
             style={{ color: pumpTone.text }}
           >
             {milkValue}
