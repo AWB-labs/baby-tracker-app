@@ -107,16 +107,14 @@ export default function FoodSection({
         }
         style={styles.card}
       >
-        <View style={styles.top}>
-          <View style={styles.labelRow}>
-            <Emoji size={14}>🥣</Emoji>
-            <Text variant="caption" tone="muted" numberOfLines={1}>
-              {meals.length === 0
-                ? "Today"
-                : `Today · ${distinctToday} food${distinctToday === 1 ? "" : "s"}`}
-            </Text>
-          </View>
-          <Icon name="chevronRight" size="sm" color={t.textSubtle} />
+        <View style={styles.cardBody}>
+        <View style={styles.labelRow}>
+          <Emoji size={14}>🥣</Emoji>
+          <Text variant="caption" tone="muted" numberOfLines={1}>
+            {meals.length === 0
+              ? "Today"
+              : `Today · ${distinctToday} food${distinctToday === 1 ? "" : "s"}`}
+          </Text>
         </View>
 
         {!loaded ? (
@@ -170,6 +168,11 @@ export default function FoodSection({
         <Text variant="caption" tone="subtle" numberOfLines={1}>
           {summary}
         </Text>
+        </View>
+
+        {/* Centred on the card's height, like a list row's disclosure, so
+            the whole card reads as one thing that opens. */}
+        <Icon name="chevronRight" size="sm" color={t.textSubtle} />
       </PressableCard>
 
       <LogMealSheet
@@ -186,13 +189,13 @@ export default function FoodSection({
 
 const styles = StyleSheet.create({
   section: { gap: space.sm },
-  card: { padding: space.md, gap: space.sm },
-  top: {
+  card: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: space.xs,
+    gap: space.sm,
+    padding: space.md,
   },
+  cardBody: { flex: 1, minWidth: 0, gap: space.sm },
   labelRow: { flexDirection: "row", alignItems: "center", gap: space.xs, flexShrink: 1 },
   meals: { gap: space.sm },
   mealRow: { flexDirection: "row", gap: space.sm, alignItems: "flex-start" },
