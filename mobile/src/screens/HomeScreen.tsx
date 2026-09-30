@@ -30,9 +30,8 @@ import {
   EmptyState,
 } from "../components/ui";
 import Snapshot, { type ActiveStarts } from "../components/Snapshot";
-import SnapshotMiniBar from "../components/SnapshotMiniBar";
 import StockSection from "../components/StockSection";
-import FoodRow from "../components/FoodRow";
+import FoodSection from "../components/FoodSection";
 import TrackRow, { type TrackType } from "../components/TrackRow";
 import Habits from "../components/Habits";
 import BabySwitcher from "../components/BabySwitcher";
@@ -74,8 +73,6 @@ const TITLE_COMPACT_SCALE = 0.64;
 const TITLE_LINE_HEIGHT = 34;
 /** How far the snapshot cards shrink as they condense into the strip. */
 const CARDS_COMPACT_SCALE = 0.5;
-/** The strip's height until its own layout reports (one subhead line). */
-const CHIPS_FALLBACK_H = 22;
 /** Pink above the hero for iOS rubber-banding to pull into view. */
 const OVERSCROLL_BLEED = 600;
 
@@ -215,30 +212,38 @@ export default function HomeScreen() {
   const [titleY, setTitleY] = useState(0);
   const [titleH, setTitleH] = useState(TITLE_LINE_HEIGHT);
   const [cardsY, setCardsY] = useState(0);
-  const [chipsH, setChipsH] = useState(CHIPS_FALLBACK_H);
+  const [titleW, setTitleW] = useState(0);
+  const [heroW, setHeroW] = useState(0);
 
   /*
-   * The condensed header's geometry: the title docked just under the status
-   * bar, the four-chip strip under that, a beat of padding below. Nothing
-   * here is measured from a second layout — it's the same title and the
-   * same strip, so the compact layout is arithmetic on their rest sizes.
+   * The condensed header's geometry: just the baby's name, centred, docked
+   * under the status bar with a beat of padding below. Nothing here is
+   * measured from a second layout — it's the same title, so the compact
+   * layout is arithmetic on its rest size.
    */
   const compactTitleY = insets.top + space.xs;
-  const chipsY = compactTitleY + titleH * TITLE_COMPACT_SCALE + space.xs;
-  const compactH = chipsY + chipsH + space.md;
+  const compactH = compactTitleY + titleH * TITLE_COMPACT_SCALE + space.md;
   /** How much scroll turns the hero into the condensed header — exactly the
    *  height it loses, so the pink's bottom edge tracks the finger 1:1. */
   const collapseAt = Math.max(1, heroH - compactH);
   const titleTravel = titleY - compactTitleY;
-  const cardsTravel = chipsY - cardsY;
+  // The title scales about its left edge, so centring it is a slide from
+  // its resting left margin to where a title that wide lands centred.
+  const titleSlide = Math.max(
+    0,
+    (heroW - titleW * TITLE_COMPACT_SCALE) / 2 - space.lg
+  );
+  // The cards shrink towards the docked title — the header's new bottom.
+  const cardsTravel = compactH - cardsY;
 
   /*
    * Whether the hero is more than half condensed — the ONLY thing on this
-   * screen that reads the offset from JS, and all it drives is which of the
-   * two snapshot forms is tappable (pointerEvents can't be interpolated). It
-   * sets state solely when the threshold is crossed, so per-frame it's a
-   * comparison and nothing more; a delayed frame here can delay a tap
-   * becoming live, but can never make anything visibly stutter.
+   * screen that reads the offset from JS, and all it drives is whether the
+   * faded-out cards still take taps, and whether the docked title scrolls
+   * back up (pointerEvents can't be interpolated). It sets state solely
+   * when the threshold is crossed, so per-frame it's a comparison and
+   * nothing more; a delayed frame here can delay a tap becoming live, but
+   * can never make anything visibly stutter.
    */
   const [condensed, setCondensed] = useState(false);
   useEffect(() => {
@@ -261,12 +266,12 @@ export default function HomeScreen() {
    *  - the hero itself is pinned (translated by the scroll offset), and its
    *    pink background slides up underneath at slope 1 — the bottom edge
    *    tracks the finger exactly, ending at the condensed header's height;
-   *  - the title glides from its hero spot to the docked spot while shrinking
-   *    about its top-left corner — same text, same node the whole way;
+   *  - the title glides from its hero spot up and into the centre while
+   *    shrinking about its top-left corner — same text, same node the whole
+   *    way — and that centred name is the whole condensed header;
    *  - greeting and age line fade out over the first stretch;
-   *  - the four snapshot cards shrink and drift towards where the strip
-   *    lands, fading out as the strip fades in along the same path, so the
-   *    cards read as condensing into the chips rather than being replaced.
+   *  - the four snapshot cards shrink and drift up under the title, fading
+   *    out as they go.
    *
    * All transform and opacity on the native driver; nothing lays out.
    * Memoized so the per-second re-renders a running timer causes don't
@@ -293,17 +298,13 @@ export default function HomeScreen() {
       // left rattling around in a header that's still shrinking around it.
       textFade: over(0, 0.25, [1, 0]),
       titleShift: over(0, 0.7, [0, -titleTravel]),
+      titleSlide: over(0, 0.7, [0, titleSlide]),
       titleScale: over(0, 0.7, [1, TITLE_COMPACT_SCALE]),
       cardsShift: over(0, 0.7, [0, cardsTravel]),
       cardsScale: over(0, 0.7, [1, CARDS_COMPACT_SCALE]),
-      // Cards and chips overlap mid-flight — the crossfade is what makes the
-      // four cards read as becoming the four chips.
-      cardsFade: over(0.25, 0.55, [1, 0]),
-      chipsShift: over(0, 0.7, [-cardsTravel, 0]),
-      chipsScale: over(0, 0.7, [1.15, 1]),
-      chipsFade: over(0.4, 0.65, [0, 1]),
+      cardsFade: over(0.15, 0.5, [1, 0]),
     };
-  }, [scrollY, collapseAt, titleTravel, cardsTravel]);
+  }, [scrollY, collapseAt, titleTravel, titleSlide, cardsTravel]);
 
   const enteredByName = account?.name || "Unknown";
 
@@ -381,7 +382,10 @@ export default function HomeScreen() {
       <Animated.View
         pointerEvents="box-none"
         style={[styles.hero, { transform: [{ translateY: anim.heroPin }] }]}
-        onLayout={(e) => setHeroH(e.nativeEvent.layout.height)}
+        onLayout={(e) => {
+          setHeroH(e.nativeEvent.layout.height);
+          setHeroW(e.nativeEvent.layout.width);
+        }}
       >
         {/* The pink, sliding up under the pinned content so its bottom edge
             tracks the scroll. The bleed above it is what iOS rubber-banding
@@ -421,13 +425,23 @@ export default function HomeScreen() {
           <Animated.Text
             numberOfLines={1}
             accessibilityRole="header"
+            // Once docked, the name is the way back to the full snapshot.
+            onPress={condensed ? scrollToTop : undefined}
+            accessibilityHint={condensed ? "Scrolls back to the top" : undefined}
             onLayout={(e) => {
               setTitleY(e.nativeEvent.layout.y);
               setTitleH(e.nativeEvent.layout.height);
+              setTitleW(e.nativeEvent.layout.width);
             }}
             style={[
               styles.heroTitle,
-              { transform: [{ translateY: anim.titleShift }, { scale: anim.titleScale }] },
+              {
+                transform: [
+                  { translateY: anim.titleShift },
+                  { translateX: anim.titleSlide },
+                  { scale: anim.titleScale },
+                ],
+              },
             ]}
           >
             {titleText}
@@ -461,26 +475,6 @@ export default function HomeScreen() {
             loading={loading}
             onOpenLog={(filter) => navigation.navigate("Activity", { filter })}
             activeStarts={activeStarts}
-          />
-        </Animated.View>
-
-        {/* The same four numbers as one line — where the cards end up. */}
-        <Animated.View
-          pointerEvents={condensed ? "box-none" : "none"}
-          onLayout={(e) => setChipsH(e.nativeEvent.layout.height)}
-          style={[
-            styles.chips,
-            {
-              top: chipsY,
-              opacity: anim.chipsFade,
-              transform: [{ translateY: anim.chipsShift }, { scale: anim.chipsScale }],
-            },
-          ]}
-        >
-          <SnapshotMiniBar
-            logs={logs}
-            activeStarts={activeStarts}
-            onPress={scrollToTop}
           />
         </Animated.View>
       </Animated.View>
@@ -560,17 +554,16 @@ export default function HomeScreen() {
               onDiaperStockChanged={refreshDiaperStock}
             />
           ))}
-          {/* Food is tracked like the rest: what she last ate, and a Log.
-              The catalogue and reaction history are behind the row. */}
-          <FoodRow
-            key={`food-${activeBaby.id}`}
-            babyId={activeBaby.id}
-            enteredByName={enteredByName}
-            refreshKey={habitsRefreshKey}
-            onOpenFoods={() => navigation.navigate("Foods")}
-          />
         </View>
       </View>
+
+      {/* What she's eaten today, and the door to the foods catalogue. */}
+      <FoodSection
+        babyId={activeBaby.id}
+        enteredByName={enteredByName}
+        refreshKey={habitsRefreshKey}
+        onOpenFoods={() => navigation.navigate("Foods")}
+      />
 
       <Habits
         babyId={activeBaby.id}
@@ -676,12 +669,6 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     paddingHorizontal: space.lg,
     // Shrinks towards its top edge, the direction it travels.
-    transformOrigin: "top",
-  },
-  chips: {
-    position: "absolute",
-    left: space.lg,
-    right: space.lg,
     transformOrigin: "top",
   },
   // The hero is edge-to-edge, so the horizontal padding lives on the body
