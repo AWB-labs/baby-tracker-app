@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Switch, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../design/ThemeProvider";
 import { space, radius, PRESSED_OPACITY } from "../design/tokens";
@@ -203,6 +203,11 @@ export default function FoodsScreen() {
     setShowLog(true);
   };
 
+  // "Log it again" from the history sheet: the logger can't be presented
+  // until that sheet has actually finished closing (see Sheet.onClosed), so
+  // the choice is parked here and picked up in onClosed.
+  const [logAfterClose, setLogAfterClose] = useState<SelectedFood[] | null>(null);
+
   return (
     <Screen refreshing={refreshing} onRefresh={onRefresh}>
       <View style={styles.headerRow}>
@@ -222,6 +227,12 @@ export default function FoodsScreen() {
                 }`
           }
           style={styles.headerText}
+        />
+        <IconButton
+          icon="plus"
+          label="Log a meal"
+          variant="accent"
+          onPress={() => openLogWith(undefined)}
         />
       </View>
 
@@ -348,6 +359,12 @@ export default function FoodsScreen() {
       <Sheet
         visible={selected != null}
         onClose={() => setSelectedId(null)}
+        onClosed={() => {
+          if (!logAfterClose) return;
+          const pre = logAfterClose;
+          setLogAfterClose(null);
+          openLogWith(pre);
+        }}
         title={selected ? `${foodEmoji(selected.name, selected.emoji)}  ${selected.name}` : ""}
         subtitle={
           selected
@@ -371,8 +388,7 @@ export default function FoodsScreen() {
                 label="Log it again"
                 variant="primary"
                 onPress={() => {
-                  setSelectedId(null);
-                  openLogWith([
+                  setLogAfterClose([
                     {
                       key: `id:${selected.id}`,
                       foodItemId: selected.id,
@@ -385,6 +401,7 @@ export default function FoodsScreen() {
                       reactionNote: "",
                     },
                   ]);
+                  setSelectedId(null);
                 }}
                 style={styles.flex}
               />
@@ -394,22 +411,46 @@ export default function FoodsScreen() {
       >
         {selected ? (
           <View style={styles.detail}>
-            <View style={[styles.switchRow, { borderColor: t.border }]}>
+            {/* A pressable tick rather than a native Switch: inside this
+                sheet's Modal the Switch swallowed its taps on iOS, and the
+                diaper-stock tick is already the app's idiom for one-bit
+                choices in a sheet. The whole row is the target. */}
+            <Pressable
+              onPress={() => toggleAllergen(selected)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: selected.allergen }}
+              accessibilityLabel={`Flag ${selected.name} to watch`}
+              style={({ pressed }) => [
+                styles.switchRow,
+                { borderColor: t.border, opacity: pressed ? PRESSED_OPACITY : 1 },
+              ]}
+            >
               <View style={styles.rowBody}>
                 <Text variant="subheadStrong">Flag to watch</Text>
                 <Text variant="caption" tone="subtle">
                   Set automatically after a rash, hives, vomiting or swelling. Clear it once a doctor says it's fine.
                 </Text>
               </View>
-              <Switch
-                value={selected.allergen}
-                onValueChange={() => toggleAllergen(selected)}
-                trackColor={{ true: t.danger, false: t.border }}
-                thumbColor={t.surface}
-                ios_backgroundColor={t.border}
-                accessibilityLabel={`Flag ${selected.name} to watch`}
-              />
-            </View>
+              <View
+                style={[
+                  styles.flagPill,
+                  {
+                    backgroundColor: selected.allergen ? t.danger : "transparent",
+                    borderColor: selected.allergen ? t.danger : t.borderStrong,
+                  },
+                ]}
+              >
+                {selected.allergen && (
+                  <Icon name="check" size="xs" color={t.textInverse} strokeWidth={3} />
+                )}
+                <Text
+                  variant="caption"
+                  style={{ color: selected.allergen ? t.textInverse : t.textSubtle }}
+                >
+                  {selected.allergen ? "Watching" : "Off"}
+                </Text>
+              </View>
+            </Pressable>
 
             {selectedHistory.length === 0 ? (
               <Text variant="subhead" tone="subtle">
@@ -524,6 +565,15 @@ const styles = StyleSheet.create({
     gap: space.md,
     paddingBottom: space.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  flagPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xs,
+    paddingHorizontal: space.md,
+    height: 32,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
   },
   history: {},
   historyRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: space.sm },

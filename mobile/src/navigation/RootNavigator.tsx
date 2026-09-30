@@ -11,6 +11,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../context/AuthContext";
 import { useBaby } from "../context/BabyContext";
 import { usePushRegistration } from "../hooks/usePushRegistration";
+import { useWalkthroughSeen, markWalkthroughSeen } from "../lib/walkthrough";
 import { useThemeContext } from "../design/ThemeProvider";
 import WelcomeScreen from "../screens/auth/WelcomeScreen";
 import LoginScreen from "../screens/auth/LoginScreen";
@@ -83,22 +84,24 @@ function AuthNavigator() {
 
 function AppNavigator() {
   const { babies, loading } = useBaby();
-  const { account, justSignedUp } = useAuth();
+  const { account } = useAuth();
   // Whether this session has said "I'm starting a new family" — only matters
   // for the create path. The join path never needs it: claiming an invite
   // populates `babies` directly, so the ordinary babies.length checks below
   // carry it the rest of the way into Main on their own.
   const [wantsToCreate, setWantsToCreate] = useState(false);
-  // Whether the onboarding carousel has been shown (or skipped) yet this
-  // session. Local, not persisted: justSignedUp already resets on every
-  // fresh launch, so there's nothing to remember across app restarts either.
-  const [carouselDone, setCarouselDone] = useState(false);
+  // Whether this device has seen the current walkthrough. Persisted and
+  // versioned (see lib/walkthrough), so a brand-new signup and an existing
+  // family opening an update both get it exactly once — and null while it's
+  // still being read, which holds the splash a beat longer rather than
+  // flashing Home and then covering it.
+  const walkthroughSeen = useWalkthroughSeen();
   // Registers this device's token as soon as there's a session to attach it
   // to — not gated on ever opening Reminders, which used to mean an account
   // that never visited that one screen never received anything.
   usePushRegistration();
 
-  if (loading) return <Splash />;
+  if (loading || walkthroughSeen === null) return <Splash />;
 
   /*
    * Onboarding order: who are you, then whose family this is, then who the
@@ -118,10 +121,9 @@ function AppNavigator() {
    */
   const needsProfile = babies.length === 0 && !account?.relation;
   const needsIntent = !needsProfile && babies.length === 0 && !wantsToCreate;
-  // Only someone who just created this account, this session, and has a baby
-  // to show for it (their own, or one they were auto-joined to) — an existing
-  // account signing in on a new device must never see this.
-  const needsOnboarding = justSignedUp && !carouselDone && babies.length > 0;
+  // Once there's a baby to show (their own, or one they were joined to), and
+  // only until this device has seen the current walkthrough once.
+  const needsOnboarding = !walkthroughSeen && babies.length > 0;
 
   return (
     <AppStack.Navigator screenOptions={{ headerShown: false }}>
@@ -135,7 +137,7 @@ function AppNavigator() {
         <AppStack.Screen name="SetupBaby" component={SetupBabyScreen} />
       ) : needsOnboarding ? (
         <AppStack.Screen name="Onboarding">
-          {() => <OnboardingCarouselScreen onDone={() => setCarouselDone(true)} />}
+          {() => <OnboardingCarouselScreen onDone={markWalkthroughSeen} />}
         </AppStack.Screen>
       ) : (
         // Settings now lives inside the tabs as Account, so the app stack is

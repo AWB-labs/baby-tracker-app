@@ -34,6 +34,7 @@ import BabySwitcher from "../components/BabySwitcher";
 import { useSettings, useUnits } from "../context/SettingsContext";
 import { useToast } from "../components/Toast";
 import { toFriendlyError } from "../lib/errors";
+import { replayWalkthrough } from "../lib/walkthrough";
 import {
   getMembers,
   addMember,
@@ -909,6 +910,35 @@ export default function SettingsScreen() {
                 </Field>
               </View>
             </Card>
+          </View>
+
+          {/* ---------- Help ---------- */}
+          <View style={styles.section}>
+            <SectionHeader title="Help" />
+            <Pressable
+              onPress={replayWalkthrough}
+              accessibilityRole="button"
+              accessibilityLabel="Walkthrough. Shows the quick tour of the app again."
+              style={({ pressed }) => [
+                styles.navRow,
+                {
+                  backgroundColor: t.surface,
+                  borderColor: t.border,
+                  opacity: pressed ? PRESSED_OPACITY : 1,
+                },
+              ]}
+            >
+              <View style={[styles.avatar, { backgroundColor: t.accentSofter }]}>
+                <Emoji size={18}>👋</Emoji>
+              </View>
+              <View style={styles.rowBody}>
+                <Text variant="subheadStrong">Walkthrough</Text>
+                <Text variant="caption" tone="subtle">
+                  The quick tour of the app, again
+                </Text>
+              </View>
+              <Icon name="chevronRight" size="md" color={t.textSubtle} />
+            </Pressable>
           </View>
 
           {/* ---------- Legal ---------- */}

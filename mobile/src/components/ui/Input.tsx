@@ -174,10 +174,15 @@ const styles = StyleSheet.create({
     // 48 clears the 44pt touch minimum with room for the focus ring.
     minHeight: 48,
   },
+  // Body size and weight, but NOT body's line height: a fixed lineHeight on
+  // a TextInput makes iOS clip the glyphs' tops and descenders ("g", "y",
+  // "p" lose their tails), which read as words being cut off. Single-line
+  // inputs take their natural line height from the font instead.
   input: {
     flex: 1,
     paddingVertical: space.md,
-    ...typeTokens.body,
+    fontSize: typeTokens.body.fontSize,
+    fontWeight: typeTokens.body.fontWeight,
   },
   inputWrapMultiline: {
     alignItems: "flex-start",

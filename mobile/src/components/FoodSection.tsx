@@ -63,10 +63,18 @@ export default function FoodSection({
     load();
   }, [load, refreshKey]);
 
-  const meals = useMemo(() => groupMeals(todayLogs), [todayLogs]);
+  const allMeals = useMemo(() => groupMeals(todayLogs), [todayLogs]);
+  // Only the latest meal on Home — the full day is a tap away on Foods.
+  const latest = allMeals[0] ?? null;
+  const meals = latest ? [latest] : [];
+  const latestRated = latest ? latest.logs.filter((l) => l.rating != null) : [];
+  const latestAvg =
+    latestRated.length > 0
+      ? latestRated.reduce((s, l) => s + (l.rating ?? 0), 0) / latestRated.length
+      : null;
+  const latestReaction = latest ? latest.logs.find((l) => isReaction(l.reaction)) ?? null : null;
   const triedCount = catalog.filter((c) => c.timesTried > 0).length;
   const watchCount = catalog.filter((c) => c.allergen).length;
-  const distinctToday = new Set(todayLogs.map((l) => l.foodItemId)).size;
 
   const summary =
     triedCount === 0
@@ -105,74 +113,55 @@ export default function FoodSection({
                 .map((m) => mealTitle(m))
                 .join("; ")}. ${summary} Opens the foods screen.`
         }
+        padded={false}
         style={styles.card}
       >
-        <View style={styles.cardBody}>
-        <View style={styles.labelRow}>
-          <Emoji size={14}>🥣</Emoji>
-          <Text variant="caption" tone="muted" numberOfLines={1}>
-            {meals.length === 0
-              ? "Today"
-              : `Today · ${distinctToday} food${distinctToday === 1 ? "" : "s"}`}
-          </Text>
+        {/* Same anatomy as a Track row — icon chip, name, context line,
+            trailing control — so the five cards on Today read as one list. */}
+        <View style={[styles.iconChip, { backgroundColor: t.warningSoft }]}>
+          <Emoji size={22}>🥣</Emoji>
         </View>
 
-        {!loaded ? (
-          <Text variant="title3" tabular style={{ color: t.textSubtle }}>
-            —
+        <View style={styles.body}>
+          <Text variant="bodyStrong" numberOfLines={1}>
+            {!loaded
+              ? "Food"
+              : latest
+                ? latest.logs
+                    .map((l) => `${l.foodItem.emoji ?? ""} ${l.foodItem.name}`.trim())
+                    .join(" + ")
+                : "Nothing eaten yet today"}
           </Text>
-        ) : meals.length === 0 ? (
-          <Text variant="subhead" tone="subtle">
-            Nothing eaten yet today.
-          </Text>
-        ) : (
-          <View style={styles.meals}>
-            {meals.map((meal) => {
-              const rated = meal.logs.filter((l) => l.rating != null);
-              const avg =
-                rated.length > 0
-                  ? rated.reduce((s, l) => s + (l.rating ?? 0), 0) / rated.length
-                  : null;
-              const reaction = meal.logs.find((l) => isReaction(l.reaction));
-              return (
-                <View key={meal.mealKey} style={styles.mealRow}>
-                  <Text variant="caption" tone="subtle" tabular style={styles.mealTime}>
-                    {formatTime(meal.eatenAt)}
+
+          {latest && (
+            <View style={styles.metaRow}>
+              <Text variant="caption" tone="subtle" tabular numberOfLines={1}>
+                {formatTime(latest.eatenAt)}
+              </Text>
+              {latestAvg != null && (
+                <Text variant="caption" style={{ color: t.warning }}>
+                  {starString(latestAvg)}
+                </Text>
+              )}
+              {latestReaction && (
+                <View style={[styles.reactionPill, { backgroundColor: t.warningSoft }]}>
+                  <Emoji size={11}>{REACTION_META[latestReaction.reaction!].emoji}</Emoji>
+                  <Text variant="caption" style={{ color: t.warning }} numberOfLines={1}>
+                    {REACTION_META[latestReaction.reaction!].label}
                   </Text>
-                  <View style={styles.mealBody}>
-                    <Text variant="bodyStrong" numberOfLines={2}>
-                      {meal.logs.map((l) => `${l.foodItem.emoji ?? ""} ${l.foodItem.name}`.trim()).join(" + ")}
-                    </Text>
-                    <View style={styles.mealMeta}>
-                      {avg != null && (
-                        <Text variant="caption" style={{ color: t.warning }}>
-                          {starString(avg)}
-                        </Text>
-                      )}
-                      {reaction && (
-                        <View style={[styles.reactionPill, { backgroundColor: t.warningSoft }]}>
-                          <Emoji size={11}>{REACTION_META[reaction.reaction!].emoji}</Emoji>
-                          <Text variant="caption" style={{ color: t.warning }}>
-                            {reaction.foodItem.name}: {REACTION_META[reaction.reaction!].label.toLowerCase()}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
                 </View>
-              );
-            })}
-          </View>
-        )}
+              )}
+            </View>
+          )}
 
-        <Text variant="caption" tone="subtle" numberOfLines={1}>
-          {summary}
-        </Text>
+          <Text variant="caption" tone="subtle" numberOfLines={1}>
+            {latest
+              ? `${allMeals.length} meal${allMeals.length === 1 ? "" : "s"} today · ${summary}`
+              : summary}
+          </Text>
         </View>
 
-        {/* Centred on the card's height, like a list row's disclosure, so
-            the whole card reads as one thing that opens. */}
-        <Icon name="chevronRight" size="sm" color={t.textSubtle} />
+        <Icon name="chevronRight" size="md" color={t.textSubtle} />
       </PressableCard>
 
       <LogMealSheet
@@ -189,25 +178,32 @@ export default function FoodSection({
 
 const styles = StyleSheet.create({
   section: { gap: space.sm },
+  // Mirrors TrackRow's idle row metrics, so this card lines up with the four
+  // above it: same chip size, same padding, same minimum height.
   card: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.sm,
-    padding: space.md,
+    gap: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.lg,
+    minHeight: 76,
   },
-  cardBody: { flex: 1, minWidth: 0, gap: space.sm },
-  labelRow: { flexDirection: "row", alignItems: "center", gap: space.xs, flexShrink: 1 },
-  meals: { gap: space.sm },
-  mealRow: { flexDirection: "row", gap: space.sm, alignItems: "flex-start" },
-  mealTime: { width: 64, paddingTop: 3 },
-  mealBody: { flex: 1, minWidth: 0, gap: 2 },
-  mealMeta: { flexDirection: "row", alignItems: "center", gap: space.sm, flexWrap: "wrap" },
+  iconChip: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  body: { flex: 1, minWidth: 0, gap: 2 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   reactionPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: space.sm,
-    paddingVertical: 2,
+    paddingVertical: 1,
     borderRadius: radius.pill,
+    flexShrink: 1,
   },
 });

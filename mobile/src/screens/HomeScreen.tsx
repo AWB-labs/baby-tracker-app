@@ -3,7 +3,6 @@ import {
   Animated,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -67,12 +66,8 @@ const TRACK_TYPES: TrackType[] = ["feed", "pump", "sleep", "diaper"];
 /** The hero gradient. */
 const HERO_COLORS = ["#f3437e", "#993758"] as const;
 
-/** title1 (28pt) shrinks to roughly title3 (18pt) in the condensed header. */
-const TITLE_COMPACT_SCALE = 0.64;
-/** title1's line height — the title's measured height until layout reports. */
-const TITLE_LINE_HEIGHT = 34;
-/** How far the snapshot cards shrink as they condense into the strip. */
-const CARDS_COMPACT_SCALE = 0.5;
+/** The hero's height until its layout reports — only shapes the first frame. */
+const HERO_FALLBACK_H = 320;
 /** Pink above the hero for iOS rubber-banding to pull into view. */
 const OVERSCROLL_BLEED = 600;
 
@@ -199,84 +194,19 @@ export default function HomeScreen() {
   const closeManual = useCallback(() => setShowManual(false), []);
 
   /*
-   * The scroll offset, written natively — see the hero note in the JSX below.
-   * Everything visual that follows from it (the condensed bar's opacity and
-   * slide) is interpolation on this value, which the native driver runs
-   * entirely off the JS thread.
+   * The scroll offset, written natively. Everything visual in the hero that
+   * follows from it is interpolation on this value — see the hero note in
+   * the JSX below.
    */
   const scrollY = useRef(new Animated.Value(0)).current;
-  const scrollRef = useRef<ScrollView>(null);
   /** Measured, not assumed: the hero is sized by its content. */
   const [heroH, setHeroH] = useState(0);
-  /** Where the title and the snapshot cards sit inside the hero at rest. */
-  const [titleY, setTitleY] = useState(0);
-  const [titleH, setTitleH] = useState(TITLE_LINE_HEIGHT);
-  const [cardsY, setCardsY] = useState(0);
-  const [titleW, setTitleW] = useState(0);
-  const [heroW, setHeroW] = useState(0);
+  // The hero has fully left the screen at this offset; everything condenses
+  // over that distance so it's gone before the hero is.
+  const collapseAt = Math.max(1, heroH || HERO_FALLBACK_H);
 
-  /*
-   * The condensed header's geometry: just the baby's name, centred, docked
-   * under the status bar with a beat of padding below. Nothing here is
-   * measured from a second layout — it's the same title, so the compact
-   * layout is arithmetic on its rest size.
-   */
-  const compactTitleY = insets.top + space.xs;
-  const compactH = compactTitleY + titleH * TITLE_COMPACT_SCALE + space.md;
-  /** How much scroll turns the hero into the condensed header — exactly the
-   *  height it loses, so the pink's bottom edge tracks the finger 1:1. */
-  const collapseAt = Math.max(1, heroH - compactH);
-  const titleTravel = titleY - compactTitleY;
-  // The title scales about its left edge, so centring it is a slide from
-  // its resting left margin to where a title that wide lands centred.
-  const titleSlide = Math.max(
-    0,
-    (heroW - titleW * TITLE_COMPACT_SCALE) / 2 - space.lg
-  );
-  // The cards shrink towards the docked title — the header's new bottom.
-  const cardsTravel = compactH - cardsY;
-
-  /*
-   * Whether the hero is more than half condensed — the ONLY thing on this
-   * screen that reads the offset from JS, and all it drives is whether the
-   * faded-out cards still take taps, and whether the docked title scrolls
-   * back up (pointerEvents can't be interpolated). It sets state solely
-   * when the threshold is crossed, so per-frame it's a comparison and
-   * nothing more; a delayed frame here can delay a tap becoming live, but
-   * can never make anything visibly stutter.
-   */
-  const [condensed, setCondensed] = useState(false);
-  useEffect(() => {
-    const id = scrollY.addListener(({ value }) => {
-      const next = value >= collapseAt * 0.5;
-      setCondensed((prev) => (prev === next ? prev : next));
-    });
-    return () => scrollY.removeListener(id);
-  }, [scrollY, collapseAt]);
-
-  const scrollToTop = useCallback(() => {
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
-  }, []);
-
-  /*
-   * One motion, one input. Every part of the hero is driven by the same
-   * scroll offset over the same distance (`collapseAt`), so the whole thing
-   * condenses together rather than one piece handing off to another:
-   *
-   *  - the hero itself is pinned (translated by the scroll offset), and its
-   *    pink background slides up underneath at slope 1 — the bottom edge
-   *    tracks the finger exactly, ending at the condensed header's height;
-   *  - the title glides from its hero spot up and into the centre while
-   *    shrinking about its top-left corner — same text, same node the whole
-   *    way — and that centred name is the whole condensed header;
-   *  - greeting and age line fade out over the first stretch;
-   *  - the four snapshot cards shrink and drift up under the title, fading
-   *    out as they go.
-   *
-   * All transform and opacity on the native driver; nothing lays out.
-   * Memoized so the per-second re-renders a running timer causes don't
-   * rebuild the native animated-node graph every tick.
-   */
+  // Memoized so the per-second re-renders a running timer causes don't
+  // rebuild the native animated-node graph every tick.
   const anim = useMemo(() => {
     const over = (from: number, to: number, outputRange: [number, number]) =>
       scrollY.interpolate({
@@ -285,26 +215,17 @@ export default function HomeScreen() {
         extrapolate: "clamp",
       });
     return {
-      // Pinned for any scroll ≥ 0; below zero it rides the bounce with the
-      // content rather than staying behind.
-      heroPin: scrollY.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 1],
-        extrapolateLeft: "clamp",
-        extrapolateRight: "extend",
-      }),
-      bgShift: over(0, 1, [0, -collapseAt]),
-      // The content settles a little ahead of the pink's edge, so it's never
-      // left rattling around in a header that's still shrinking around it.
-      textFade: over(0, 0.25, [1, 0]),
-      titleShift: over(0, 0.7, [0, -titleTravel]),
-      titleSlide: over(0, 0.7, [0, titleSlide]),
-      titleScale: over(0, 0.7, [1, TITLE_COMPACT_SCALE]),
-      cardsShift: over(0, 0.7, [0, cardsTravel]),
-      cardsScale: over(0, 0.7, [1, CARDS_COMPACT_SCALE]),
-      cardsFade: over(0.15, 0.5, [1, 0]),
+      // The name block goes first — it's at the top, so it's the first thing
+      // the finger pushes off — shrinking about its top-left corner.
+      headerFade: over(0, 0.45, [1, 0]),
+      headerScale: over(0, 0.45, [1, 0.85]),
+      // The cards follow a beat later, lifting towards where the title was
+      // as they shrink, so the whole header reads as folding upwards.
+      cardsFade: over(0.15, 0.7, [1, 0]),
+      cardsScale: over(0, 0.7, [1, 0.88]),
+      cardsLift: over(0, 0.7, [0, -space.xl]),
     };
-  }, [scrollY, collapseAt, titleTravel, titleSlide, cardsTravel]);
+  }, [scrollY, collapseAt]);
 
   const enteredByName = account?.name || "Unknown";
 
@@ -338,27 +259,16 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
       {/*
-       * The pink hero condenses into a header as you scroll — see the note
-       * above `anim` for the motion. Getting here matters, because three
-       * earlier attempts at "minimize on scroll" each animated the hero's
-       * LAYOUT — a height Animated.Value driven per-frame from JS (janked
-       * behind the native scroll: the "electrocuted" flicker; this screen's
-       * JS thread ticks timers every second and is never idle), a manually
-       * measured height (shipped with the summary silently unrendered), and
-       * a discrete LayoutAnimation fired mid-drag (a layout transition
-       * fighting a live scroll gesture — flicker again).
-       *
-       * This version animates no layout at all. The hero keeps its rest
-       * height in the scroll content; it's pinned by a translate and every
-       * visible change is a transform or opacity interpolated from the
-       * natively-driven scroll offset — the JS thread never touches a frame
-       * of it. It's the LAST thing to paint among its siblings (zIndex), so
-       * the content below scrolls underneath it, and it's box-none so the
-       * transparent part under the condensed header still scrolls and taps
-       * through to that content.
+       * The pink hero is ordinary scroll content — it scrolls away with the
+       * page and nothing stays pinned in its place — but its contents
+       * condense as it goes: the name block and the four cards shrink
+       * towards the top and fade, so the header reads as folding up rather
+       * than sliding off. No layout animates (three earlier attempts at
+       * that flickered against the live scroll); it's transform and opacity
+       * interpolated from a natively-driven offset, so the JS thread — busy
+       * ticking timers every second — never touches a frame of it.
        */}
       <Animated.ScrollView
-        ref={scrollRef}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -379,31 +289,16 @@ export default function HomeScreen() {
           />
         }
       >
-      <Animated.View
-        pointerEvents="box-none"
-        style={[styles.hero, { transform: [{ translateY: anim.heroPin }] }]}
-        onLayout={(e) => {
-          setHeroH(e.nativeEvent.layout.height);
-          setHeroW(e.nativeEvent.layout.width);
-        }}
+      {/* iOS rubber-banding pulls the hero down with the finger; without this
+          bleed the root's blush shows in the gap above it mid-pull. */}
+      <View style={styles.overscrollBleed} />
+      <LinearGradient
+        colors={[...HERO_COLORS]}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={[styles.hero, { paddingTop: insets.top + space.md }]}
+        onLayout={(e) => setHeroH(e.nativeEvent.layout.height)}
       >
-        {/* The pink, sliding up under the pinned content so its bottom edge
-            tracks the scroll. The bleed above it is what iOS rubber-banding
-            pulls into view; without it the root's blush shows mid-pull. Its
-            frame IS the pink, so taps on the condensed header stop here
-            rather than reaching the cards scrolled under it. */}
-        <Animated.View
-          style={[styles.heroBg, { transform: [{ translateY: anim.bgShift }] }]}
-        >
-          <View style={styles.overscrollBleed} />
-          <LinearGradient
-            colors={[...HERO_COLORS]}
-            start={{ x: 0.1, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={styles.heroGradient}
-          />
-        </Animated.View>
-
         {/* The greeting stays the overline rather than being promoted into the
             title slot — title1 truncates a phrase this long to one line,
             which is exactly what put it here in the first place. The baby's
@@ -411,62 +306,38 @@ export default function HomeScreen() {
             is the actual title, with age/gender underneath in the subtitle.
             The switcher itself moved to Account, so there's nothing trailing
             to compete with it. */}
-        <View
-          pointerEvents="box-none"
-          style={[styles.heroHeader, { paddingTop: insets.top + space.md }]}
+        <Animated.View
+          style={[
+            styles.heroHeader,
+            { opacity: anim.headerFade, transform: [{ scale: anim.headerScale }] },
+          ]}
         >
-          <Animated.View
-            style={{ opacity: anim.textFade, transform: [{ translateY: anim.titleShift }] }}
-          >
-            <Text variant="title3" style={styles.heroText} numberOfLines={1}>
-              {`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
-            </Text>
-          </Animated.View>
-          <Animated.Text
+          <Text variant="title3" style={styles.heroText} numberOfLines={1}>
+            {`${greetingFor()}${firstName ? `, ${firstName}` : ""}`}
+          </Text>
+          <Text
+            variant="title1"
+            style={styles.heroText}
             numberOfLines={1}
             accessibilityRole="header"
-            // Once docked, the name is the way back to the full snapshot.
-            onPress={condensed ? scrollToTop : undefined}
-            accessibilityHint={condensed ? "Scrolls back to the top" : undefined}
-            onLayout={(e) => {
-              setTitleY(e.nativeEvent.layout.y);
-              setTitleH(e.nativeEvent.layout.height);
-              setTitleW(e.nativeEvent.layout.width);
-            }}
-            style={[
-              styles.heroTitle,
-              {
-                transform: [
-                  { translateY: anim.titleShift },
-                  { translateX: anim.titleSlide },
-                  { scale: anim.titleScale },
-                ],
-              },
-            ]}
           >
             {titleText}
-          </Animated.Text>
-          <Animated.View
-            style={{ opacity: anim.textFade, transform: [{ translateY: anim.titleShift }] }}
-          >
-            <Text variant="subhead" style={styles.heroText} numberOfLines={2}>
-              {babyLine}
-            </Text>
-          </Animated.View>
-        </View>
+          </Text>
+          <Text variant="subhead" style={styles.heroText} numberOfLines={2}>
+            {babyLine}
+          </Text>
+        </Animated.View>
 
         {/* What's happening right now — four doors, not banners. Rendered
             from the first frame, placeholders and all: withholding it until
             data arrived used to change the hero's height the moment it
             landed, throwing everything below it down the screen. */}
         <Animated.View
-          pointerEvents={condensed ? "none" : "box-none"}
-          onLayout={(e) => setCardsY(e.nativeEvent.layout.y)}
           style={[
             styles.snapshot,
             {
               opacity: anim.cardsFade,
-              transform: [{ translateY: anim.cardsShift }, { scale: anim.cardsScale }],
+              transform: [{ translateY: anim.cardsLift }, { scale: anim.cardsScale }],
             },
           ]}
         >
@@ -477,7 +348,7 @@ export default function HomeScreen() {
             activeStarts={activeStarts}
           />
         </Animated.View>
-      </Animated.View>
+      </LinearGradient>
 
       <View style={styles.body}>
       {/*
@@ -646,29 +517,16 @@ const styles = StyleSheet.create({
   trackList: { gap: space.sm },
   // Full-width at the top of the scroll and painted over the content that
   // follows it (zIndex) — see the hero note. Its own padding is only the
-  // bottom; the header and snapshot carry the sides, and the background is
-  // a separate absolutely positioned layer so it can move independently.
+  // Full-width pink header at the top of the scroll; the bottom corners
+  // round into the blush content that follows it.
   hero: {
-    zIndex: 1,
     paddingBottom: space.xl,
-  },
-  heroBg: {
-    position: "absolute",
-    top: -OVERSCROLL_BLEED,
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  // The bottom corners round into the blush content that follows.
-  heroGradient: {
-    flex: 1,
     borderBottomLeftRadius: radius.xxl,
     borderBottomRightRadius: radius.xxl,
   },
   snapshot: {
     marginTop: space.lg,
     paddingHorizontal: space.lg,
-    // Shrinks towards its top edge, the direction it travels.
     transformOrigin: "top",
   },
   // The hero is edge-to-edge, so the horizontal padding lives on the body
@@ -681,21 +539,16 @@ const styles = StyleSheet.create({
     paddingTop: space.lg,
     gap: space.lg,
   },
-  heroHeader: { paddingHorizontal: space.lg, gap: space.xxs },
+  // Both shrink towards the top-left / top, the direction they fold away.
+  heroHeader: { paddingHorizontal: space.lg, gap: space.xxs, transformOrigin: "left top" },
   // Opaque white rather than 85% — the pink is mid-tone, and translucent
   // white on it fell below the AA contrast floor for 14pt text.
   heroText: { color: "#ffffff" },
-  // title1 metrics. Shrinks about its top-left corner, so the left edge and
-  // the top stay put while it condenses.
-  heroTitle: {
-    color: "#ffffff",
-    alignSelf: "flex-start",
-    transformOrigin: "left top",
-    fontSize: 28,
-    lineHeight: TITLE_LINE_HEIGHT,
-    fontWeight: "800",
-  },
   overscrollBleed: {
+    position: "absolute",
+    top: -OVERSCROLL_BLEED,
+    left: 0,
+    right: 0,
     height: OVERSCROLL_BLEED,
     // The hero gradient's top color, so the stretch reads as the hero
     // continuing rather than a seam.

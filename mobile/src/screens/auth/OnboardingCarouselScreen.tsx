@@ -30,34 +30,44 @@ interface Slide {
  */
 const SLIDES: Slide[] = [
   {
-    emoji: "🍼",
-    title: "You're all set",
-    body: "A quick look at how Baby Tracker works — skip in any time.",
+    emoji: "👋",
+    title: "A quick tour",
+    body: "Here's how Baby Tracker works, including what's new. Skip any time — it's in Account if you want it again.",
+  },
+  {
+    emoji: "🏠",
+    title: "Today, at a glance",
+    body: "The top of Today shows the last feed, sleep, diaper and pump. Tap any of them to jump to that history.",
+  },
+  {
+    emoji: "🤱",
+    title: "Feeds are timed, left or right",
+    body: "Tap L or R to start a breastfeed and switch sides mid-way. The bottle button times a bottle and asks how much when it's done.",
   },
   {
     emoji: "⏱️",
-    title: "Feeds, pumps and naps are timed",
-    body: "Tap Start to begin, tap Finish when it's over. A bottle works the same way — start it, and say how much when it's done.",
+    title: "Pumps and sleep, the same way",
+    body: "Start, pause, finish. Nudge the start time by a minute if you tapped late. Anyone else with access sees the timer running too.",
   },
   {
     emoji: "🩲",
     title: "Diaper changes log in one tap",
-    body: "No timer needed — just pick wet, dirty, or both.",
+    body: "No timer — just pick wet, dirty, or both. Each change draws one from your diaper stock, so you know when to restock.",
   },
   {
-    emoji: "🍼",
-    title: "Milk supply, tracked for you",
-    body: "Every pump adds to it, every bottle takes away. See what's on hand from Today, and correct it any time.",
+    emoji: "🥣",
+    title: "New: track her food",
+    body: "Log meals like carrot + potato, rate how each food went, and flag a reaction. Foods shows everything tried, what she loved, and what to watch.",
   },
   {
     emoji: "⭐",
-    title: "Add your own habits",
-    body: "Vitamins, tummy time, bath — or anything you name. Choose which quick-log buttons show up on Today.",
+    title: "Habits and stock",
+    body: "Vitamins, bath, tummy time — tap once a day; tap again to undo. Below that, milk on hand and diapers left, kept up to date for you.",
   },
   {
     emoji: "📖",
     title: "Every entry, in one timeline",
-    body: "The Activity tab holds your full history. Forgot to log something? Add or edit an entry after the fact.",
+    body: "The Activity tab holds your full history. Forgot something? Add it after the fact, edit it, or swipe to delete.",
   },
   {
     emoji: "📊",
@@ -77,17 +87,12 @@ const SLIDES: Slide[] = [
   {
     emoji: "🔔",
     title: "Never miss a beat",
-    body: "Set reminders for feeds, vitamins or anything else, on whatever schedule fits your week.",
-  },
-  {
-    emoji: "🎒",
-    title: "Pack smarter",
-    body: "Keep a shared checklist of what goes in the bag, so nothing gets left behind on the way out the door.",
+    body: "Set reminders at the times of day that fit your routine — feeds, vitamins, or anything else. They're in Account → Reminders.",
   },
   {
     emoji: "👤",
     title: "Make it yours",
-    body: "Switch units, pick a theme, add more babies — it's all in Account. Ready to start tracking?",
+    body: "Switch units, pick a theme, pack the diaper bag, add more babies — it's all in Account. Ready?",
   },
 ];
 
