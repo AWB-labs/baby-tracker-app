@@ -37,6 +37,13 @@ export interface LogEntry {
   enteredByName: string;
   pauseTimelineJson: string | null;
   createdAt: string;
+  /**
+   * Client-only, on a meal shown in the Activity timeline (type "food"):
+   * meals live in their own table, so the screen folds them in as entries
+   * like this. `mealTitle` names it, `mealFoods` lists what was in it.
+   */
+  mealTitle?: string;
+  mealFoods?: string;
 }
 
 export interface FetchLogsOptions {

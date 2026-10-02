@@ -56,6 +56,7 @@ const FILTERS: (string | null)[] = [
   "nailcut",
   "growth",
   "health",
+  "food",
 ];
 
 const FILTER_EMOJI: Record<string, string> = {
@@ -68,6 +69,7 @@ const FILTER_EMOJI: Record<string, string> = {
   nailcut: "💅",
   growth: "📏",
   health: "🩺",
+  food: "🥣",
 };
 
 function computeGaps(logs: LogEntry[]): Map<number, number | null> {
@@ -161,7 +163,7 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
   const tone = useActivityTone(log.type);
   const units = useUnits();
 
-  const label = ACTIVITY_LABEL[log.type] ?? log.type;
+  const label = log.mealTitle ?? ACTIVITY_LABEL[log.type] ?? log.type;
   const instant = isInstantLog(log.type, {
     side: log.side,
     amountMl: log.amountMl,
@@ -347,6 +349,12 @@ export function LogRow({ log, gapMinutes, onEdit, emphasizeHealth }: LogRowProps
           </View>
         )}
 
+        {log.mealFoods ? (
+          <Text variant="footnote" tone="muted" numberOfLines={2}>
+            {log.mealFoods}
+          </Text>
+        ) : null}
+
         <PauseTimelineIndicator pauseTimelineJson={log.pauseTimelineJson} />
 
         {/* Suppressed when it's already the condition pill's own text above —
@@ -407,6 +415,9 @@ interface Props {
    */
   filter?: string | null;
   onFilterChange?: (filter: string | null) => void;
+  /** Tapping a meal row. Meals are edited on the Foods page, not here, and
+   *  can't be swiped away like an entry. */
+  onOpenFood?: () => void;
   /** The screen's header, scrolled with the rows rather than pinned above them. */
   header?: React.ReactNode;
   refreshing?: boolean;
@@ -620,6 +631,7 @@ export default function LogsList({
   onEdit,
   filter = null,
   onFilterChange,
+  onOpenFood,
   header,
   refreshing,
   onRefresh,
@@ -692,7 +704,15 @@ export default function LogsList({
         <LogRow
           log={log}
           gapMinutes={gapMinutes}
-          onEdit={onEdit ? setEditLog : undefined}
+          onEdit={
+            log.type === "food"
+              ? onOpenFood
+                ? () => onOpenFood()
+                : undefined
+              : onEdit
+                ? setEditLog
+                : undefined
+          }
         />
       );
 
@@ -703,7 +723,7 @@ export default function LogsList({
               {totals ? <DayTotalsRow totals={totals} /> : null}
             </DateHeader>
           )}
-          {onDelete ? (
+          {onDelete && log.type !== "food" ? (
             <SwipeableRow onDelete={() => setPendingDelete(log)}>
               {row}
             </SwipeableRow>
@@ -719,7 +739,7 @@ export default function LogsList({
         <View>{content}</View>
       );
     },
-    [onDelete, onEdit]
+    [onDelete, onEdit, onOpenFood]
   );
 
   const listHeader = (

@@ -1,4 +1,4 @@
-import type { FoodCategory, FoodLog, FoodReaction } from "../api/foods";
+import type { FoodCategory, FoodLog, FoodReaction, MealType } from "../api/foods";
 
 /**
  * The starting-solids vocabulary the meal picker suggests before a family
@@ -123,8 +123,30 @@ export function foodEmoji(name: string, emoji?: string | null): string {
   return hit?.emoji ?? "🍽️";
 }
 
+export const MEAL_TYPES: { value: MealType; label: string; emoji: string }[] = [
+  { value: "breakfast", label: "Breakfast", emoji: "🥣" },
+  { value: "lunch", label: "Lunch", emoji: "🥗" },
+  { value: "dinner", label: "Dinner", emoji: "🍲" },
+  { value: "snack", label: "Snack", emoji: "🍪" },
+];
+
+export const MEAL_TYPE_META = Object.fromEntries(
+  MEAL_TYPES.map((m) => [m.value, m])
+) as Record<MealType, { value: MealType; label: string; emoji: string }>;
+
+/** Which meal a time of day most likely was — the starting choice when
+ *  logging, and the name for meals logged before the choice existed. */
+export function mealTypeForTime(date: Date | string): MealType {
+  const h = new Date(date).getHours();
+  if (h >= 5 && h < 11) return "breakfast";
+  if (h >= 11 && h < 15) return "lunch";
+  if (h >= 18 && h < 22) return "dinner";
+  return "snack";
+}
+
 export interface Meal {
   mealKey: string;
+  mealType: MealType;
   eatenAt: string;
   logs: FoodLog[];
   /** True if any serving in the meal recorded a reaction. */
@@ -137,6 +159,7 @@ export function groupMeals(logs: FoodLog[]): Meal[] {
   for (const log of logs) {
     const meal = map.get(log.mealKey) ?? {
       mealKey: log.mealKey,
+      mealType: log.mealType ?? mealTypeForTime(log.eatenAt),
       eatenAt: log.eatenAt,
       logs: [],
       reacted: false,

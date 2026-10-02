@@ -1,6 +1,12 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet } from "react-native";
-import { useFocusEffect, useRoute, type RouteProp } from "@react-navigation/native";
+import {
+  CommonActions,
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+  type RouteProp,
+} from "@react-navigation/native";
 import { Screen, ScreenHeader, Text } from "../components/ui";
 import { useLogs } from "../hooks/useLogs";
 import { useBaby } from "../context/BabyContext";
@@ -9,6 +15,49 @@ import BabySwitcher from "../components/BabySwitcher";
 import LogsList from "../components/LogsList";
 import ManualEntryModal from "../components/ManualEntryModal";
 import type { TabParamList } from "../navigation/AppTabs";
+import { getFoodLogs } from "../api/foods";
+import type { LogEntry } from "../api/logs";
+import { groupMeals, MEAL_TYPE_META } from "../lib/foods";
+
+/**
+ * Meals as timeline entries. They live in their own table with their own
+ * shape, so they're folded in here rather than served by /logs: one row per
+ * meal, named by its type, listing what was in it. Negative ids keep them
+ * clear of every real entry's.
+ */
+function mealsAsEntries(logs: Awaited<ReturnType<typeof getFoodLogs>>): LogEntry[] {
+  return groupMeals(logs).map((meal) => {
+    const first = meal.logs[0];
+    const type = MEAL_TYPE_META[meal.mealType];
+    return {
+      id: -first.id,
+      type: "food",
+      side: null,
+      leftMinutes: null,
+      rightMinutes: null,
+      amountMl: null,
+      diaperStatus: null,
+      diaperStockUsed: false,
+      sleepKind: null,
+      weightKg: null,
+      heightCm: null,
+      headCircumferenceCm: null,
+      healthCondition: null,
+      medication: null,
+      dose: null,
+      feverCelsius: null,
+      startTime: meal.eatenAt,
+      endTime: meal.eatenAt,
+      durationMinutes: null,
+      comments: first.notes,
+      enteredByName: first.enteredByName,
+      pauseTimelineJson: null,
+      createdAt: first.createdAt,
+      mealTitle: `${type.emoji} ${type.label}`,
+      mealFoods: meal.logs.map((l) => l.foodItem.name).join(", "),
+    };
+  });
+}
 
 /**
  * Rows per request.
@@ -48,6 +97,38 @@ export default function LogScreen() {
   const { logs, loading, refresh, handleDelete, loadMore, loadingMore, hasMore } =
     useLogs(PAGE_SIZE, { type: filter, paginate: true });
   const [refreshing, setRefreshing] = useState(false);
+  const navigation = useNavigation();
+
+  const [mealEntries, setMealEntries] = useState<LogEntry[]>([]);
+  const babyId = activeBaby?.id ?? null;
+  const loadMeals = useCallback(async () => {
+    if (babyId == null) return setMealEntries([]);
+    try {
+      setMealEntries(mealsAsEntries(await getFoodLogs(babyId)));
+    } catch {
+      // The rest of the timeline stands on its own.
+    }
+  }, [babyId]);
+  useEffect(() => {
+    loadMeals();
+  }, [loadMeals]);
+
+  /*
+   * Meals woven into the paged timeline. With more pages still to come, only
+   * meals newer than the oldest entry on screen are shown — one older than
+   * that would sit at the bottom out of order until the gap above it loaded.
+   */
+  const timeline = useMemo(() => {
+    if (filter === "food") return mealEntries;
+    if (filter) return logs;
+    const oldest = logs.length > 0 ? new Date(logs[logs.length - 1].startTime).getTime() : 0;
+    const meals = hasMore
+      ? mealEntries.filter((m) => new Date(m.startTime).getTime() >= oldest)
+      : mealEntries;
+    return [...logs, ...meals].sort(
+      (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+    );
+  }, [filter, logs, mealEntries, hasMore]);
   const [showManual, setShowManual] = useState(false);
   const enteredByName = account?.name || "Unknown";
 
@@ -76,14 +157,15 @@ export default function LogScreen() {
         return;
       }
       refreshRef.current();
-    }, [])
+      loadMeals();
+    }, [loadMeals])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refresh();
+    await Promise.all([refresh(), loadMeals()]);
     setRefreshing(false);
-  }, [refresh]);
+  }, [refresh, loadMeals]);
 
   const header = (
     <ScreenHeader
@@ -116,12 +198,18 @@ export default function LogScreen() {
     // to the list's content container so the chrome is unchanged.
     <Screen scroll={false} contentStyle={styles.flush}>
       <LogsList
-        logs={logs}
-        loading={loading}
+        logs={timeline}
+        loading={loading && filter !== "food"}
         onDelete={handleDelete}
         onEdit={refresh}
         filter={filter}
         onFilterChange={setFilter}
+        onOpenFood={() =>
+          // Meals are edited on the Foods page, which lives in the Today stack.
+          navigation.dispatch(
+            CommonActions.navigate({ name: "Today", params: { screen: "Foods" } })
+          )
+        }
         header={header}
         refreshing={refreshing}
         onRefresh={onRefresh}

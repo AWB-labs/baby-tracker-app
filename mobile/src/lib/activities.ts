@@ -11,6 +11,8 @@ const INSTANT_TYPES: ReadonlySet<string> = new Set([
   "nailcut",
   "growth",
   "health",
+  // A meal, folded into the Activity timeline — a moment, not a span.
+  "food",
   // A family-invented habit, and the once-a-day ones from the catalogue. These
   // had been added to the server's list without being mirrored here, so a bath
   // or a tummy-time entry was drawn as a timed span and given a duration pill

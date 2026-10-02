@@ -56,11 +56,15 @@ const ITEM_SELECT = {
   createdAt: true,
 } as const;
 
+const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"] as const;
+const mealTypeSchema = z.enum(MEAL_TYPES).nullable().optional();
+
 const LOG_SELECT = {
   id: true,
   babyId: true,
   foodItemId: true,
   mealKey: true,
+  mealType: true,
   eatenAt: true,
   rating: true,
   reaction: true,
@@ -110,6 +114,7 @@ const mealItemSchema = z
 const createMealSchema = z.object({
   babyId: z.number().int().positive(),
   eatenAt: z.string().datetime({ offset: true }),
+  mealType: mealTypeSchema,
   notes: z.string().trim().max(500).nullable().optional(),
   enteredByName: z.string().trim().min(1).max(80),
   items: z.array(mealItemSchema).min(1).max(20),
@@ -224,6 +229,7 @@ router.post("/logs", authMiddleware, async (req, res: Response): Promise<void> =
             babyId: body.babyId,
             foodItemId,
             mealKey,
+            mealType: body.mealType ?? null,
             eatenAt,
             rating: item.rating ?? null,
             reaction,
@@ -296,6 +302,132 @@ router.delete("/logs/:id", authMiddleware, async (req, res: Response): Promise<v
  * recent reaction. Computed here from the (small) serving list rather than
  * stored, so a deleted or re-rated serving is reflected immediately.
  */
+/* -------------------------------------------------------------------------- */
+/* Saved and want-to-try meals                                                */
+/* -------------------------------------------------------------------------- */
+
+const savedFoodSchema = z.object({ name: nameSchema, emoji: emojiSchema });
+
+const createSavedMealSchema = z.object({
+  babyId: z.number().int().positive(),
+  name: z.string().trim().min(1).max(60),
+  mealType: mealTypeSchema,
+  foods: z.array(savedFoodSchema).min(1).max(20),
+  wantToTry: z.boolean().optional(),
+  rating: ratingSchema,
+});
+
+const updateSavedMealSchema = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  mealType: mealTypeSchema,
+  foods: z.array(savedFoodSchema).min(1).max(20).optional(),
+  wantToTry: z.boolean().optional(),
+  rating: ratingSchema,
+});
+
+type SavedMealRow = {
+  id: number;
+  babyId: number;
+  name: string;
+  mealType: string | null;
+  foodsJson: string;
+  wantToTry: boolean;
+  rating: number | null;
+  createdAt: Date;
+};
+
+/** Foods travel as an array; a corrupt stored value reads as no foods. */
+function presentSavedMeal({ foodsJson, ...meal }: SavedMealRow) {
+  let foods: { name: string; emoji: string | null }[] = [];
+  try {
+    const parsed = JSON.parse(foodsJson);
+    if (Array.isArray(parsed)) foods = parsed;
+  } catch {
+    // Left empty.
+  }
+  return { ...meal, foods };
+}
+
+const SAVED_MEAL_SELECT = {
+  id: true,
+  babyId: true,
+  name: true,
+  mealType: true,
+  foodsJson: true,
+  wantToTry: true,
+  rating: true,
+  createdAt: true,
+} as const;
+
+/** GET /foods/meals?babyId=X — saved and want-to-try meals, newest first. */
+router.get("/meals", authMiddleware, async (req, res: Response): Promise<void> => {
+  const { accountId } = req as AuthRequest;
+  const babyId = parseId(req.query.babyId, "baby");
+  await requireBabyAccess(accountId, babyId);
+  const meals = await prisma.savedMeal.findMany({
+    where: { babyId },
+    orderBy: { createdAt: "desc" },
+    select: SAVED_MEAL_SELECT,
+  });
+  res.json(meals.map(presentSavedMeal));
+});
+
+/** POST /foods/meals */
+router.post("/meals", authMiddleware, async (req, res: Response): Promise<void> => {
+  const { accountId } = req as AuthRequest;
+  const body = parseOrThrow(createSavedMealSchema, req.body);
+  await requireBabyAccess(accountId, body.babyId);
+  const meal = await prisma.savedMeal.create({
+    data: {
+      babyId: body.babyId,
+      name: body.name,
+      mealType: body.mealType ?? null,
+      foodsJson: JSON.stringify(body.foods.map((f) => ({ name: f.name, emoji: f.emoji ?? null }))),
+      // A rating means it's been tried, whatever the client said.
+      wantToTry: body.rating != null ? false : body.wantToTry ?? false,
+      rating: body.rating ?? null,
+    },
+    select: SAVED_MEAL_SELECT,
+  });
+  res.status(201).json(presentSavedMeal(meal));
+});
+
+/** PATCH /foods/meals/:id — rating a want-to-try meal marks it tried. */
+router.patch("/meals/:id", authMiddleware, async (req, res: Response): Promise<void> => {
+  const { accountId } = req as AuthRequest;
+  const id = parseId(req.params.id, "meal");
+  const body = parseOrThrow(updateSavedMealSchema, req.body);
+  const existing = await prisma.savedMeal.findUnique({ where: { id }, select: { babyId: true } });
+  if (!existing) throw notFound("That meal no longer exists.", "gone");
+  await requireBabyAccess(accountId, existing.babyId);
+  const meal = await prisma.savedMeal.update({
+    where: { id },
+    data: {
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.mealType !== undefined ? { mealType: body.mealType } : {}),
+      ...(body.foods !== undefined
+        ? { foodsJson: JSON.stringify(body.foods.map((f) => ({ name: f.name, emoji: f.emoji ?? null }))) }
+        : {}),
+      ...(body.wantToTry !== undefined ? { wantToTry: body.wantToTry } : {}),
+      ...(body.rating !== undefined ? { rating: body.rating } : {}),
+      ...(body.rating != null ? { wantToTry: false } : {}),
+    },
+    select: SAVED_MEAL_SELECT,
+  });
+  res.json(presentSavedMeal(meal));
+});
+
+/** DELETE /foods/meals/:id */
+router.delete("/meals/:id", authMiddleware, async (req, res: Response): Promise<void> => {
+  const { accountId } = req as AuthRequest;
+  const id = parseId(req.params.id, "meal");
+  const existing = await prisma.savedMeal.findUnique({ where: { id }, select: { babyId: true } });
+  if (!existing) throw notFound("That meal no longer exists.", "gone");
+  await requireBabyAccess(accountId, existing.babyId);
+  await prisma.savedMeal.delete({ where: { id } });
+  res.status(204).send();
+});
+
 router.get("/", authMiddleware, async (req, res: Response): Promise<void> => {
   const { accountId } = req as AuthRequest;
   const babyId = parseId(req.query.babyId, "baby");

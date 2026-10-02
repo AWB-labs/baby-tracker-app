@@ -30,7 +30,9 @@ export type ActivityKey =
   | "massage"
   | "teeth"
   | "walk"
-  | "medicine";
+  | "medicine"
+  // Meals — their own table, folded into the Activity timeline.
+  | "food";
 
 export interface ActivityTone {
   emoji: string;
@@ -61,6 +63,7 @@ const LIGHT: Record<ActivityKey, ActivityTone> = {
   teeth: { emoji: "🪥", main: "#14b8a6", soft: "#f0fdfa", text: "#0f766e", border: "#99f6e4" },
   walk: { emoji: "🚶", main: "#84cc16", soft: "#f7fee7", text: "#4d7c0f", border: "#d9f99d" },
   medicine: { emoji: "💉", main: "#ef4444", soft: "#fef2f2", text: "#b91c1c", border: "#fecaca" },
+  food: { emoji: "🥣", main: "#f97316", soft: "#fff7ed", text: "#c2410c", border: "#fed7aa" },
 };
 
 const NEUTRAL: ActivityTone = {
@@ -126,6 +129,7 @@ export const ACTIVITY_LABEL: Record<string, string> = {
   teeth: "Brush Teeth",
   walk: "Walk",
   medicine: "Medicine",
+  food: "Food",
 };
 
 export const DIAPER_META: Record<string, { emoji: string; label: string }> = {

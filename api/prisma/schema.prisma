@@ -142,6 +142,7 @@ model Baby {
   bagItems     BagItem[]
   foodItems    FoodItem[]
   foodLogs     FoodLog[]
+  savedMeals   SavedMeal[]
 }
 
 /// One food this baby has been offered — the family's own catalogue, built
@@ -176,6 +177,10 @@ model FoodLog {
   babyId        Int
   foodItemId    Int
   mealKey       String
+  /// breakfast | lunch | dinner | snack — chosen when the meal is logged, and
+  /// the same on every serving of it. Null on meals logged before the choice
+  /// existed, which are named from the time they were eaten instead.
+  mealType      String?
   eatenAt       DateTime
   /// 1–5, how it went down. Null when nobody rated it.
   rating        Int?
@@ -473,4 +478,28 @@ model AdminUser {
   name        String
   createdAt   DateTime  @default(now())
   lastLoginAt DateTime?
+}
+
+/// A meal kept to log again in one tap, or one the family wants to try.
+/// Foods are kept by name (with their emoji), not as catalogue ids, so a
+/// planned meal can include foods the baby has never had — logging it is
+/// what adds them to the catalogue.
+model SavedMeal {
+  id        Int      @id @default(autoincrement())
+  babyId    Int
+  name      String
+  /// breakfast | lunch | dinner | snack, or null for "any time".
+  mealType  String?
+  /// JSON array of { name, emoji }.
+  foodsJson String
+  /// Still only planned. Rating it marks it tried, which moves it to the
+  /// saved meals.
+  wantToTry Boolean  @default(false)
+  rating    Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  baby Baby @relation(fields: [babyId], references: [id], onDelete: Cascade)
+
+  @@index([babyId])
 }

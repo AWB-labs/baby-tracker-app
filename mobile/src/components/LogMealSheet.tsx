@@ -21,6 +21,7 @@ import {
   type FoodLog,
   type FoodReaction,
   type FoodCategory,
+  type MealType,
 } from "../api/foods";
 import {
   FOOD_SUGGESTIONS,
@@ -28,6 +29,9 @@ import {
   REACTION_META,
   ALLERGY_REACTIONS,
   foodEmoji,
+  MEAL_TYPES,
+  MEAL_TYPE_META,
+  mealTypeForTime,
   type FoodSuggestion,
 } from "../lib/foods";
 
@@ -54,6 +58,8 @@ interface Props {
   catalog: FoodItem[];
   /** Pre-fill the meal (e.g. tapping a "try next" suggestion). */
   initialSelection?: SelectedFood[];
+  /** Pre-pick the meal (e.g. logging a saved breakfast). */
+  initialMealType?: MealType | null;
   onSaved: (logs: FoodLog[]) => void;
 }
 
@@ -104,6 +110,7 @@ export default function LogMealSheet({
   enteredByName,
   catalog,
   initialSelection,
+  initialMealType,
   onSaved,
 }: Props) {
   const t = useTheme();
@@ -112,16 +119,20 @@ export default function LogMealSheet({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<SelectedFood[]>([]);
   const [eatenAt, setEatenAt] = useState(new Date());
+  const [mealType, setMealType] = useState<MealType>(() => mealTypeForTime(new Date()));
   const [saving, setSaving] = useState(false);
 
   // Reset on every open — a meal is a fresh thought each time.
   useEffect(() => {
     if (visible) {
+      const now = new Date();
       setQuery("");
       setSelected(initialSelection ?? []);
-      setEatenAt(new Date());
+      setEatenAt(now);
+      // A guess from the clock, there to be changed in one tap.
+      setMealType(initialMealType ?? mealTypeForTime(now));
     }
-  }, [visible, initialSelection]);
+  }, [visible, initialSelection, initialMealType]);
 
   const triedNames = useMemo(
     () => new Set(catalog.map((c) => c.name.toLowerCase())),
@@ -197,6 +208,7 @@ export default function LogMealSheet({
       const logs = await createMeal({
         babyId,
         eatenAt,
+        mealType,
         enteredByName,
         items: selected.map((s) => ({
           ...(s.foodItemId != null ? { foodItemId: s.foodItemId } : { name: s.name }),
@@ -211,7 +223,7 @@ export default function LogMealSheet({
       toast.success(
         reacted.length > 0
           ? `Meal saved. ${reacted.map((r) => r.name).join(", ")} flagged to watch.`
-          : `Meal saved: ${selected.map((s) => s.name).join(" + ")}.`
+          : `${MEAL_TYPE_META[mealType].label} saved: ${selected.map((s) => s.name).join(" + ")}.`
       );
       onSaved(logs);
       onClose();
@@ -227,7 +239,7 @@ export default function LogMealSheet({
       visible={visible}
       onClose={onClose}
       title="Log a meal"
-      subtitle="What she ate, how it went, and when."
+      subtitle="Which meal, what she ate, and how it went."
       footer={
         <View style={styles.footer}>
           <Button label="Cancel" variant="ghost" onPress={onClose} style={styles.flex} />
@@ -243,6 +255,21 @@ export default function LogMealSheet({
       }
     >
       <View style={styles.form}>
+        {/* Which meal first, then what went into it. */}
+        <Field label="Which meal?">
+          <ChipWrap>
+            {MEAL_TYPES.map((m) => (
+              <Chip
+                key={m.value}
+                label={m.label}
+                emoji={m.emoji}
+                selected={mealType === m.value}
+                onPress={() => setMealType(m.value)}
+              />
+            ))}
+          </ChipWrap>
+        </Field>
+
         {/* What was eaten — the meal being built sits above the picker so it
             never scrolls out of view while more is added. */}
         {selected.length > 0 && (
@@ -260,7 +287,11 @@ export default function LogMealSheet({
         )}
 
         <Input
-          label={selected.length === 0 ? "What did she eat?" : "Add another"}
+          label={
+            selected.length === 0
+              ? `What was in ${MEAL_TYPE_META[mealType].label.toLowerCase()}?`
+              : "Add another"
+          }
           value={query}
           onChangeText={setQuery}
           placeholder="Carrot, banana, egg…"

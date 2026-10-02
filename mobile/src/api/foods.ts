@@ -20,6 +20,8 @@ export type FoodCategory =
   | "allergen"
   | "other";
 
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+
 export interface FoodItem {
   id: number;
   babyId: number;
@@ -43,6 +45,8 @@ export interface FoodLog {
   foodItemId: number;
   /** Servings eaten together share one key — that's a meal. */
   mealKey: string;
+  /** Chosen when logging; null on meals logged before that existed. */
+  mealType?: MealType | null;
   eatenAt: string;
   rating: number | null;
   reaction: FoodReaction | null;
@@ -85,6 +89,7 @@ export interface MealItemInput {
 export async function createMeal(data: {
   babyId: number;
   eatenAt: Date;
+  mealType?: MealType | null;
   notes?: string | null;
   enteredByName: string;
   items: MealItemInput[];
@@ -142,4 +147,58 @@ export async function updateFood(
 
 export async function deleteFood(id: number): Promise<void> {
   await apiClient.delete(`/foods/${id}`);
+}
+
+/* ------------------------------------------- saved and want-to-try meals */
+
+export interface SavedMealFood {
+  name: string;
+  emoji: string | null;
+}
+
+export interface SavedMeal {
+  id: number;
+  babyId: number;
+  name: string;
+  mealType: MealType | null;
+  foods: SavedMealFood[];
+  /** Planned but not tried yet. Rating it marks it tried. */
+  wantToTry: boolean;
+  rating: number | null;
+  createdAt: string;
+}
+
+export async function getSavedMeals(babyId: number): Promise<SavedMeal[]> {
+  const res = await apiClient.get<SavedMeal[]>("/foods/meals", { params: { babyId } });
+  return res.data;
+}
+
+export async function createSavedMeal(data: {
+  babyId: number;
+  name: string;
+  mealType?: MealType | null;
+  foods: SavedMealFood[];
+  wantToTry?: boolean;
+  rating?: number | null;
+}): Promise<SavedMeal> {
+  const res = await apiClient.post<SavedMeal>("/foods/meals", data);
+  return res.data;
+}
+
+export async function updateSavedMeal(
+  id: number,
+  data: {
+    name?: string;
+    mealType?: MealType | null;
+    foods?: SavedMealFood[];
+    wantToTry?: boolean;
+    rating?: number | null;
+  }
+): Promise<SavedMeal> {
+  const res = await apiClient.patch<SavedMeal>(`/foods/meals/${id}`, data);
+  return res.data;
+}
+
+export async function deleteSavedMeal(id: number): Promise<void> {
+  await apiClient.delete(`/foods/meals/${id}`);
 }
