@@ -150,22 +150,30 @@ export default function FoodSection({
         </View>
 
         <View style={styles.body}>
+          {/* The meal is the title and what was in it the line under it, so
+              "Lunch" reads first and a long list of foods truncates instead
+              of the meal's name. */}
           <Text variant="bodyStrong" numberOfLines={1}>
             {!loaded
               ? "Food"
               : latest
-                ? latest.logs
-                    .map((l) => `${l.foodItem.emoji ?? ""} ${l.foodItem.name}`.trim())
-                    .join(" + ")
+                ? `${latestName!.emoji} ${latestName!.label}`
                 : "Nothing eaten yet"}
           </Text>
 
           {latest && (
+            <Text variant="caption" tone="muted" numberOfLines={1}>
+              {latest.logs
+                .map((l) => `${l.foodItem.emoji ?? ""} ${l.foodItem.name}`.trim())
+                .join(", ")}
+            </Text>
+          )}
+
+          {latest && (
             <View style={styles.metaRow}>
-              {/* Which meal it was, when, and how long ago — "Lunch · 2:10 PM ·
-                  2h 41m since last meal" answers "is she due to eat". */}
+              {/* When, and how long ago — "6:47 PM · 1h 22m since last meal"
+                  answers "is she due to eat". */}
               <Text variant="caption" tone="subtle" tabular numberOfLines={1} style={styles.flexShrink}>
-                {latestName!.emoji} {latestName!.label} ·{" "}
                 {latestIsToday ? "" : `${formatDateLabel(latest.eatenAt)} `}
                 {formatTime(latest.eatenAt)} ·{" "}
                 <Text variant="caption" style={{ color: t.accentText }}>
