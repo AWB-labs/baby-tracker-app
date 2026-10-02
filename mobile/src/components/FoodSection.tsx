@@ -9,12 +9,22 @@ import { getFoodLogs, getFoods, type FoodItem, type FoodLog } from "../api/foods
 import {
   groupMeals,
   mealTitle,
+  mealLabel,
   todayRange,
   isReaction,
   starString,
   REACTION_META,
 } from "../lib/foods";
-import { formatTime } from "../utils/formatTime";
+import { formatTime, formatDateLabel } from "../utils/formatTime";
+
+/** "2h 41m" / "35m" / "just now" — time since a meal. */
+function sinceLabel(iso: string, now: number): string {
+  const minutes = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60000));
+  if (minutes < 1) return "just now";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
 
 interface Props {
   babyId: number;
@@ -39,7 +49,13 @@ export default function FoodSection({
   onOpenFoods,
 }: Props) {
   const t = useTheme();
-  const [todayLogs, setTodayLogs] = useState<FoodLog[]>([]);
+  const [recentLogs, setRecentLogs] = useState<FoodLog[]>([]);
+  // Re-renders once a minute so "2h 41m since" keeps counting.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
   const [catalog, setCatalog] = useState<FoodItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showLog, setShowLog] = useState(false);
@@ -47,10 +63,12 @@ export default function FoodSection({
   const load = useCallback(async () => {
     try {
       const [logs, items] = await Promise.all([
-        getFoodLogs(babyId, todayRange()),
+        // The recent history, not just today: the last meal may well have
+        // been yesterday's dinner, and that's the one the gap counts from.
+        getFoodLogs(babyId),
         getFoods(babyId),
       ]);
-      setTodayLogs(logs);
+      setRecentLogs(logs);
       setCatalog(items);
     } catch {
       /* the last good plate stays on screen */
@@ -63,9 +81,18 @@ export default function FoodSection({
     load();
   }, [load, refreshKey]);
 
-  const allMeals = useMemo(() => groupMeals(todayLogs), [todayLogs]);
-  // Only the latest meal on Home — the full day is a tap away on Foods.
-  const latest = allMeals[0] ?? null;
+  const recentMeals = useMemo(() => groupMeals(recentLogs), [recentLogs]);
+  const allMeals = useMemo(() => {
+    const { from, to } = todayRange();
+    return recentMeals.filter((m) => {
+      const at = new Date(m.eatenAt).getTime();
+      return at >= from.getTime() && at < to.getTime();
+    });
+  }, [recentMeals, now]);
+  // Only the latest meal on Home — the full history is a tap away on Foods.
+  const latest = recentMeals[0] ?? null;
+  const latestName = latest ? mealLabel(latest) : null;
+  const latestIsToday = latest ? allMeals[0]?.mealKey === latest.mealKey : false;
   const meals = latest ? [latest] : [];
   const latestRated = latest ? latest.logs.filter((l) => l.rating != null) : [];
   const latestAvg =
@@ -107,8 +134,8 @@ export default function FoodSection({
       <PressableCard
         onPress={onOpenFoods}
         accessibilityLabel={
-          meals.length === 0
-            ? `Nothing eaten yet today. ${summary} Opens the foods screen.`
+          !latest
+            ? `Nothing eaten yet. ${summary} Opens the foods screen.`
             : `Today: ${meals
                 .map((m) => mealTitle(m))
                 .join("; ")}. ${summary} Opens the foods screen.`
@@ -130,13 +157,21 @@ export default function FoodSection({
                 ? latest.logs
                     .map((l) => `${l.foodItem.emoji ?? ""} ${l.foodItem.name}`.trim())
                     .join(" + ")
-                : "Nothing eaten yet today"}
+                : "Nothing eaten yet"}
           </Text>
 
           {latest && (
             <View style={styles.metaRow}>
-              <Text variant="caption" tone="subtle" tabular numberOfLines={1}>
-                {formatTime(latest.eatenAt)}
+              {/* Which meal it was, when, and how long ago — "Lunch · 2:10 PM ·
+                  2h 41m since last meal" answers "is she due to eat". */}
+              <Text variant="caption" tone="subtle" tabular numberOfLines={1} style={styles.flexShrink}>
+                {latestName!.emoji} {latestName!.label} ·{" "}
+                {latestIsToday ? "" : `${formatDateLabel(latest.eatenAt)} `}
+                {formatTime(latest.eatenAt)} ·{" "}
+                <Text variant="caption" style={{ color: t.accentText }}>
+                  {sinceLabel(latest.eatenAt, now)}
+                </Text>{" "}
+                since last meal
               </Text>
               {latestAvg != null && (
                 <Text variant="caption" style={{ color: t.warning }}>
@@ -155,7 +190,7 @@ export default function FoodSection({
           )}
 
           <Text variant="caption" tone="subtle" numberOfLines={1}>
-            {latest
+            {allMeals.length > 0
               ? `${allMeals.length} meal${allMeals.length === 1 ? "" : "s"} today · ${summary}`
               : summary}
           </Text>
@@ -178,6 +213,7 @@ export default function FoodSection({
 
 const styles = StyleSheet.create({
   section: { gap: space.sm },
+  flexShrink: { flexShrink: 1 },
   // Mirrors TrackRow's idle row metrics, so this card lines up with the four
   // above it: same chip size, same padding, same minimum height.
   card: {

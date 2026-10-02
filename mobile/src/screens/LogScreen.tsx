@@ -17,7 +17,7 @@ import ManualEntryModal from "../components/ManualEntryModal";
 import type { TabParamList } from "../navigation/AppTabs";
 import { getFoodLogs } from "../api/foods";
 import type { LogEntry } from "../api/logs";
-import { groupMeals, MEAL_TYPE_META } from "../lib/foods";
+import { groupMeals, mealLabel } from "../lib/foods";
 
 /**
  * Meals as timeline entries. They live in their own table with their own
@@ -28,7 +28,7 @@ import { groupMeals, MEAL_TYPE_META } from "../lib/foods";
 function mealsAsEntries(logs: Awaited<ReturnType<typeof getFoodLogs>>): LogEntry[] {
   return groupMeals(logs).map((meal) => {
     const first = meal.logs[0];
-    const type = MEAL_TYPE_META[meal.mealType];
+    const name = mealLabel(meal);
     return {
       id: -first.id,
       type: "food",
@@ -53,7 +53,7 @@ function mealsAsEntries(logs: Awaited<ReturnType<typeof getFoodLogs>>): LogEntry
       enteredByName: first.enteredByName,
       pauseTimelineJson: null,
       createdAt: first.createdAt,
-      mealTitle: `${type.emoji} ${type.label}`,
+      mealTitle: `${name.emoji} ${name.label}`,
       mealFoods: meal.logs.map((l) => l.foodItem.name).join(", "),
     };
   });

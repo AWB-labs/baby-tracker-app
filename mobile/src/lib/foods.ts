@@ -144,9 +144,21 @@ export function mealTypeForTime(date: Date | string): MealType {
   return "snack";
 }
 
+/** What a meal is called: its own name if it has one, else its type. */
+export function mealLabel(meal: {
+  mealType?: MealType | null;
+  mealName?: string | null;
+  eatenAt: string;
+}): { label: string; emoji: string } {
+  if (meal.mealName?.trim()) return { label: meal.mealName.trim(), emoji: "🍽️" };
+  const type = MEAL_TYPE_META[meal.mealType ?? mealTypeForTime(meal.eatenAt)];
+  return { label: type.label, emoji: type.emoji };
+}
+
 export interface Meal {
   mealKey: string;
   mealType: MealType;
+  mealName: string | null;
   eatenAt: string;
   logs: FoodLog[];
   /** True if any serving in the meal recorded a reaction. */
@@ -160,6 +172,7 @@ export function groupMeals(logs: FoodLog[]): Meal[] {
     const meal = map.get(log.mealKey) ?? {
       mealKey: log.mealKey,
       mealType: log.mealType ?? mealTypeForTime(log.eatenAt),
+      mealName: log.mealName ?? null,
       eatenAt: log.eatenAt,
       logs: [],
       reacted: false,

@@ -181,6 +181,9 @@ model FoodLog {
   /// the same on every serving of it. Null on meals logged before the choice
   /// existed, which are named from the time they were eaten instead.
   mealType      String?
+  /// A name of the family's own ("Picnic", "Grandma's"), shown instead of
+  /// the meal type. Null for the four standard meals.
+  mealName      String?
   eatenAt       DateTime
   /// 1–5, how it went down. Null when nobody rated it.
   rating        Int?

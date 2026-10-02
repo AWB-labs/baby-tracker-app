@@ -47,6 +47,8 @@ export interface FoodLog {
   mealKey: string;
   /** Chosen when logging; null on meals logged before that existed. */
   mealType?: MealType | null;
+  /** A family's own name for the meal, shown instead of its type. */
+  mealName?: string | null;
   eatenAt: string;
   rating: number | null;
   reaction: FoodReaction | null;
@@ -90,11 +92,24 @@ export async function createMeal(data: {
   babyId: number;
   eatenAt: Date;
   mealType?: MealType | null;
+  mealName?: string | null;
   notes?: string | null;
   enteredByName: string;
   items: MealItemInput[];
 }): Promise<FoodLog[]> {
   const res = await apiClient.post<FoodLog[]>("/foods/logs", {
+    ...data,
+    eatenAt: data.eatenAt.toISOString(),
+  });
+  return res.data;
+}
+
+/** Rewrite a logged meal — its name, time, foods and how each went. */
+export async function replaceMeal(
+  mealKey: string,
+  data: Parameters<typeof createMeal>[0]
+): Promise<FoodLog[]> {
+  const res = await apiClient.put<FoodLog[]>(`/foods/logs/meal/${mealKey}`, {
     ...data,
     eatenAt: data.eatenAt.toISOString(),
   });

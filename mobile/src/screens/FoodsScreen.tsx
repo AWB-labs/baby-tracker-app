@@ -25,6 +25,7 @@ import {
 import LogMealSheet, {
   fromCatalog,
   StarRow,
+  type EditingMeal,
   type SelectedFood,
 } from "../components/LogMealSheet";
 import { useBaby } from "../context/BabyContext";
@@ -58,7 +59,7 @@ import {
   groupMeals,
   MEAL_TYPES,
   MEAL_TYPE_META,
-  mealTypeForTime,
+  mealLabel,
   type Meal,
 } from "../lib/foods";
 import { formatRelativeTime, formatDateLabel, formatTime } from "../utils/formatTime";
@@ -97,6 +98,8 @@ export default function FoodsScreen() {
   /** The save / want-to-try sheet: what it's pre-filled with, or null. */
   const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
   const [preselectMealType, setPreselectMealType] = useState<MealType | null>(null);
+  /** A logged meal open for editing in the logger, or null for a new one. */
+  const [editingMeal, setEditingMeal] = useState<EditingMeal | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<FoodItem | null>(null);
   const [showLog, setShowLog] = useState(false);
@@ -227,6 +230,7 @@ export default function FoodsScreen() {
   };
 
   const openLogWith = (pre?: SelectedFood[], mealType?: MealType | null) => {
+    setEditingMeal(null);
     setPreselect(pre);
     setPreselectMealType(mealType ?? null);
     setShowLog(true);
@@ -397,17 +401,26 @@ export default function FoodsScreen() {
                       meal={meal}
                       itemById={itemById}
                       onPressServing={setEditingLog}
-                      onSave={() =>
-                        setPlanDraft({
-                          wantToTry: false,
-                          name: MEAL_TYPE_META[meal.mealType].label,
+                      onEdit={() => {
+                        setEditingMeal({
+                          mealKey: meal.mealKey,
                           mealType: meal.mealType,
-                          foods: meal.logs.map((l) => ({
+                          mealName: meal.mealName,
+                          eatenAt: meal.eatenAt,
+                          selection: meal.logs.map((l) => ({
+                            key: `id:${l.foodItemId}`,
+                            foodItemId: l.foodItemId,
                             name: l.foodItem.name,
-                            emoji: l.foodItem.emoji,
+                            emoji: foodEmoji(l.foodItem.name, l.foodItem.emoji),
+                            category: null,
+                            allergenHint: false,
+                            rating: l.rating,
+                            reaction: l.reaction ?? "none",
+                            reactionNote: l.reactionNote ?? "",
                           })),
-                        })
-                      }
+                        });
+                        setShowLog(true);
+                      }}
                     />
                   </FadeInUp>
                 ))}
@@ -625,7 +638,7 @@ export default function FoodsScreen() {
         }
         subtitle={
           editingLog
-            ? `${MEAL_TYPE_META[editingLog.mealType ?? mealTypeForTime(editingLog.eatenAt)].label} · ${formatDateLabel(editingLog.eatenAt)} · ${formatTime(editingLog.eatenAt)}`
+            ? `${mealLabel(editingLog).label} · ${formatDateLabel(editingLog.eatenAt)} · ${formatTime(editingLog.eatenAt)}`
             : undefined
         }
       >
@@ -682,6 +695,7 @@ export default function FoodsScreen() {
           catalog={items}
           initialSelection={preselect}
           initialMealType={preselectMealType}
+          editing={editingMeal}
           onSaved={() => load()}
         />
       )}
@@ -694,21 +708,22 @@ function MealCard({
   meal,
   itemById,
   onPressServing,
-  onSave,
+  onEdit,
 }: {
   meal: Meal;
   itemById: Map<number, FoodItem>;
   onPressServing: (log: FoodLog) => void;
-  onSave: () => void;
+  onEdit: () => void;
 }) {
+  const name = mealLabel(meal);
   const t = useTheme();
   const count = meal.logs.length;
   return (
     <Card padded={false} style={styles.mealCard}>
       <View style={styles.mealHeader}>
         <View style={styles.rowBody}>
-          <Text variant="title3">
-            {MEAL_TYPE_META[meal.mealType].emoji} {MEAL_TYPE_META[meal.mealType].label}
+          <Text variant="title3" numberOfLines={1}>
+            {name.emoji} {name.label}
           </Text>
           <Text variant="caption" tone="subtle">
             {formatDateLabel(meal.eatenAt)} · {formatTime(meal.eatenAt)} · {count} food
@@ -723,13 +738,13 @@ function MealCard({
           </View>
         )}
         <Pressable
-          onPress={onSave}
+          onPress={onEdit}
           hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
           accessibilityRole="button"
-          accessibilityLabel={`Save this ${MEAL_TYPE_META[meal.mealType].label.toLowerCase()} to log again`}
+          accessibilityLabel={`Edit this ${name.label.toLowerCase()}`}
         >
           <Text variant="subheadStrong" tone="accent">
-            Save
+            Edit
           </Text>
         </Pressable>
       </View>

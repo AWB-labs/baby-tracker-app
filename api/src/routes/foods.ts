@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { Router, Response } from "express";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import prisma from "../lib/prisma";
@@ -65,6 +66,7 @@ const LOG_SELECT = {
   foodItemId: true,
   mealKey: true,
   mealType: true,
+  mealName: true,
   eatenAt: true,
   rating: true,
   reaction: true,
@@ -115,10 +117,87 @@ const createMealSchema = z.object({
   babyId: z.number().int().positive(),
   eatenAt: z.string().datetime({ offset: true }),
   mealType: mealTypeSchema,
+  mealName: z.string().trim().max(40).nullable().optional(),
   notes: z.string().trim().max(500).nullable().optional(),
   enteredByName: z.string().trim().min(1).max(80),
   items: z.array(mealItemSchema).min(1).max(20),
 });
+
+type MealBody = z.infer<typeof createMealSchema>;
+
+/**
+ * Write a meal's servings under one key. Foods given by name that aren't in
+ * the catalogue yet are created on the way, and a serious reaction flags its
+ * food to watch. Shared by logging a meal and editing one, which rewrites
+ * the whole meal under the key it already had.
+ */
+async function writeMeal(
+  tx: Prisma.TransactionClient,
+  body: MealBody,
+  mealKey: string,
+  enteredByName: string
+) {
+  const eatenAt = new Date(body.eatenAt);
+  const rows = [];
+  for (const item of body.items) {
+    let foodItemId = item.foodItemId ?? null;
+
+    if (foodItemId == null) {
+      const name = item.name!;
+      const existing = await tx.foodItem.findFirst({
+        where: { babyId: body.babyId, name: { equals: name, mode: "insensitive" } },
+        select: { id: true },
+      });
+      foodItemId = existing
+        ? existing.id
+        : (
+            await tx.foodItem.create({
+              data: {
+                babyId: body.babyId,
+                name,
+                emoji: item.emoji ?? null,
+                category: item.category ?? null,
+              },
+              select: { id: true },
+            })
+          ).id;
+    } else {
+      const owned = await tx.foodItem.findFirst({
+        where: { id: foodItemId, babyId: body.babyId },
+        select: { id: true },
+      });
+      if (!owned) throw notFound("That food no longer exists.", "gone");
+    }
+
+    const reaction = item.reaction ?? "none";
+    if (ALLERGY_REACTIONS.has(reaction)) {
+      await tx.foodItem.update({
+        where: { id: foodItemId },
+        data: { allergen: true },
+      });
+    }
+
+    rows.push(
+      await tx.foodLog.create({
+        data: {
+          babyId: body.babyId,
+          foodItemId,
+          mealKey,
+          mealType: body.mealName?.trim() ? null : body.mealType ?? null,
+          mealName: body.mealName?.trim() || null,
+          eatenAt,
+          rating: item.rating ?? null,
+          reaction,
+          reactionNote: item.reactionNote ?? null,
+          notes: body.notes ?? null,
+          enteredByName,
+        },
+        select: LOG_SELECT,
+      })
+    );
+  }
+  return rows;
+}
 
 const updateLogSchema = z.object({
   eatenAt: z.string().datetime({ offset: true }).optional(),
@@ -180,71 +259,42 @@ router.post("/logs", authMiddleware, async (req, res: Response): Promise<void> =
   const body = parseOrThrow(createMealSchema, req.body);
   await requireBabyAccess(accountId, body.babyId);
 
-  const eatenAt = new Date(body.eatenAt);
   const mealKey = randomUUID();
-
-  const created = await prisma.$transaction(async (tx) => {
-    const rows = [];
-    for (const item of body.items) {
-      let foodItemId = item.foodItemId ?? null;
-
-      if (foodItemId == null) {
-        const name = item.name!;
-        const existing = await tx.foodItem.findFirst({
-          where: { babyId: body.babyId, name: { equals: name, mode: "insensitive" } },
-          select: { id: true },
-        });
-        foodItemId = existing
-          ? existing.id
-          : (
-              await tx.foodItem.create({
-                data: {
-                  babyId: body.babyId,
-                  name,
-                  emoji: item.emoji ?? null,
-                  category: item.category ?? null,
-                },
-                select: { id: true },
-              })
-            ).id;
-      } else {
-        const owned = await tx.foodItem.findFirst({
-          where: { id: foodItemId, babyId: body.babyId },
-          select: { id: true },
-        });
-        if (!owned) throw notFound("That food no longer exists.", "gone");
-      }
-
-      const reaction = item.reaction ?? "none";
-      if (ALLERGY_REACTIONS.has(reaction)) {
-        await tx.foodItem.update({
-          where: { id: foodItemId },
-          data: { allergen: true },
-        });
-      }
-
-      rows.push(
-        await tx.foodLog.create({
-          data: {
-            babyId: body.babyId,
-            foodItemId,
-            mealKey,
-            mealType: body.mealType ?? null,
-            eatenAt,
-            rating: item.rating ?? null,
-            reaction,
-            reactionNote: item.reactionNote ?? null,
-            notes: body.notes ?? null,
-            enteredByName: body.enteredByName,
-          },
-          select: LOG_SELECT,
-        })
-      );
-    }
-    return rows;
-  });
+  const created = await prisma.$transaction(
+    (tx) => writeMeal(tx, body, mealKey, body.enteredByName),
+    { timeout: 15_000 }
+  );
 
   res.status(201).json(created);
+});
+
+/**
+ * PUT /foods/logs/meal/:mealKey — edit a whole meal: its name or type, when
+ * it was, which foods were in it and how each went. The meal is rewritten
+ * under the same key in one transaction, so it can never be seen half-edited.
+ * Whoever logged it stays its author.
+ */
+router.put("/logs/meal/:mealKey", authMiddleware, async (req, res: Response): Promise<void> => {
+  const { accountId } = req as AuthRequest;
+  const mealKey = String(req.params.mealKey);
+  const body = parseOrThrow(createMealSchema, req.body);
+  await requireBabyAccess(accountId, body.babyId);
+
+  const existing = await prisma.foodLog.findFirst({
+    where: { mealKey, babyId: body.babyId },
+    select: { enteredByName: true },
+  });
+  if (!existing) throw notFound("That meal no longer exists.", "gone");
+
+  const rows = await prisma.$transaction(
+    async (tx) => {
+      await tx.foodLog.deleteMany({ where: { mealKey, babyId: body.babyId } });
+      return writeMeal(tx, body, mealKey, existing.enteredByName);
+    },
+    { timeout: 15_000 }
+  );
+
+  res.json(rows);
 });
 
 // PATCH /foods/logs/:id — re-rate, change the reaction, move the time.

@@ -17,6 +17,8 @@ import TimeField from "./TimeField";
 import { useToast } from "./Toast";
 import {
   createMeal,
+  replaceMeal,
+  createSavedMeal,
   type FoodItem,
   type FoodLog,
   type FoodReaction,
@@ -49,6 +51,15 @@ export interface SelectedFood {
   reactionNote: string;
 }
 
+/** A logged meal opened for editing — everything the sheet starts from. */
+export interface EditingMeal {
+  mealKey: string;
+  mealType: MealType;
+  mealName: string | null;
+  eatenAt: string;
+  selection: SelectedFood[];
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -60,6 +71,8 @@ interface Props {
   initialSelection?: SelectedFood[];
   /** Pre-pick the meal (e.g. logging a saved breakfast). */
   initialMealType?: MealType | null;
+  /** Edit an existing meal instead of logging a new one. */
+  editing?: EditingMeal | null;
   onSaved: (logs: FoodLog[]) => void;
 }
 
@@ -111,6 +124,7 @@ export default function LogMealSheet({
   catalog,
   initialSelection,
   initialMealType,
+  editing,
   onSaved,
 }: Props) {
   const t = useTheme();
@@ -120,6 +134,10 @@ export default function LogMealSheet({
   const [selected, setSelected] = useState<SelectedFood[]>([]);
   const [eatenAt, setEatenAt] = useState(new Date());
   const [mealType, setMealType] = useState<MealType>(() => mealTypeForTime(new Date()));
+  /** Null for the four standard meals; the family's own name otherwise. */
+  const [customName, setCustomName] = useState<string | null>(null);
+  /** Also keep this meal in Saved meals, to log again in one tap. */
+  const [keep, setKeep] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Reset on every open — a meal is a fresh thought each time.
@@ -127,12 +145,24 @@ export default function LogMealSheet({
     if (visible) {
       const now = new Date();
       setQuery("");
+      setKeep(false);
+      if (editing) {
+        setSelected(editing.selection);
+        setEatenAt(new Date(editing.eatenAt));
+        setMealType(editing.mealType);
+        setCustomName(editing.mealName);
+        return;
+      }
       setSelected(initialSelection ?? []);
       setEatenAt(now);
       // A guess from the clock, there to be changed in one tap.
       setMealType(initialMealType ?? mealTypeForTime(now));
+      setCustomName(null);
     }
-  }, [visible, initialSelection, initialMealType]);
+  }, [visible, initialSelection, initialMealType, editing]);
+
+  const custom = customName != null;
+  const mealDisplay = custom ? customName.trim() || "Meal" : MEAL_TYPE_META[mealType].label;
 
   const triedNames = useMemo(
     () => new Set(catalog.map((c) => c.name.toLowerCase())),
@@ -203,12 +233,17 @@ export default function LogMealSheet({
 
   const handleSave = async () => {
     if (selected.length === 0 || saving) return;
+    if (custom && !customName.trim()) {
+      toast.error("Give the meal a name.");
+      return;
+    }
     setSaving(true);
     try {
-      const logs = await createMeal({
+      const payload = {
         babyId,
         eatenAt,
-        mealType,
+        mealType: custom ? null : mealType,
+        mealName: custom ? customName.trim() : null,
         enteredByName,
         items: selected.map((s) => ({
           ...(s.foodItemId != null ? { foodItemId: s.foodItemId } : { name: s.name }),
@@ -218,12 +253,28 @@ export default function LogMealSheet({
           reaction: s.reaction,
           reactionNote: s.reaction === "none" ? null : s.reactionNote.trim() || null,
         })),
-      });
+      };
+      const logs = editing
+        ? await replaceMeal(editing.mealKey, payload)
+        : await createMeal(payload);
+      if (keep) {
+        try {
+          await createSavedMeal({
+            babyId,
+            name: mealDisplay,
+            mealType: custom ? null : mealType,
+            foods: selected.map((s) => ({ name: s.name, emoji: s.emoji })),
+          });
+        } catch {
+          // The meal itself is logged either way.
+          toast.error("Logged, but couldn't keep it in Saved meals.");
+        }
+      }
       const reacted = selected.filter((s) => ALLERGY_REACTIONS.has(s.reaction));
       toast.success(
         reacted.length > 0
           ? `Meal saved. ${reacted.map((r) => r.name).join(", ")} flagged to watch.`
-          : `${MEAL_TYPE_META[mealType].label} saved: ${selected.map((s) => s.name).join(" + ")}.`
+          : `${mealDisplay} ${editing ? "updated" : "saved"}: ${selected.map((s) => s.name).join(" + ")}.`
       );
       onSaved(logs);
       onClose();
@@ -238,13 +289,19 @@ export default function LogMealSheet({
     <Sheet
       visible={visible}
       onClose={onClose}
-      title="Log a meal"
+      title={editing ? "Edit meal" : "Log a meal"}
       subtitle="Which meal, what she ate, and how it went."
       footer={
         <View style={styles.footer}>
           <Button label="Cancel" variant="ghost" onPress={onClose} style={styles.flex} />
           <Button
-            label={selected.length > 1 ? `Save ${selected.length} foods` : "Save meal"}
+            label={
+              editing
+                ? "Save changes"
+                : selected.length > 1
+                  ? `Save ${selected.length} foods`
+                  : "Save meal"
+            }
             variant="primary"
             loading={saving}
             disabled={selected.length === 0}
@@ -263,11 +320,30 @@ export default function LogMealSheet({
                 key={m.value}
                 label={m.label}
                 emoji={m.emoji}
-                selected={mealType === m.value}
-                onPress={() => setMealType(m.value)}
+                selected={!custom && mealType === m.value}
+                onPress={() => {
+                  setMealType(m.value);
+                  setCustomName(null);
+                }}
               />
             ))}
+            <Chip
+              label="Custom"
+              emoji="✏️"
+              selected={custom}
+              onPress={() => setCustomName((n) => n ?? "")}
+            />
           </ChipWrap>
+          {custom && (
+            <Input
+              label="Meal name"
+              value={customName}
+              onChangeText={setCustomName}
+              placeholder="Picnic, at Grandma's, second breakfast…"
+              autoCapitalize="sentences"
+              returnKeyType="done"
+            />
+          )}
         </Field>
 
         {/* What was eaten — the meal being built sits above the picker so it
@@ -289,7 +365,7 @@ export default function LogMealSheet({
         <Input
           label={
             selected.length === 0
-              ? `What was in ${MEAL_TYPE_META[mealType].label.toLowerCase()}?`
+              ? `What was in ${custom ? "the meal" : mealDisplay.toLowerCase()}?`
               : "Add another"
           }
           value={query}
@@ -415,6 +491,37 @@ export default function LogMealSheet({
         {selected.length > 0 && (
           <TimeField label="Eaten at" value={eatenAt} onChange={setEatenAt} />
         )}
+
+        {selected.length > 0 && (
+          <Pressable
+            onPress={() => setKeep((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: keep }}
+            accessibilityLabel="Also keep this meal in Saved meals"
+            style={({ pressed }) => [
+              styles.keepRow,
+              { borderColor: t.border, opacity: pressed ? PRESSED_OPACITY : 1 },
+            ]}
+          >
+            <View
+              style={[
+                styles.keepBox,
+                {
+                  backgroundColor: keep ? t.accent : "transparent",
+                  borderColor: keep ? t.accent : t.borderStrong,
+                },
+              ]}
+            >
+              {keep && <Icon name="check" size="xs" color={t.onAccent} strokeWidth={3} />}
+            </View>
+            <View style={styles.flex}>
+              <Text variant="subheadStrong">Keep in Saved meals</Text>
+              <Text variant="caption" tone="subtle">
+                Log it again later in one tap.
+              </Text>
+            </View>
+          </Pressable>
+        )}
       </View>
     </Sheet>
   );
@@ -470,6 +577,22 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   form: { gap: space.lg },
   footer: { flexDirection: "row", gap: space.sm },
+  keepRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  keepBox: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   addRow: {
     flexDirection: "row",
     alignItems: "center",
