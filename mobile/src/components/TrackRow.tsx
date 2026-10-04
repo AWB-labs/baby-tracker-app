@@ -882,10 +882,21 @@ export default function TrackRow({
             <Text variant="caption" tone="subtle" numberOfLines={1}>
               Currently {GERUND[type]} · by {lockedByOther.enteredByName}
             </Text>
+            <Text variant="caption" tone="subtle" tabular numberOfLines={1}>
+              since {formatTime(lockedByOther.startTime)}
+            </Text>
           </View>
         </View>
 
-        <Badge tone="success">Running</Badge>
+        {/* How long it's been going, live — "sleep running by Sara" says
+            who, this says for how long without opening anything. */}
+        <View style={styles.lockedClock}>
+          <LiveElapsed
+            since={lockedByOther.startTime}
+            style={{ color: tone.text }}
+          />
+          <Badge tone="success">Running</Badge>
+        </View>
       </Card>
     );
   }
@@ -995,6 +1006,37 @@ export default function TrackRow({
         onSaveSession={saveSession}
       />
     </>
+  );
+}
+
+/**
+ * A running clock counted from `since`, ticking on its own. The row it sits
+ * in has no local timer to re-render it — the session belongs to another
+ * caregiver's device — so this keeps its own one-second interval.
+ */
+function LiveElapsed({
+  since,
+  style,
+}: {
+  since: string;
+  style?: React.ComponentProps<typeof Text>["style"];
+}) {
+  const start = new Date(since).getTime();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const seconds = Math.max(0, Math.floor((now - start) / 1000));
+  return (
+    <Text
+      variant="title3"
+      tabular
+      style={style}
+      accessibilityLabel={`Running for ${Math.floor(seconds / 60)} minutes`}
+    >
+      {formatTimer(seconds)}
+    </Text>
   );
 }
 
@@ -1397,6 +1439,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 2,
   },
+  lockedClock: { alignItems: "flex-end", gap: space.xxs },
   adjustRow: {
     flexDirection: "row",
     alignItems: "center",
